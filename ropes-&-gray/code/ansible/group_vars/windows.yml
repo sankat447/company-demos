@@ -1,29 +1,42 @@
 ---
 # ansible/group_vars/windows.yml
-# Sensitive values should come from AAP vault credentials, NOT plaintext here.
-# These are defaults for local testing only.
+# Sensitive values injected at runtime via AAP vault credentials.
+# Defaults here are for local testing only.
 
-# WinRM auth – override with AAP Machine credential in production
-ansible_password: "{{ vault_windows_password | default('DemoP@ssw0rd2024!') }}"
+# WinRM – override with AAP Machine credential in production
+ansible_password: "{{ vault_windows_password | default(lookup('env','WIN_PASS') | default('DemoP@ssw0rd2024!')) }}"
 
-# Jira integration
-jira_base_url: "https://yourco.atlassian.net"
+# Jira – injected by the Jira API Token custom credential
+jira_base_url:   "{{ jira_base_url | default('https://yoursite.atlassian.net') }}"
 jira_project_key: "CHG"
-jira_api_token: "{{ vault_jira_api_token }}"     # Store in AAP vault credential
-jira_user_email: "ansible-svc@yourco.com"
+jira_api_token:  "{{ jira_api_token | default('') }}"
+jira_user_email: "{{ jira_user_email | default('') }}"
 
-# Azure Update Manager API
-azure_subscription_id: "{{ vault_azure_subscription_id }}"
-azure_resource_group: "rg-hybrid-patch-demo"
+# Jira status transitions (must match your workflow status names exactly)
+jira_status_pending_qa:          "Pending QA"
+jira_status_rollback_requested:  "Rollback Requested"
+jira_status_resolved:            "Resolved"
 
-# Patch behaviour defaults
-patch_reboot_timeout: 900          # seconds to wait for reboot
-patch_category: "SecurityUpdates"  # Can also include: CriticalUpdates
-patch_max_concurrency: "10%"       # serial value for production runs
+# Azure
+azure_subscription_id: "{{ vault_azure_subscription_id | default(lookup('env','TF_VAR_azure_subscription_id') | default('')) }}"
+azure_resource_group:  "rg-patch-demo"
+azure_location:        "uksouth"
 
-# Snapshot config (Azure-specific)
+# Azure Update Manager – query for approved KBs
+aum_query_enabled: true
+
+# Patch settings
+patch_reboot_timeout:    900
+patch_category:          "SecurityUpdates"
+patch_max_concurrency:   1       # Single target in demo; increase for production
+
+# Snapshot
 azure_snapshot_enabled: true
-azure_snapshot_prefix: "pre-patch"
+azure_snapshot_prefix:  "pre-patch"
 
 # Rollback
 rollback_on_failure: true
+
+# Risk thresholds
+risk_uptime_warning_days: 60    # Flag if VM uptime > 60 days before patching
+risk_pending_updates_warn: 20   # Flag if > 20 pending updates

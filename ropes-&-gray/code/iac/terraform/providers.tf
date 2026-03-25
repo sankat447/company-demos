@@ -14,21 +14,32 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 }
 
+# AWS provider – auth from deploy.sh env vars (SSO profile or static keys)
 provider "aws" {
   region = var.aws_region
-  # Auth resolved from environment:
-  #   AWS_PROFILE + SSO  (recommended, set by deploy.sh)
-  #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (static keys)
 }
 
+# Azure provider – auth from deploy.sh env vars (az login or ARM_ vars)
 provider "azurerm" {
-  features {}
-  # Auth resolved from environment:
-  #   az login session  (ARM_SUBSCRIPTION_ID set by deploy.sh)
-  #   ARM_* env vars for service principal
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+    virtual_machine {
+      delete_os_disk_on_deletion     = true
+      graceful_shutdown              = false
+      skip_shutdown_and_force_delete = false
+    }
+  }
+  subscription_id = var.azure_subscription_id
 }
 
 provider "random" {}
+provider "tls" {}

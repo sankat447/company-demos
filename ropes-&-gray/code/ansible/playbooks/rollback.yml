@@ -1,19 +1,9 @@
 ---
 # ansible/playbooks/rollback.yml
-# Standalone rollback playbook – triggered by AAP workflow on_failure edge
-# or run manually when post_change_verify fails.
-#
-# Required extra_vars (passed from failed patch_workflow job):
-#   jira_ticket_id       : Jira ticket to update
-#   target_hosts         : inventory group or host
-#   newly_installed_kbs  : list of KBs applied in failed run
-
-- name: "ROLLBACK | Uninstall patches and restore state"
+# Triggered by AAP workflow on_failure edge OR EDA "Rollback Requested" rule.
+- name: "Rollback | Uninstall patches and restore state"
   hosts: "{{ target_hosts | default('windows') }}"
-  serial: 1                # Roll back one host at a time
+  serial: 1
   gather_facts: true
-  vars:
-    jira_ticket_id: "{{ jira_ticket_id | default('') }}"
-
   roles:
-    - role: rollback_patch
+    - rollback_patch

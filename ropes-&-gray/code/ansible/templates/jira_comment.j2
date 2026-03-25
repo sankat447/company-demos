@@ -1,50 +1,84 @@
-{# templates/jira_comment.j2 #}
-{# Rendered by post_change_verify role and POSTed to Jira ticket. #}
-=== Ansible Patch Run Report ===
-Host       : {{ inventory_hostname }}
-Cloud      : {{ cloud_provider | upper }}
-Ticket     : {{ jira_ticket_id | default('N/A') }}
-Started    : {{ pre_change_state.timestamp }}
-Completed  : {{ post_change_state.timestamp }}
-Verdict    : {{ post_change_state.verdict }}
+{# ansible/templates/jira_comment.j2 #}
+{# Posted to Jira ticket by post_change_verify role via REST API #}
+════════════════════════════════════════════════════
+ ANSIBLE PATCH RUN REPORT
+════════════════════════════════════════════════════
+Ticket    : {{ jira_ticket_id | default('N/A') }}
+Host      : {{ inventory_hostname }}  ({{ ansible_host }})
+Cloud     : {{ cloud_provider | upper }}
+Risk level: {{ risk_level | default('Medium') }}
+Started   : {{ pre_change_state.timestamp }}
+Completed : {{ post_change_state.timestamp }}
+Verdict   : {{ post_change_state.verdict }}
+AAP Job   : {{ aap_job_url | default('N/A') }}
 
---- PRE-CHANGE STATE ---
-KBs installed before : {{ pre_change_state.installed_kbs | length }}
+────────────────────────────────────────────────────
+ PRE-CHANGE STATE
+────────────────────────────────────────────────────
+KBs installed before : {{ pre_change_state.kb_count }}
 Last boot            : {{ pre_change_state.last_boot }}
 Uptime (days)        : {{ pre_change_state.uptime_days }}
 Pending reboot before: {{ pre_change_state.pending_reboot }}
-Snapshot taken       : {{ pre_change_state.snapshot_taken }}
-{% if pre_change_state.snapshot_name %}
-Snapshot name        : {{ pre_change_state.snapshot_name }}
+AUM pending updates  : {{ pre_change_state.aum_pending }}
+{% if pre_change_state.risk_flags %}
+Pre-change risk flags:
+{% for flag in pre_change_state.risk_flags %}
+  [!] {{ flag }}
+{% endfor %}
+{% else %}
+Pre-change risk flags: none
 {% endif %}
-Pre-change risk flags: {{ pre_change_state.risk_flags | join(', ') | default('none') }}
 
---- PATCH EXECUTION ---
-Updates installed    : {{ newly_installed_kbs | length }}
+────────────────────────────────────────────────────
+ PATCH EXECUTION
+────────────────────────────────────────────────────
+Dry run mode  : {{ dry_run | default(false) }}
+Updates applied: {{ newly_installed_kbs | length }}
 {% if newly_installed_kbs %}
-KBs applied:
+KBs installed this run:
 {% for kb in newly_installed_kbs %}
-  - {{ kb }}
+  + {{ kb }}
 {% endfor %}
 {% else %}
   (no new updates applied)
 {% endif %}
-Reboot was required  : {{ patch_reboot_required | default('unknown') }}
+Reboot required: {{ patch_reboot_required | default('N/A') }}
+Rebooted       : {{ reboot_result.rebooted | default(false) }}
 
---- POST-CHANGE STATE ---
+────────────────────────────────────────────────────
+ POST-CHANGE STATE
+────────────────────────────────────────────────────
 KBs installed after  : {{ post_change_state.installed_kbs_count }}
-KB diff (net new)    : {{ post_change_state.kb_diff_added | join(', ') | default('none') }}
+Net new KBs this run : {{ post_change_state.kb_diff_added | join(', ') | default('none') }}
 Pending reboot after : {{ post_change_state.pending_reboot }}
-Critical services OK : {{ 'YES' if not post_change_state.stopped_services else 'NO – ' + post_change_state.stopped_services | join(', ') }}
-
-{% if post_change_state.risk_flags %}
-⚠ RISK FLAGS:
-{% for flag in post_change_state.risk_flags %}
-  - {{ flag }}
+{% if post_change_state.stopped_services %}
+Stopped services     :
+{% for svc in post_change_state.stopped_services %}
+  [WARN] {{ svc }}
 {% endfor %}
 {% else %}
-✓ No risk flags detected.
+Critical services    : all running
 {% endif %}
 
---- AAP JOB LINK ---
-{{ aap_job_url | default('N/A') }}
+{% if post_change_state.risk_flags %}
+────────────────────────────────────────────────────
+ RISK FLAGS  [ACTION REQUIRED]
+────────────────────────────────────────────────────
+{% for flag in post_change_state.risk_flags %}
+  [!] {{ flag }}
+{% endfor %}
+{% else %}
+ No risk flags detected.
+{% endif %}
+
+────────────────────────────────────────────────────
+ NEXT ACTION
+────────────────────────────────────────────────────
+{% if post_change_state.verdict == 'PASS' %}
+Ticket transitioned to: Pending QA
+QA engineer: please review this report and transition to Resolved if satisfied.
+{% else %}
+Verdict is FAIL. Rollback has been triggered automatically.
+QA engineer: review rollback comment below and confirm state.
+{% endif %}
+════════════════════════════════════════════════════

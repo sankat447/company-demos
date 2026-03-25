@@ -1,20 +1,30 @@
 ---
 # ansible/playbooks/test_winrm.yml
-# Quick connectivity and credential test – run this before the demo.
-
-- name: "CONNECTIVITY TEST | Verify WinRM reachability"
+# Pre-demo connectivity check. Run this before every demo session.
+# Expected: all hosts return SUCCESS.
+- name: "WinRM connectivity test"
   hosts: "{{ target_hosts | default('windows') }}"
   gather_facts: false
-
   tasks:
-    - name: "TEST | WinRM ping"
+    - name: "Ping via WinRM"
       ansible.windows.win_ping:
 
-    - name: "TEST | Get OS version"
-      ansible.windows.win_shell: |
-        [System.Environment]::OSVersion.VersionString
+    - name: "OS version"
+      ansible.windows.win_shell: "[System.Environment]::OSVersion.VersionString"
       register: os_ver
+      changed_when: false
 
-    - name: "TEST | Report"
+    - name: "Disk space"
+      ansible.windows.win_shell: |
+        Get-PSDrive C | Select-Object Used, Free |
+        ForEach-Object { "Used: $([math]::Round($_.Used/1GB,1))GB  Free: $([math]::Round($_.Free/1GB,1))GB" }
+      register: disk_info
+      changed_when: false
+
+    - name: "Report"
       ansible.builtin.debug:
-        msg: "{{ inventory_hostname }} ({{ ansible_host }}) is reachable. OS: {{ os_ver.stdout | trim }}"
+        msg:
+          - "Host   : {{ inventory_hostname }} ({{ ansible_host }})"
+          - "OS     : {{ os_ver.stdout | trim }}"
+          - "Disk   : {{ disk_info.stdout | trim }}"
+          - "Status : READY"
