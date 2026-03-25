@@ -1,0 +1,36 @@
+---
+# ansible/inventory/demo_hosts.yml
+# FILL IN the IPs from: terraform -chdir=iac/terraform output
+
+all:
+  children:
+
+    windows:
+      children:
+
+        windows_azure:
+          hosts:
+            win-azure-01:
+              ansible_host: "REPLACE_WITH_AZURE_PUBLIC_IP"
+              ansible_user: demoAdmin
+              cloud_provider: azure
+              patch_group: security_updates
+              jira_ticket: ""           # Populated by AAP extra_vars at runtime
+
+        windows_aws:
+          hosts:
+            win-aws-01:
+              ansible_host: "REPLACE_WITH_AWS_PUBLIC_IP"
+              ansible_user: demoAdmin
+              cloud_provider: aws
+              patch_group: security_updates
+              jira_ticket: ""
+
+      vars:
+        ansible_connection: winrm
+        ansible_winrm_transport: basic
+        ansible_winrm_scheme: https
+        ansible_winrm_port: 5986
+        ansible_winrm_server_cert_validation: ignore   # Self-signed cert (demo)
+        ansible_winrm_operation_timeout_sec: 120
+        ansible_winrm_read_timeout_sec: 150

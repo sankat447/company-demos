@@ -1,0 +1,43 @@
+---
+# ansible/playbooks/patch_workflow.yml
+# Master workflow: pre-check → patch → verify → (rollback on failure)
+# Called by AAP workflow template. Accepts extra_vars from Jira webhook.
+#
+# Required extra_vars (set by AAP survey or Jira webhook):
+#   jira_ticket_id   : e.g. CHG-1042
+#   target_hosts     : e.g. windows_azure  (inventory group or hostname)
+#   dry_run          : true/false  (check mode – no actual changes)
+#   patch_window     : optional override for maintenance window label
+
+- name: "PHASE 1 | Pre-change snapshot and state capture"
+  hosts: "{{ target_hosts | default('windows') }}"
+  serial: "{{ patch_max_concurrency | default('10%') }}"
+  gather_facts: true
+  vars:
+    jira_ticket_id: "{{ jira_ticket_id | default('') }}"
+    dry_run: "{{ dry_run | default(false) | bool }}"
+
+  roles:
+    - role: pre_change_snapshot
+
+- name: "PHASE 2 | Apply Windows security updates"
+  hosts: "{{ target_hosts | default('windows') }}"
+  serial: "{{ patch_max_concurrency | default('10%') }}"
+  gather_facts: false
+  vars:
+    jira_ticket_id: "{{ jira_ticket_id | default('') }}"
+    dry_run: "{{ dry_run | default(false) | bool }}"
+
+  roles:
+    - role: patch_windows_security_updates
+
+- name: "PHASE 3 | Post-change verification and Jira update"
+  hosts: "{{ target_hosts | default('windows') }}"
+  serial: "{{ patch_max_concurrency | default('10%') }}"
+  gather_facts: true
+  vars:
+    jira_ticket_id: "{{ jira_ticket_id | default('') }}"
+    dry_run: "{{ dry_run | default(false) | bool }}"
+
+  roles:
+    - role: post_change_verify

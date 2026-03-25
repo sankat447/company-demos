@@ -1,0 +1,29 @@
+---
+# ansible/group_vars/windows.yml
+# Sensitive values should come from AAP vault credentials, NOT plaintext here.
+# These are defaults for local testing only.
+
+# WinRM auth – override with AAP Machine credential in production
+ansible_password: "{{ vault_windows_password | default('DemoP@ssw0rd2024!') }}"
+
+# Jira integration
+jira_base_url: "https://yourco.atlassian.net"
+jira_project_key: "CHG"
+jira_api_token: "{{ vault_jira_api_token }}"     # Store in AAP vault credential
+jira_user_email: "ansible-svc@yourco.com"
+
+# Azure Update Manager API
+azure_subscription_id: "{{ vault_azure_subscription_id }}"
+azure_resource_group: "rg-hybrid-patch-demo"
+
+# Patch behaviour defaults
+patch_reboot_timeout: 900          # seconds to wait for reboot
+patch_category: "SecurityUpdates"  # Can also include: CriticalUpdates
+patch_max_concurrency: "10%"       # serial value for production runs
+
+# Snapshot config (Azure-specific)
+azure_snapshot_enabled: true
+azure_snapshot_prefix: "pre-patch"
+
+# Rollback
+rollback_on_failure: true

@@ -1,0 +1,50 @@
+{# templates/jira_comment.j2 #}
+{# Rendered by post_change_verify role and POSTed to Jira ticket. #}
+=== Ansible Patch Run Report ===
+Host       : {{ inventory_hostname }}
+Cloud      : {{ cloud_provider | upper }}
+Ticket     : {{ jira_ticket_id | default('N/A') }}
+Started    : {{ pre_change_state.timestamp }}
+Completed  : {{ post_change_state.timestamp }}
+Verdict    : {{ post_change_state.verdict }}
+
+--- PRE-CHANGE STATE ---
+KBs installed before : {{ pre_change_state.installed_kbs | length }}
+Last boot            : {{ pre_change_state.last_boot }}
+Uptime (days)        : {{ pre_change_state.uptime_days }}
+Pending reboot before: {{ pre_change_state.pending_reboot }}
+Snapshot taken       : {{ pre_change_state.snapshot_taken }}
+{% if pre_change_state.snapshot_name %}
+Snapshot name        : {{ pre_change_state.snapshot_name }}
+{% endif %}
+Pre-change risk flags: {{ pre_change_state.risk_flags | join(', ') | default('none') }}
+
+--- PATCH EXECUTION ---
+Updates installed    : {{ newly_installed_kbs | length }}
+{% if newly_installed_kbs %}
+KBs applied:
+{% for kb in newly_installed_kbs %}
+  - {{ kb }}
+{% endfor %}
+{% else %}
+  (no new updates applied)
+{% endif %}
+Reboot was required  : {{ patch_reboot_required | default('unknown') }}
+
+--- POST-CHANGE STATE ---
+KBs installed after  : {{ post_change_state.installed_kbs_count }}
+KB diff (net new)    : {{ post_change_state.kb_diff_added | join(', ') | default('none') }}
+Pending reboot after : {{ post_change_state.pending_reboot }}
+Critical services OK : {{ 'YES' if not post_change_state.stopped_services else 'NO – ' + post_change_state.stopped_services | join(', ') }}
+
+{% if post_change_state.risk_flags %}
+⚠ RISK FLAGS:
+{% for flag in post_change_state.risk_flags %}
+  - {{ flag }}
+{% endfor %}
+{% else %}
+✓ No risk flags detected.
+{% endif %}
+
+--- AAP JOB LINK ---
+{{ aap_job_url | default('N/A') }}

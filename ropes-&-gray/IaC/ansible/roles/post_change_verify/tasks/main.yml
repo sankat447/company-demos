@@ -1,0 +1,130 @@
+---
+# roles/post_change_verify/tasks/main.yml
+# Verifies system health post-patch, computes KB diff, renders Jira comment.
+
+- name: "VERIFY | Record post-patch timestamp"
+  ansible.builtin.set_fact:
+    post_check_timestamp: "{{ ansible_date_time.iso8601 }}"
+
+- name: "VERIFY | Get installed KBs after patching"
+  ansible.windows.win_shell: |
+    Get-HotFix | Select-Object HotFixID, InstalledOn, Description |
+    ConvertTo-Json -Depth 3
+  register: post_hotfix_raw
+  changed_when: false
+
+- name: "VERIFY | Parse post-patch KB list"
+  ansible.builtin.set_fact:
+    post_installed_kbs: "{{ post_hotfix_raw.stdout | from_json }}"
+
+- name: "VERIFY | Compute KB diff (net new)"
+  ansible.builtin.set_fact:
+    kb_diff_added: >-
+      {{
+        post_installed_kbs | map(attribute='HotFixID') | list |
+        difference(pre_change_state.installed_kbs | map(attribute='HotFixID') | list)
+      }}
+
+- name: "VERIFY | Check critical services are running"
+  ansible.windows.win_service_info:
+    name: "{{ item }}"
+  loop:
+    - wuauserv
+    - W32Time
+    - EventLog
+    - LanmanServer    # File sharing / SMB
+  register: post_service_check
+  ignore_errors: true
+
+- name: "VERIFY | Identify stopped critical services"
+  ansible.builtin.set_fact:
+    stopped_critical_services: >-
+      {{
+        post_service_check.results |
+        selectattr('services', 'defined') |
+        map(attribute='services') | flatten |
+        selectattr('state', 'equalto', 'stopped') |
+        map(attribute='name') | list
+      }}
+
+- name: "VERIFY | Check for remaining pending reboot"
+  ansible.windows.win_shell: |
+    $pending = $false
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') {
+      $pending = $true
+    }
+    [PSCustomObject]@{ PendingReboot = $pending } | ConvertTo-Json
+  register: post_reboot_raw
+  changed_when: false
+
+- name: "VERIFY | Parse post-patch reboot state"
+  ansible.builtin.set_fact:
+    post_pending_reboot: "{{ (post_reboot_raw.stdout | from_json).PendingReboot }}"
+
+- name: "VERIFY | Build post-change risk flags"
+  ansible.builtin.set_fact:
+    post_risk_flags: >-
+      {{
+        (['STOPPED_SERVICES: ' + stopped_critical_services | join(',')] if stopped_critical_services else []) +
+        (['PENDING_REBOOT_AFTER_PATCH'] if post_pending_reboot else [])
+      }}
+
+- name: "VERIFY | Build verify summary fact"
+  ansible.builtin.set_fact:
+    post_change_state:
+      timestamp: "{{ post_check_timestamp }}"
+      installed_kbs_count: "{{ post_installed_kbs | length }}"
+      kb_diff_added: "{{ kb_diff_added }}"
+      stopped_services: "{{ stopped_critical_services }}"
+      pending_reboot: "{{ post_pending_reboot }}"
+      risk_flags: "{{ post_risk_flags }}"
+      verdict: "{{ 'FAIL' if (stopped_critical_services or post_risk_flags) else 'PASS' }}"
+
+- name: "VERIFY | Render Jira comment from template"
+  ansible.builtin.template:
+    src: jira_comment.j2
+    dest: "/tmp/jira_comment_{{ inventory_hostname }}.txt"
+  delegate_to: localhost
+
+- name: "VERIFY | Read rendered comment"
+  ansible.builtin.slurp:
+    src: "/tmp/jira_comment_{{ inventory_hostname }}.txt"
+  register: jira_comment_encoded
+  delegate_to: localhost
+
+- name: "VERIFY | Post comment to Jira ticket"
+  when: jira_ticket_id is defined and jira_ticket_id != ''
+  ansible.builtin.uri:
+    url: "{{ jira_base_url }}/rest/api/3/issue/{{ jira_ticket_id }}/comment"
+    method: POST
+    headers:
+      Authorization: "Basic {{ (jira_user_email + ':' + jira_api_token) | b64encode }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      body:
+        type: "doc"
+        version: 1
+        content:
+          - type: "paragraph"
+            content:
+              - type: "text"
+                text: "{{ jira_comment_encoded.content | b64decode }}"
+    status_code: [201]
+  delegate_to: localhost
+
+- name: "VERIFY | Fail playbook if post-change verdict is FAIL"
+  ansible.builtin.fail:
+    msg: |
+      Post-change verification FAILED for {{ inventory_hostname }}.
+      Risk flags: {{ post_risk_flags | join(', ') }}
+      Stopped services: {{ stopped_critical_services | join(', ') | default('none') }}
+  when: post_change_state.verdict == 'FAIL' and rollback_on_failure | default(true) | bool
+
+- name: "VERIFY | Display result"
+  ansible.builtin.debug:
+    msg: |
+      Post-change verify for {{ inventory_hostname }}: {{ post_change_state.verdict }}
+        KBs added    : {{ kb_diff_added | join(', ') | default('none') }}
+        Risk flags   : {{ post_risk_flags | join(', ') | default('none') }}
+        Jira updated : {{ jira_ticket_id | default('N/A') }}

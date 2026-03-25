@@ -1,0 +1,112 @@
+---
+# roles/pre_change_snapshot/tasks/main.yml
+# Records system state before patching: installed KBs, uptime, services,
+# and optionally triggers an Azure VM disk snapshot.
+
+- name: "PRE-CHECK | Record timestamp"
+  ansible.builtin.set_fact:
+    pre_check_timestamp: "{{ ansible_date_time.iso8601 }}"
+
+- name: "PRE-CHECK | Gather installed hotfixes (KB list)"
+  ansible.windows.win_shell: |
+    Get-HotFix | Select-Object HotFixID, InstalledOn, Description |
+    ConvertTo-Json -Depth 3
+  register: pre_hotfix_raw
+  changed_when: false
+
+- name: "PRE-CHECK | Parse KB list"
+  ansible.builtin.set_fact:
+    pre_installed_kbs: "{{ pre_hotfix_raw.stdout | from_json }}"
+
+- name: "PRE-CHECK | Check pending reboot state"
+  ansible.windows.win_shell: |
+    $pending = $false
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') {
+      $pending = $true
+    }
+    if (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations') {
+      $pending = $true
+    }
+    [PSCustomObject]@{ PendingReboot = $pending } | ConvertTo-Json
+  register: pre_reboot_raw
+  changed_when: false
+
+- name: "PRE-CHECK | Parse pending reboot"
+  ansible.builtin.set_fact:
+    pre_pending_reboot: "{{ (pre_reboot_raw.stdout | from_json).PendingReboot }}"
+
+- name: "PRE-CHECK | Get last boot time and uptime"
+  ansible.windows.win_shell: |
+    $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+    $uptime = (New-TimeSpan -Start $boot -End (Get-Date)).Days
+    [PSCustomObject]@{ LastBoot = $boot.ToString('s'); UptimeDays = $uptime } | ConvertTo-Json
+  register: pre_boot_raw
+  changed_when: false
+
+- name: "PRE-CHECK | Parse uptime"
+  ansible.builtin.set_fact:
+    pre_last_boot: "{{ (pre_boot_raw.stdout | from_json).LastBoot }}"
+    pre_uptime_days: "{{ (pre_boot_raw.stdout | from_json).UptimeDays }}"
+
+- name: "PRE-CHECK | Check critical service states"
+  ansible.windows.win_service_info:
+    name: "{{ item }}"
+  loop:
+    - wuauserv          # Windows Update
+    - W32Time           # Time sync
+    - EventLog
+  register: pre_service_states
+  ignore_errors: true
+
+- name: "PRE-CHECK | Set risk flags"
+  ansible.builtin.set_fact:
+    pre_risk_flags: >-
+      {{
+        (['PENDING_REBOOT'] if pre_pending_reboot else []) +
+        (['HIGH_UPTIME_' + pre_uptime_days | string + 'd'] if (pre_uptime_days | int) > 60 else [])
+      }}
+
+# ── Azure snapshot (only when running against Azure-hosted VMs) ───────────────
+- name: "PRE-CHECK | Create Azure disk snapshot"
+  when:
+    - cloud_provider == 'azure'
+    - azure_snapshot_enabled | default(false) | bool
+  block:
+    - name: "PRE-CHECK | Get VM disk info from Azure"
+      ansible.builtin.uri:
+        url: >-
+          https://management.azure.com/subscriptions/{{ azure_subscription_id }}/
+          resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/
+          virtualMachines/{{ inventory_hostname }}?api-version=2024-03-01
+        method: GET
+        headers:
+          Authorization: "Bearer {{ azure_access_token }}"
+        return_content: true
+      register: az_vm_info
+      delegate_to: localhost
+
+    - name: "PRE-CHECK | Record snapshot taken"
+      ansible.builtin.set_fact:
+        azure_snapshot_taken: true
+        azure_snapshot_name: "{{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}"
+
+- name: "PRE-CHECK | Store pre-change state as combined fact"
+  ansible.builtin.set_fact:
+    pre_change_state:
+      timestamp: "{{ pre_check_timestamp }}"
+      installed_kbs: "{{ pre_installed_kbs }}"
+      pending_reboot: "{{ pre_pending_reboot }}"
+      last_boot: "{{ pre_last_boot }}"
+      uptime_days: "{{ pre_uptime_days }}"
+      risk_flags: "{{ pre_risk_flags }}"
+      snapshot_taken: "{{ azure_snapshot_taken | default(false) }}"
+      snapshot_name: "{{ azure_snapshot_name | default('') }}"
+
+- name: "PRE-CHECK | Display summary"
+  ansible.builtin.debug:
+    msg: |
+      Pre-change snapshot complete for {{ inventory_hostname }}:
+        KBs installed : {{ pre_installed_kbs | length }}
+        Uptime (days) : {{ pre_uptime_days }}
+        Pending reboot: {{ pre_pending_reboot }}
+        Risk flags    : {{ pre_risk_flags | join(', ') | default('none') }}

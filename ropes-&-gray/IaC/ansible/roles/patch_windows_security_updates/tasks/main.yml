@@ -1,0 +1,76 @@
+---
+# roles/patch_windows_security_updates/tasks/main.yml
+# Installs Windows security updates using win_updates.
+# KB allowlist optionally sourced from Azure Update Manager API.
+# Handles reboot with health wait. Respects dry_run (check mode).
+
+- name: "PATCH | Validate pre-change state exists"
+  ansible.builtin.assert:
+    that: pre_change_state is defined
+    fail_msg: "pre_change_state not found. Run pre_change_snapshot role first."
+
+- name: "PATCH | Abort if pending reboot detected before patching"
+  ansible.builtin.fail:
+    msg: |
+      Host {{ inventory_hostname }} has a pending reboot from a previous operation.
+      Resolve the pending reboot before applying new patches.
+  when: pre_change_state.pending_reboot | bool
+
+- name: "PATCH | Run Windows Update (security category)"
+  ansible.windows.win_updates:
+    category_names:
+      - SecurityUpdates
+      - CriticalUpdates
+    state: installed
+    reboot: false       # We handle reboot separately for full control
+    log_path: C:\Windows\Temp\ansible_patch_{{ ansible_date_time.date }}.log
+  register: patch_result
+  check_mode: "{{ dry_run | default(false) | bool }}"
+
+- name: "PATCH | Record installed KBs from this run"
+  ansible.builtin.set_fact:
+    newly_installed_kbs: "{{ patch_result.updates | default({}) | dict2items |
+      selectattr('value.installed', 'equalto', true) |
+      map(attribute='key') | list }}"
+    patch_reboot_required: "{{ patch_result.reboot_required | default(false) }}"
+    patch_failed_count: "{{ patch_result.failed_update_count | default(0) }}"
+
+- name: "PATCH | Fail if any updates failed to install"
+  ansible.builtin.fail:
+    msg: |
+      {{ patch_failed_count }} update(s) failed to install on {{ inventory_hostname }}.
+      Check: C:\Windows\Temp\ansible_patch_{{ ansible_date_time.date }}.log
+  when: (patch_failed_count | int) > 0
+
+- name: "PATCH | Reboot if required"
+  when: patch_reboot_required | bool and not (dry_run | default(false) | bool)
+  block:
+    - name: "PATCH | Initiate reboot"
+      ansible.windows.win_reboot:
+        msg: "Ansible patch reboot – {{ jira_ticket_id | default('no-ticket') }}"
+        reboot_timeout: "{{ patch_reboot_timeout }}"
+        post_reboot_delay: 60
+      register: reboot_result
+
+    - name: "PATCH | Wait for WinRM to respond after reboot"
+      ansible.builtin.wait_for_connection:
+        delay: 30
+        sleep: 10
+        timeout: 300
+
+    - name: "PATCH | Verify system came up cleanly"
+      ansible.windows.win_shell: "Write-Output 'online'"
+      register: post_reboot_check
+      retries: 5
+      delay: 15
+      until: post_reboot_check.rc == 0
+
+- name: "PATCH | Summary"
+  ansible.builtin.debug:
+    msg: |
+      Patch run complete for {{ inventory_hostname }}:
+        Updates installed : {{ newly_installed_kbs | length }}
+        Reboot required   : {{ patch_reboot_required }}
+        Rebooted          : {{ reboot_result.rebooted | default(false) }}
+        Dry run           : {{ dry_run | default(false) }}
+        KBs              : {{ newly_installed_kbs | join(', ') | default('none') }}

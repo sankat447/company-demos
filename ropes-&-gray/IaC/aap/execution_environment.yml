@@ -1,0 +1,40 @@
+---
+# aap/execution_environment.yml
+# Build with: ansible-builder build -f aap/execution_environment.yml -t ee-windows-patching:latest
+
+version: 3
+
+build_arg_defaults:
+  ANSIBLE_GALAXY_SERVER_URL: "https://galaxy.ansible.com"
+
+dependencies:
+  galaxy:
+    collections:
+      - name: ansible.windows
+        version: ">=2.3.0"
+      - name: community.windows
+        version: ">=2.1.0"
+      - name: azure.azcollection
+        version: ">=2.3.0"
+      - name: ansible.utils
+        version: ">=3.0.0"
+  python:
+    - pywinrm>=0.4.3
+    - requests>=2.31.0
+    - azure-mgmt-compute>=30.0.0
+    - azure-identity>=1.15.0
+    - requests-ntlm>=1.2.0
+  system:
+    - krb5-devel [platform:rpm]
+    - python3-devel [platform:rpm]
+
+images:
+  base_image:
+    name: registry.redhat.io/ansible-automation-platform-24/ee-minimal-rhel9:latest
+
+additional_build_steps:
+  prepend_final:
+    - RUN pip3 install --upgrade pip
+
+options:
+  package_manager_path: /usr/bin/microdnf

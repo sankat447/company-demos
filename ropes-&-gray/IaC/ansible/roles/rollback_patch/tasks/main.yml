@@ -1,0 +1,118 @@
+---
+# roles/rollback_patch/tasks/main.yml
+# Uninstalls newly applied KBs, optionally restores Azure snapshot.
+# Triggered automatically via AAP workflow on_failure edge.
+
+- name: "ROLLBACK | Record rollback start time"
+  ansible.builtin.set_fact:
+    rollback_start: "{{ ansible_date_time.iso8601 }}"
+
+- name: "ROLLBACK | Assert we have the list of newly installed KBs"
+  ansible.builtin.assert:
+    that: newly_installed_kbs is defined and (newly_installed_kbs | length) > 0
+    fail_msg: "No newly_installed_kbs found. Cannot determine what to uninstall."
+
+- name: "ROLLBACK | Uninstall each newly applied KB"
+  ansible.windows.win_shell: |
+    $kb = "{{ item }}"
+    $result = wusa.exe /uninstall /kb:$($kb.Replace('KB','')) /quiet /norestart
+    [PSCustomObject]@{ KB = $kb; ExitCode = $LASTEXITCODE } | ConvertTo-Json
+  loop: "{{ newly_installed_kbs }}"
+  register: kb_uninstall_results
+  ignore_errors: true    # Some KBs cannot be uninstalled; collect all results
+
+- name: "ROLLBACK | Check for failed uninstalls"
+  ansible.builtin.set_fact:
+    rollback_failed_kbs: >-
+      {{
+        kb_uninstall_results.results |
+        selectattr('rc', 'ne', 0) |
+        map(attribute='item') | list
+      }}
+
+- name: "ROLLBACK | Reboot after KB removal"
+  ansible.windows.win_reboot:
+    msg: "Ansible rollback reboot"
+    reboot_timeout: "{{ patch_reboot_timeout }}"
+    post_reboot_delay: 60
+
+- name: "ROLLBACK | Wait for WinRM post-reboot"
+  ansible.builtin.wait_for_connection:
+    delay: 30
+    sleep: 10
+    timeout: 300
+
+# ── Azure snapshot restore (only if snapshot was taken) ───────────────────────
+- name: "ROLLBACK | Restore Azure snapshot"
+  when:
+    - cloud_provider == 'azure'
+    - pre_change_state.snapshot_taken | default(false) | bool
+  block:
+    - name: "ROLLBACK | Deallocate VM before disk swap (via Azure API)"
+      ansible.builtin.uri:
+        url: >-
+          https://management.azure.com/subscriptions/{{ azure_subscription_id }}/
+          resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/
+          virtualMachines/{{ inventory_hostname }}/deallocate?api-version=2024-03-01
+        method: POST
+        headers:
+          Authorization: "Bearer {{ azure_access_token }}"
+        status_code: [200, 202]
+      delegate_to: localhost
+      register: deallocate_result
+
+    - name: "ROLLBACK | Wait for VM deallocated"
+      ansible.builtin.pause:
+        seconds: 60
+
+    - name: "ROLLBACK | Note: manual snapshot restore step"
+      ansible.builtin.debug:
+        msg: |
+          Snapshot restore for {{ inventory_hostname }} requires:
+            az disk create --name {{ pre_change_state.snapshot_name }}-restored \
+              --resource-group {{ azure_resource_group }} \
+              --source {{ pre_change_state.snapshot_name }}
+          Then swap OS disk via portal or az vm update.
+          Automated swap is environment-specific – confirm before enabling.
+
+- name: "ROLLBACK | Build rollback summary"
+  ansible.builtin.set_fact:
+    rollback_state:
+      timestamp: "{{ rollback_start }}"
+      kbs_targeted: "{{ newly_installed_kbs }}"
+      kbs_failed: "{{ rollback_failed_kbs }}"
+      reboot_done: true
+      snapshot_restored: "{{ pre_change_state.snapshot_taken | default(false) }}"
+      verdict: "{{ 'PARTIAL' if rollback_failed_kbs else 'SUCCESS' }}"
+
+- name: "ROLLBACK | Post rollback result to Jira"
+  when: jira_ticket_id is defined and jira_ticket_id != ''
+  ansible.builtin.uri:
+    url: "{{ jira_base_url }}/rest/api/3/issue/{{ jira_ticket_id }}/comment"
+    method: POST
+    headers:
+      Authorization: "Basic {{ (jira_user_email + ':' + jira_api_token) | b64encode }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      body:
+        type: "doc"
+        version: 1
+        content:
+          - type: "paragraph"
+            content:
+              - type: "text"
+                text: |
+                  ROLLBACK EXECUTED on {{ inventory_hostname }} at {{ rollback_start }}
+                  KBs targeted: {{ rollback_state.kbs_targeted | join(', ') }}
+                  Failed to uninstall: {{ rollback_state.kbs_failed | join(', ') | default('none') }}
+                  Verdict: {{ rollback_state.verdict }}
+    status_code: [201]
+  delegate_to: localhost
+
+- name: "ROLLBACK | Summary"
+  ansible.builtin.debug:
+    msg: |
+      Rollback {{ rollback_state.verdict }} for {{ inventory_hostname }}
+        KBs removed: {{ rollback_state.kbs_targeted | difference(rollback_state.kbs_failed) | join(', ') }}
+        Failed     : {{ rollback_state.kbs_failed | join(', ') | default('none') }}
