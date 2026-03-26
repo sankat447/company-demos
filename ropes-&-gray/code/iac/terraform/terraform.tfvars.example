@@ -1,0 +1,23 @@
+# terraform.tfvars
+# Copy this file to terraform.tfvars and fill in your real values before deploying.
+# For DESTROY only, placeholder values below are sufficient.
+#
+# DO NOT commit real credentials to git.
+# Add terraform.tfvars to .gitignore.
+
+# ── Required for destroy (placeholders are fine) ─────────────────────────────
+operator_cidr          = "1.2.3.4/32"       # Replace with your real IP for deploy
+aap_admin_password     = "!!SDemo12345"      # Default demo password
+windows_admin_password = "!!SDemo12345"      # Default demo password
+rhn_username           = "placeholder"       # Replace with real RH username for deploy
+rhn_password           = "placeholder"       # Replace with real RH password for deploy
+aap_manifest_b64       = "placeholder"       # Replace with real manifest for deploy
+
+# ── Azure ─────────────────────────────────────────────────────────────────────
+azure_subscription_id        = "62e011bd-876a-4f15-aa29-5267d77768d2"
+use_existing_resource_group  = true
+existing_resource_group_name = "rg-patch-demo"   # Set by admin
+azure_location               = "uksouth"
+
+# ── AWS ───────────────────────────────────────────────────────────────────────
+aws_region = "us-east-1"

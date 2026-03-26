@@ -8,8 +8,19 @@
 # RH    → opens browser to access.redhat.com  (credentials still typed)
 #
 # Usage: bash iac/deploy.sh
+# Compatible with bash 3.2+ (macOS ships 3.2 by default)
 # =============================================================================
 set -euo pipefail
+
+# ── bash 3.2 compatibility check (macOS default is 3.2) ──────────────────────
+# We avoid ${VAR,,} and ${VAR^^} – not available until bash 4.
+# Use: $(echo "$VAR" | tr '[:upper:]' '[:lower:]')  instead.
+BASH_MAJOR="${BASH_VERSINFO[0]:-3}"
+if [[ "${BASH_MAJOR}" -lt 4 ]]; then
+  echo "  INFO: bash ${BASH_VERSION} detected (macOS default). Script is compatible."
+  echo "  Optional: brew install bash  to get bash 5 for future use."
+  echo ""
+fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="${ROOT_DIR}/terraform"
@@ -166,8 +177,55 @@ PYEOF2
     fi
 
     echo ""
-    read -rp "  AWS Account ID to deploy into: "              SSO_ACCOUNT_ID
-    read -rp "  SSO Role name (e.g. AdministratorAccess):    " SSO_ROLE
+    read -rp "  AWS Account ID to deploy into: " SSO_ACCOUNT_ID
+
+    # ── List roles available for this account so user can pick ──────────────
+    echo ""
+    echo "  Fetching roles available for account ${SSO_ACCOUNT_ID}..."
+    if [[ -n "${SSO_TOKEN}" ]]; then
+      ROLES_JSON="$(aws sso list-account-roles \
+        --access-token "${SSO_TOKEN}" \
+        --account-id "${SSO_ACCOUNT_ID}" \
+        --region "${SSO_REGION}" \
+        --output json 2>/dev/null || echo '{}')"
+
+      ROLE_NAMES="$(echo "${ROLES_JSON}" | python3 -c \
+        "import sys,json; data=json.load(sys.stdin); \
+         roles=[r['roleName'] for r in data.get('roleList',[])]; \
+         [print(f'    {i+1}) {r}') for i,r in enumerate(roles)]; \
+         print('__ROLES__:' + ','.join(roles))" 2>/dev/null || echo "")"
+
+      # Extract the roles list from the output
+      ROLES_CSV="$(echo "${ROLE_NAMES}" | grep '^__ROLES__:' | sed 's/__ROLES__://')"
+      # Print only the numbered list (not the CSV line)
+      echo "${ROLE_NAMES}" | grep -v '^__ROLES__:' || true
+
+      if [[ -n "${ROLES_CSV}" ]]; then
+        echo ""
+        ROLE_COUNT="$(echo "${ROLES_CSV}" | tr ',' '\n' | wc -l | tr -d ' ')"
+        if [[ "${ROLE_COUNT}" -eq 1 ]]; then
+          # Only one role – use it automatically
+          SSO_ROLE="${ROLES_CSV}"
+          echo "  Auto-selected only available role: ${SSO_ROLE}"
+        else
+          read -rp "  Enter role number or type role name: " ROLE_INPUT
+          # If numeric, map to name; otherwise use as typed
+          if [[ "${ROLE_INPUT}" =~ ^[0-9]+$ ]]; then
+            SSO_ROLE="$(echo "${ROLES_CSV}" | tr ',' '\n' | sed -n "${ROLE_INPUT}p")"
+          else
+            SSO_ROLE="${ROLE_INPUT}"
+          fi
+        fi
+      else
+        echo "  (Could not list roles automatically)"
+        read -rp "  SSO Role name (e.g. AdministratorAccess): " SSO_ROLE
+      fi
+    else
+      echo "  (SSO token not found – enter role name manually)"
+      read -rp "  SSO Role name (e.g. AdministratorAccess): " SSO_ROLE
+    fi
+
+    echo "  Selected role: ${SSO_ROLE}"
 
     python3 - "${AWS_PROFILE}" "${SSO_ACCOUNT_ID}" "${SSO_ROLE}" <<'PYEOF3'
 import configparser, pathlib, sys
@@ -180,7 +238,7 @@ cfg[sec]["sso_account_id"] = account_id
 cfg[sec]["sso_role_name"]  = role
 with open(cfg_path, "w") as f:
     cfg.write(f)
-print(f"  Profile '{profile}' updated.")
+print(f"  Profile '{profile}' updated with account={account_id} role={role}")
 PYEOF3
 
     export AWS_PROFILE="${AWS_PROFILE}"
@@ -317,7 +375,7 @@ done
 if [[ -n "${DETECTED_IP}" ]]; then
   echo "  Detected: ${DETECTED_IP}"
   read -rp "  Use this for SSH / RDP / AAP UI access? [Y/n]: " CONFIRM_IP
-  if [[ "${CONFIRM_IP,,}" == "n" ]]; then
+  if [[ "$(echo "${CONFIRM_IP}" | tr '[:upper:]' '[:lower:]')" == "n" ]]; then
     read -rp "  Enter your public IP manually: " OPERATOR_IP
   else
     OPERATOR_IP="${DETECTED_IP}"
@@ -337,22 +395,17 @@ echo "  ✓ Firewall will allow inbound from: ${OPERATOR_IP}/32"
 # ═════════════════════════════════════════════════════════════════════════════
 banner "Step 6 of 7 │ Demo passwords"
 echo ""
-echo "  Set passwords for the two demo components."
+echo "  Default password for all components: !!SDemo12345"
+echo "  Press Enter to accept default, or type a custom password."
 echo ""
 
 # AAP admin password
-while true; do
-  read -rsp "  AAP admin password (≥8 chars, upper+lower+number+symbol): " AAP_PASS; echo
-  if [[ ${#AAP_PASS} -ge 8 ]]; then break
-  else echo "  Too short. Minimum 8 characters."; fi
-done
+read -rsp "  AAP admin password [default: !!SDemo12345]: " AAP_PASS; echo
+AAP_PASS="${AAP_PASS:-!!SDemo12345}"
 
 # Windows VM admin password
-while true; do
-  read -rsp "  Windows VM password (≥12 chars, upper+lower+number+symbol): " WIN_PASS; echo
-  if [[ ${#WIN_PASS} -ge 12 ]]; then break
-  else echo "  Too short. Minimum 12 characters."; fi
-done
+read -rsp "  Windows VM password [default: !!SDemo12345]: " WIN_PASS; echo
+WIN_PASS="${WIN_PASS:-!!SDemo12345}"
 
 export TF_VAR_aap_admin_password="${AAP_PASS}"
 export TF_VAR_windows_admin_password="${WIN_PASS}"
@@ -375,7 +428,7 @@ echo "  Estimated infrastructure cost: ~\$2–3 while Terraform runs."
 echo "  Teardown with: bash iac/destroy.sh"
 echo ""
 read -rp "  Proceed with deployment? [y/N]: " PROCEED
-[[ "${PROCEED,,}" == "y" ]] || { echo "  Aborted."; exit 0; }
+[[ "$(echo "${PROCEED}" | tr '[:upper:]' '[:lower:]')" == "y" ]] || { echo "  Aborted."; exit 0; }
 
 cd "${TF_DIR}"
 

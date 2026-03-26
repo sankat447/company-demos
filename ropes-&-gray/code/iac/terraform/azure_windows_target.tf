@@ -6,8 +6,8 @@
 
 resource "azurerm_windows_virtual_machine" "target" {
   name                  = "vm-win-target"
-  resource_group_name   = azurerm_resource_group.demo.name
-  location              = azurerm_resource_group.demo.location
+  resource_group_name   = local.rg_name
+  location              = local.rg_location
   size                  = var.windows_vm_size
   admin_username        = var.windows_admin_username
   admin_password        = var.windows_admin_password
@@ -30,16 +30,17 @@ resource "azurerm_windows_virtual_machine" "target" {
   # Required for Azure Update Manager to control patching
   patch_mode                = "AutomaticByPlatform"
   provision_vm_agent        = true
-  enable_automatic_updates  = false   # AUM takes over scheduling
+  automatic_updates_enabled = false
 
-  # Hotpatch not available on 2019; set to false
+  # Required for user-scheduled AUM maintenance assignments
+  bypass_platform_safety_checks_on_user_schedule_enabled = true
+
+  # Hotpatch not available on 2019
   hotpatching_enabled = false
 
-  # WinRM HTTPS listener bootstrapped via extension below
-  winrm_listener {
-    protocol        = "Https"
-    certificate_url = ""   # Self-signed cert created by extension
-  }
+  # WinRM HTTPS is configured by the WinRMSetup custom script extension below.
+  # Azure requires a Key Vault certificate URL for the winrm_listener block,
+  # so we omit it here and let the extension create the self-signed cert instead.
 
   tags = merge(local.tags, {
     Name         = "vm-win-target"

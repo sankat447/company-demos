@@ -1,96 +1,105 @@
 output "aap_public_ip" {
-  description = "Elastic IP of AAP controller (stable – use this in Jira webhook config)"
-  value       = aws_eip.aap.public_ip
+  value = aws_eip.aap.public_ip
+}
+
+output "aap_eda_public_ip" {
+  value = aws_eip.aap_eda.public_ip
+}
+
+output "aap_controller_private_ip" {
+  value = aws_instance.aap.private_ip
+}
+
+output "aap_eda_private_ip" {
+  value = aws_instance.aap_eda.private_ip
 }
 
 output "aap_controller_url" {
-  description = "AAP Controller UI URL"
-  value       = "https://${aws_eip.aap.public_ip}"
+  value = "https://aap.iisdemolab.click"
 }
 
 output "aap_eda_webhook_url" {
-  description = "EDA webhook receiver URL (configure this in Jira Automation rule)"
-  value       = "https://${aws_eip.aap.public_ip}:8443/api/eda/v1/external_event_stream/jira-patch/"
+  value = "https://aap.iisdemolab.click:8443/api/eda/v1/external_event_stream/jira-patch/"
 }
 
-output "aap_ssh_command" {
-  description = "SSH command to log into AAP EC2 and run the installer"
-  value       = "ssh -i ${path.root}/aap_ec2_key.pem ec2-user@${aws_eip.aap.public_ip}"
+output "aap_ssh_controller" {
+  value = "ssh -i ${path.root}/aap_ec2_key.pem ec2-user@${aws_eip.aap.public_ip}"
+}
+
+output "aap_ssh_eda" {
+  value = "ssh -i ${path.root}/aap_ec2_key.pem ec2-user@${aws_eip.aap_eda.public_ip}"
 }
 
 output "aap_private_key_path" {
-  description = "Path to generated SSH private key (already chmod 0600)"
-  value       = "${path.root}/aap_ec2_key.pem"
+  value = "${path.root}/aap_ec2_key.pem"
 }
 
 output "azure_windows_public_ip" {
-  description = "Public IP of Azure Windows patch target"
-  value       = azurerm_public_ip.windows_target.ip_address
+  value = azurerm_public_ip.windows_target.ip_address
 }
 
 output "azure_windows_private_ip" {
-  description = "Private IP of Azure Windows patch target"
-  value       = azurerm_network_interface.windows_target.private_ip_address
+  value = azurerm_network_interface.windows_target.private_ip_address
 }
 
 output "azure_resource_group" {
-  description = "Azure resource group name"
-  value       = azurerm_resource_group.demo.name
+  value = local.rg_name
 }
 
 output "azure_log_analytics_workspace" {
-  description = "Log Analytics workspace ID (for KQL queries)"
-  value       = azurerm_log_analytics_workspace.demo.workspace_id
+  value = azurerm_log_analytics_workspace.demo.workspace_id
 }
 
 output "azure_maintenance_config" {
-  description = "AUM maintenance configuration name"
-  value       = azurerm_maintenance_configuration.weekly_security.name
+  value = azurerm_maintenance_configuration.weekly_security.name
 }
 
 output "windows_admin_username" {
-  description = "Windows local admin username"
-  value       = var.windows_admin_username
+  value = var.windows_admin_username
 }
 
 output "windows_admin_password" {
-  description = "Windows local admin password"
-  value       = var.windows_admin_password
-  sensitive   = true
+  value     = var.windows_admin_password
+  sensitive = true
 }
 
-output "next_steps" {
-  description = "Post-deploy checklist"
+output "aap_inventory" {
+  description = "Ready-to-use AAP installer inventory - paste into /opt/aap-install/inventory on controller"
   value = <<-EOF
+    [automationgateway]
+    ${aws_instance.aap.private_ip} ansible_connection=local
 
-    ════════════════════════════════════════════════════
-     Post-deploy checklist
-    ════════════════════════════════════════════════════
+    [automationcontroller]
+    ${aws_instance.aap.private_ip} ansible_connection=local
 
-    1. INSTALL AAP 2.6
-       ${path.root}/aap_ec2_key.pem already created (chmod 0600)
-       SSH in:
-         ssh -i ${path.root}/aap_ec2_key.pem ec2-user@${aws_eip.aap.public_ip}
-       Then run:
-         sudo bash /opt/aap-install/aap_install.sh
-       See: aap/install/README.md
+    [automationeda]
+    ${aws_instance.aap_eda.private_ip} ansible_user=ec2-user ansible_ssh_private_key_file=/home/ec2-user/.ssh/id_rsa
 
-    2. UPDATE ANSIBLE INVENTORY
-       Edit ansible/inventory/azure_hosts.yml
-       Replace AZURE_WIN_IP with: ${azurerm_public_ip.windows_target.ip_address}
+    [database]
+    ${aws_instance.aap.private_ip} ansible_connection=local
 
-    3. TEST WINRM (from AAP controller or workstation)
-       ansible windows -m win_ping -i ansible/inventory/azure_hosts.yml
-
-    4. CONFIGURE JIRA WEBHOOK
-       EDA Webhook URL: https://${aws_eip.aap.public_ip}:8443/api/eda/v1/external_event_stream/jira-patch/
-       See: jira/webhook_eda_config.md
-
-    5. AZURE PORTAL VERIFY
-       Open: https://portal.azure.com
-       Navigate to: ${azurerm_resource_group.demo.name} → Update Manager
-       Confirm VM appears in compliance view
-
-    ════════════════════════════════════════════════════
+    [all:vars]
+    admin_password='!!SDemo12345'
+    pg_host='${aws_instance.aap.private_ip}'
+    pg_port=5432
+    pg_database='awx'
+    pg_username='awx'
+    pg_password='!!SDemo12345'
+    gateway_admin_password='!!SDemo12345'
+    gateway_pg_host='${aws_instance.aap.private_ip}'
+    gateway_pg_port=5432
+    gateway_pg_database='gateway'
+    gateway_pg_username='gateway'
+    gateway_pg_password='!!SDemo12345'
+    registry_url='registry.redhat.io'
+    registry_username='skumar@iisl.com'
+    registry_password='!!SDemo12345'
+    automationedacontroller_admin_password='!!SDemo12345'
+    automationedacontroller_pg_host='${aws_instance.aap.private_ip}'
+    automationedacontroller_pg_port=5432
+    automationedacontroller_pg_database='eda'
+    automationedacontroller_pg_username='eda'
+    automationedacontroller_pg_password='!!SDemo12345'
+    redis_mode=standalone
   EOF
 }

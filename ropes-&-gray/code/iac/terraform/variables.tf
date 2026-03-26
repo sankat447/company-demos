@@ -23,38 +23,38 @@ variable "operator_cidr" {
 }
 
 variable "aap_admin_password" {
-  description = "AAP admin portal password (min 8 chars, complex)"
+  description = "AAP admin portal password"
   type        = string
   sensitive   = true
-  default     = "AapAdm1n!Demo"   # Override via TF_VAR_aap_admin_password
+  default     = "!!SDemo12345"
 }
 
 variable "rhn_username" {
   description = "Red Hat Network (access.redhat.com) username for RHEL subscription"
   type        = string
   sensitive   = true
-  default     = ""   # Set via TF_VAR_rhn_username or deploy.sh prompt
+  default     = ""
 }
 
 variable "rhn_password" {
   description = "Red Hat Network password"
   type        = string
   sensitive   = true
-  default     = ""   # Set via TF_VAR_rhn_password or deploy.sh prompt
+  default     = ""
 }
 
 variable "aap_manifest_b64" {
   description = "Base64-encoded AAP subscription manifest (from access.redhat.com)"
   type        = string
   sensitive   = true
-  default     = ""   # Required for AAP licensing – see aap/install/README.md
+  default     = "placeholder"
 }
 
 # ── Azure ─────────────────────────────────────────────────────────────────────
 variable "azure_subscription_id" {
   description = "Azure subscription ID"
   type        = string
-  default     = ""   # Set via TF_VAR_azure_subscription_id or deploy.sh prompt
+  default     = ""
 }
 
 variable "azure_location" {
@@ -63,10 +63,34 @@ variable "azure_location" {
   default     = "uksouth"
 }
 
+variable "use_existing_resource_group" {
+  description = "Set to true to use an existing resource group instead of creating one (needed on CSP subscriptions where you don't have subscription-level write access)"
+  type        = bool
+  default     = false
+}
+
+variable "existing_resource_group_name" {
+  description = "Name of an existing resource group to deploy Azure resources into (only used when use_existing_resource_group = true)"
+  type        = string
+  default     = ""
+}
+
 variable "windows_vm_size" {
   description = "Azure VM size for Windows patch target"
   type        = string
-  default     = "Standard_B2s"   # 2 vCPU, 4 GB – sufficient for demo target
+  default     = "Standard_B2s"
+}
+
+variable "windows_vm_size_aws" {
+  description = "AWS EC2 instance type for Windows patch target"
+  type        = string
+  default     = "t3.medium"   # 2 vCPU, 4 GB - sufficient for demo target
+}
+
+variable "deploy_azure" {
+  description = "Set to false to skip all Azure resources (use when Azure permissions are unavailable)"
+  type        = bool
+  default     = false   # Defaulting to false until RG permissions are granted
 }
 
 variable "windows_admin_username" {
@@ -79,7 +103,7 @@ variable "windows_admin_password" {
   description = "Local admin password for the Azure Windows VM"
   type        = string
   sensitive   = true
-  default     = "DemoP@ssw0rd2024!"
+  default     = "!!SDemo12345"
 }
 
 # ── Shared ────────────────────────────────────────────────────────────────────
