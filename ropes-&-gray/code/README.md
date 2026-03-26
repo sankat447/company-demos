@@ -1,4 +1,4 @@
-# Hybrid Patch Demo v2
+# Azure Windows Patch Demo v2
 
 **AAP 2.6 (AWS) → EDA → Azure Windows target → Jira ITSM full lifecycle**
 
