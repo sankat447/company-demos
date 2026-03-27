@@ -82,6 +82,8 @@ read -rp  "  Red Hat username: " RHN_USER
 read -rsp "  Red Hat password: " RHN_PASS; echo
 export TF_VAR_rhn_username="${RHN_USER}"
 export TF_VAR_rhn_password="${RHN_PASS}"
+read -rsp "  Red Hat offline token (from console.redhat.com/ansible/automation-hub/token): " RHN_TOKEN; echo
+export TF_VAR_rhn_offline_token="${RHN_TOKEN}"
 
 # ── IP detection ─────────────────────────────────────────────────────────────
 echo ""
@@ -137,7 +139,7 @@ echo "║  DEPLOYMENT COMPLETE                                         ║"
 printf "║  AAP EC2 IP  : %-45s║\n" "${AAP_IP}"
 printf "║  Azure VM IP : %-45s║\n" "${WIN_IP}"
 echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║  SSH: ssh -i iac/terraform/aap_ec2_key.pem ec2-user@<IP>    ║"
+echo "║  SSH: ssh -i iac/terraform/aap_ec2_key.pem ec2-user@<IP>     ║"
 echo "║  See: aap/install/README.md                                  ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
