@@ -1,20 +1,5 @@
 ---
-# aap/eda/rulebooks/jira_patch_rulebook.yml
-#
-# Event-Driven Ansible rulebook: receives Jira webhook events and
-# routes them to the correct AAP workflow based on the ticket transition.
-#
-# Covers the full ITSM lifecycle:
-#   In Progress → launch patch workflow
-#   Rollback Requested → launch rollback workflow
-#   Cancelled → cancel any running AAP jobs
-#
-# Deploy to EDA Controller:
-#   UI: EDA → Rulebook Activations → Create
-#   Source: point to this file in your AAP project
-#   Event stream: jira-patch (webhook credential configured separately)
-
----
+# EDA rulebook: Jira webhook events → AAP job templates
 - name: Jira patch lifecycle handler
   hosts: all
 
