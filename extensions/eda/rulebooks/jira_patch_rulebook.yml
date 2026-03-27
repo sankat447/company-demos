@@ -4,11 +4,9 @@
   hosts: all
 
   sources:
-    - name: jira-patch
-      ansible.eda.pg_listener:
-        dsn: "{{ EDA_PG_DSN }}"
-        channels:
-          - "eda_jira_patch"
+    - ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
 
   rules:
 
