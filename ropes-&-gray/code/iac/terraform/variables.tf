@@ -113,6 +113,13 @@ variable "demo_prefix" {
   default     = "patch-demo"
 }
 
+variable "rhn_offline_token" {
+  description = "Red Hat offline token from console.redhat.com/ansible/automation-hub/token"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "common_tags" {
   description = "Tags applied to all resources"
   type        = map(string)
