@@ -1,5 +1,7 @@
 ---
 # EDA rulebook: Jira webhook events → AAP job templates
+# Jira Automation sends a POST with custom JSON when a Change ticket transitions.
+# Payload format: {"issue_key":"CHG-1","status":"Implementing","issue_type":"Change",...}
 - name: Jira patch lifecycle handler
   hosts: all
 
@@ -10,12 +12,11 @@
 
   rules:
 
-    # ── RULE 1: Ticket transitions to "In Progress" → start patch workflow ──
-    - name: "Jira | CHG ticket approved and started"
+    # ── RULE 1: Change ticket moves to "Implementing" → start patch workflow ──
+    - name: "Jira | Change ticket implementing - launch patch"
       condition: >
-        event.payload.issue.fields.project.key == "CHG" and
-        event.payload.transition.to_status == "In Progress" and
-        event.payload.issue.fields.issuetype.name in ["Change Request", "Standard Change"]
+        event.payload.status is defined and
+        event.payload.status == "Implementing"
 
       action:
         run_job_template:
@@ -23,38 +24,18 @@
           organization: "IIS Demo Lab"
           job_args:
             extra_vars:
-              jira_ticket_id:     "{{ event.payload.issue.key }}"
-              target_hosts:       "{{ event.payload.issue.fields.customfield_patch_scope | default('windows') }}"
-              patch_window:       "{{ event.payload.issue.fields.customfield_maintenance_window | default('') }}"
-              risk_level:         "{{ event.payload.issue.fields.customfield_risk_level.value | default('Medium') }}"
-              jira_reporter:      "{{ event.payload.issue.fields.reporter.emailAddress | default('') }}"
-              jira_assignee:      "{{ event.payload.issue.fields.assignee.emailAddress | default('') }}"
-              dry_run:            false
-              aap_job_url_base:   "https://{{ ansible_host }}"
+              jira_ticket_id:   "{{ event.payload.issue_key }}"
+              target_hosts:     "{{ event.payload.patch_scope | default('windows') }}"
+              risk_level:       "{{ event.payload.risk_level | default('Medium') }}"
+              dry_run:          false
 
-    # ── RULE 2: Ticket transitions to "Rollback Requested" → rollback workflow ──
-    - name: "Jira | Rollback requested after failed QA"
+    # ── RULE 2: Dry-run request (label detected) ──
+    - name: "Jira | Dry-run patch check"
       condition: >
-        event.payload.issue.fields.project.key == "CHG" and
-        event.payload.transition.to_status == "Rollback Requested"
-
-      action:
-        run_job_template:
-          name: "Rollback Patch"
-          organization: "IIS Demo Lab"
-          job_args:
-            extra_vars:
-              jira_ticket_id:  "{{ event.payload.issue.key }}"
-              target_hosts:    "{{ event.payload.issue.fields.customfield_patch_scope | default('windows') }}"
-              rollback_reason: "{{ event.payload.comment.body | default('Rollback requested via Jira') }}"
-
-    # ── RULE 3: Dry-run request (special label or custom field) ────────────────
-    - name: "Jira | Dry-run patch check requested"
-      condition: >
-        event.payload.issue.fields.project.key == "CHG" and
-        event.payload.transition.to_status == "In Progress" and
-        event.payload.issue.fields.labels is defined and
-        "dry-run" in event.payload.issue.fields.labels
+        event.payload.status is defined and
+        event.payload.status == "Implementing" and
+        event.payload.dry_run is defined and
+        event.payload.dry_run == "true"
 
       action:
         run_job_template:
@@ -62,38 +43,18 @@
           organization: "IIS Demo Lab"
           job_args:
             extra_vars:
-              jira_ticket_id: "{{ event.payload.issue.key }}"
-              target_hosts:   "{{ event.payload.issue.fields.customfield_patch_scope | default('windows') }}"
+              jira_ticket_id: "{{ event.payload.issue_key }}"
+              target_hosts:   "{{ event.payload.patch_scope | default('windows') }}"
               dry_run:        true
 
-    # ── RULE 4: Emergency patch (P1 label) → skip approval, immediate run ──────
-    - name: "Jira | Emergency patch – P1 priority"
+    # ── RULE 3: Catch-all – log for audit ──
+    - name: "Jira | Unhandled event – log for audit"
       condition: >
-        event.payload.issue.fields.project.key == "CHG" and
-        event.payload.issue.fields.priority.name == "Highest" and
-        event.payload.transition.to_status == "Approved" and
-        "emergency-patch" in event.payload.issue.fields.labels
-
-      action:
-        run_job_template:
-          name: "Hybrid Patch Workflow"
-          organization: "IIS Demo Lab"
-          job_args:
-            extra_vars:
-              jira_ticket_id:  "{{ event.payload.issue.key }}"
-              target_hosts:    "{{ event.payload.issue.fields.customfield_patch_scope | default('windows') }}"
-              dry_run:         false
-              emergency:       true
-              patch_window:    "immediate"
-
-    # ── RULE 5: Catch-all – log unexpected transitions for audit ───────────────
-    - name: "Jira | Unhandled transition – log for audit"
-      condition: >
-        event.payload.issue.fields.project.key == "CHG"
+        event.payload.issue_key is defined
 
       action:
         debug:
           msg: >
-            Unhandled Jira event for {{ event.payload.issue.key }}:
-            transition={{ event.payload.transition.to_status | default('unknown') }}
-            type={{ event.payload.issue.fields.issuetype.name | default('unknown') }}
+            Jira event: {{ event.payload.issue_key }}
+            status={{ event.payload.status | default('unknown') }}
+            type={{ event.payload.issue_type | default('unknown') }}
