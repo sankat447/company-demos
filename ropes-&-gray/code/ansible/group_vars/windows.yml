@@ -21,6 +21,7 @@ jira_status_resolved:            "Resolved"
 azure_subscription_id: "{{ vault_azure_subscription_id | default(lookup('env','TF_VAR_azure_subscription_id') | default('')) }}"
 azure_resource_group:  "rg-patch-demo"
 azure_location:        "uksouth"
+azure_vm_name:         "vm-win-target"
 
 # Azure Update Manager – query for approved KBs
 aum_query_enabled: true
