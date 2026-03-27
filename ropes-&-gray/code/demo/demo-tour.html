@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hybrid Patch Management - Demo Tour</title>
+<title>IIS Technology | Hybrid Patch Management Demo - Ropes &amp; Gray</title>
 <style>
   :root {
     --bg: #0d1117; --card: #161b22; --card-hover: #1c2230; --border: #30363d;
     --text: #e6edf3; --text2: #8b949e; --muted: #6e7681;
     --red: #e94560; --blue: #58a6ff; --jira: #2684FF; --aap: #EE0000;
     --azure: #0078D4; --green: #3fb950; --yellow: #d29922; --radius: 8px;
+    --iis: #256092; --rg: #1a1a2e;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -228,16 +229,53 @@
   }
   .modal-btn.cancel { background: var(--card-hover); color: var(--text2); border: 1px solid var(--border); }
   .modal-btn.confirm { background: var(--red); color: white; }
+
+  /* Branding */
+  .brand-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 20px; background: linear-gradient(90deg, var(--iis), #1a3a5c);
+    border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 11px; color: rgba(255,255,255,0.7);
+  }
+  .brand-bar a { color: rgba(255,255,255,0.85); text-decoration: none; }
+  .brand-bar a:hover { color: white; }
+  .brand-logos { display: flex; align-items: center; gap: 14px; }
+  .brand-name { font-weight: 700; color: white; font-size: 12px; letter-spacing: 0.3px; }
+  .brand-sep { color: rgba(255,255,255,0.3); font-size: 14px; }
+  .presenter-info { display: flex; align-items: center; gap: 8px; }
+  .presenter-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(255,255,255,0.2); display: flex; align-items: center;
+    justify-content: center; font-size: 10px; font-weight: 700; color: white;
+  }
+  .client-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 18px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 6px;
+  }
+  .client-badge .for { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; }
+  .client-badge .name { font-size: 15px; font-weight: 600; color: var(--text); }
 </style>
 </head>
 <body>
 
+<div class="brand-bar">
+  <div class="brand-logos">
+    <a href="https://www.iistech.com" target="_blank"><span class="brand-name">IIS Technology</span></a>
+    <span class="brand-sep">|</span>
+    <span>Prepared for <a href="https://www.ropesgray.com/en" target="_blank"><strong>Ropes &amp; Gray LLP</strong></a></span>
+  </div>
+  <div class="presenter-info">
+    <div class="presenter-avatar">SK</div>
+    <span>Sanjeev Kumar &middot; Principal Solutions Architect &middot; <a href="mailto:skumar@iisl.com">skumar@iisl.com</a></span>
+  </div>
+</div>
+
 <div class="header">
   <div class="header-left">
-    <div class="header-logo">HP</div>
+    <div class="header-logo" style="background:linear-gradient(135deg,var(--iis),var(--aap));">HP</div>
     <div>
       <div class="header-title">Hybrid Patch Management</div>
-      <div class="header-sub">Interactive Demo Tour - Self-Guided</div>
+      <div class="header-sub">Event-Driven Automation for Enterprise Security Compliance</div>
     </div>
   </div>
   <div class="header-right">
@@ -251,8 +289,12 @@
 </div>
 
 <div class="selector" id="selector">
-  <h2>Hybrid Patch Management Demo</h2>
-  <p>Step 1: Launch all demo tabs. Step 2: Choose a scenario. Each step has speaker notes, clickable buttons, and technical instructions.</p>
+  <div class="client-badge">
+    <div><span class="for">Prepared for</span><br><span class="name">Ropes &amp; Gray LLP</span></div>
+  </div>
+  <h2>Hybrid Patch Management</h2>
+  <p style="max-width:560px;">Automated, auditable, and reversible Windows patching for enterprise environments. Integrating Jira Service Management, Red Hat Ansible Automation Platform, and Microsoft Azure.</p>
+  <p style="font-size:12px;color:var(--muted);margin-top:-12px;">Presented by IIS Technology &middot; ISO 9001-Certified &middot; 30+ Years IT Solutions</p>
   <button class="launch-btn" id="launchBtn" onclick="launchAllTabs()">
     &#x1F680; Launch Demo Tabs (Jira + AAP + Azure)
   </button>
@@ -362,7 +404,7 @@ const patchSteps = [
   {
     title: "Azure VM - Current State",
     screen: "azure", fire: false,
-    notes: "Let us start by looking at the Azure environment. Here is our Windows Server 2019 virtual machine running in the rg-patch-demo resource group in UK South. It is a Standard B2s instance, fully running and healthy. This VM is managed by Azure Update Manager for compliance tracking. Today, we are going to patch it with the latest security updates - but not manually. We will use a fully automated, event-driven pipeline that starts from a Jira ticket.",
+    notes: "Let us start by looking at the Azure environment. For a firm like Ropes and Gray, with over 1,500 attorneys across 16 global offices, maintaining security compliance across Windows infrastructure is critical. Here is a Windows Server 2019 virtual machine representing a typical server in your environment. It is running in Azure UK South, managed by Azure Update Manager for compliance tracking. Today, we are going to patch it with the latest security updates - but not manually. We will use a fully automated, event-driven pipeline that starts from a Jira ticket. Zero server logins. Full audit trail. Complete reversibility.",
     getLinks: () => L(U.azureVM, 'Open Azure VM', 'azure'),
     tech: `<ol>
       <li>Click the button above to open the Azure VM overview</li>
@@ -619,7 +661,7 @@ const patchSteps = [
   {
     title: "Demo Summary - Patch Windows",
     screen: "tour", fire: false,
-    notes: "Let us recap. One click in Jira triggered an end-to-end automated patching pipeline across three platforms - Jira for governance, AAP for automation, and Azure for infrastructure. Every step was audited. Every decision recorded. The entire flow is reversible. The engineer never logged into a server. The QA engineer never left Jira. Complete paper trail.",
+    notes: "Let us recap what IIS Technology is proposing for Ropes and Gray. One click in Jira triggered an end-to-end automated patching pipeline across three platforms - Jira for governance and ITSM compliance, Red Hat Ansible Automation Platform for execution, and Microsoft Azure for infrastructure. Every step was audited. Every decision recorded. The entire flow is reversible. No engineer logged into a server. The QA team never left Jira. For a firm handling sensitive client data across global offices, this level of automation, auditability, and security compliance is essential. IIS Technology has 30 plus years of experience delivering exactly these kinds of enterprise solutions.",
     getLinks: () => '',
     tech: '',
     summary: 'patch'
@@ -734,7 +776,7 @@ const revertSteps = [
   {
     title: "Demo Summary - Revert Patch",
     screen: "tour", fire: false,
-    notes: "We demonstrated complete reversibility. A QA failure triggers automated rollback from a single Jira transition. Ansible removes KBs, posts a report to Jira, and Azure snapshots provide a guaranteed restore. Every step logged and auditable.",
+    notes: "We demonstrated complete reversibility - a critical requirement for any firm handling sensitive legal and financial data. A QA failure triggers automated rollback from a single Jira transition. Ansible removes KBs, posts a report to Jira, and Azure snapshots provide a guaranteed restore. Every step logged and auditable. For Ropes and Gray, this means your security patching never puts production systems at risk. IIS Technology can implement this across your entire Windows server estate.",
     getLinks: () => '',
     tech: '',
     summary: 'revert'
