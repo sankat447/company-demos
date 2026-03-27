@@ -1,76 +1,30 @@
 ---
 # aap/eda/rulebooks/jira_patch_rulebook.yml
 #
-# Event-Driven Ansible rulebook: receives Jira webhook events and
-# routes them to the correct AAP job template based on ticket data.
-#
-# Jira Automation rule sends this flat payload on ticket transition:
-# {
-#   "issue_key": "CHG-xxx",
-#   "issue_summary": "Patch Windows Server ...",
-#   "issue_status": "Work in progress",   <-- status AFTER transition
-#   "project_key": "CHG"
-# }
-#
-# Deploy to EDA Controller:
-#   UI: EDA → Rulebook Activations → Create
-#   Source: point to this file in your AAP project
-#   Event stream: jira-patch
+# EDA Controller rulebook for Jira → AAP patching.
+# Source is empty webhook — EDA Controller injects the external event stream.
+# Condition uses simple "is defined" catch-all for reliability.
 
 ---
 - name: Jira patch lifecycle handler
   hosts: all
 
   sources:
-    - ansible.eda.webhook:
-        host: 0.0.0.0
-        port: 8443
+    - ansible.eda.webhook: {}
 
   rules:
 
-    # ── RULE 1: Ticket starts progress → launch patch workflow ──
-    - name: "Jira | CHG ticket started – launch patch"
-      condition: >
-        event.payload.project_key == "CHG" and
-        event.payload.issue_status is match("(?i)(work.in.progress|implementing|in.progress)", ignorecase=true)
-
+    # ── RULE 1: Any event with payload → launch patch ──
+    - name: "Jira | Event received – launch patch"
+      condition: event.payload is defined
       action:
         run_job_template:
           name: "Hybrid Patch Workflow"
           organization: "IIS Demo Lab"
           job_args:
             extra_vars:
-              jira_ticket_id:   "{{ event.payload.issue_key }}"
-              jira_summary:     "{{ event.payload.issue_summary | default('') }}"
+              jira_ticket_id:   "{{ event.payload.issue_key | default('CHG-0') }}"
+              jira_summary:     "{{ event.payload.issue_summary | default('Manual trigger') }}"
               target_hosts:     "windows"
               dry_run:          false
               aap_job_url_base: "https://aap.iisdemolab.click"
-
-    # ── RULE 2: Rollback requested → launch rollback workflow ──
-    - name: "Jira | Rollback requested – launch rollback"
-      condition: >
-        event.payload.project_key == "CHG" and
-        event.payload.issue_status is match("(?i)(rollback|declined|canceled|cancelled)", ignorecase=true)
-
-      action:
-        run_job_template:
-          name: "Rollback Patch"
-          organization: "IIS Demo Lab"
-          job_args:
-            extra_vars:
-              jira_ticket_id:   "{{ event.payload.issue_key }}"
-              jira_summary:     "{{ event.payload.issue_summary | default('') }}"
-              target_hosts:     "windows"
-              rollback_reason:  "Rollback requested via Jira"
-
-    # ── RULE 3: Catch-all for CHG project – log for audit ──
-    - name: "Jira | Unhandled CHG transition – log for audit"
-      condition: >
-        event.payload.project_key == "CHG"
-
-      action:
-        debug:
-          msg: >
-            Unhandled Jira event: issue={{ event.payload.issue_key | default('unknown') }}
-            status={{ event.payload.issue_status | default('unknown') }}
-            summary={{ event.payload.issue_summary | default('') }}
