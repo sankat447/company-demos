@@ -4,12 +4,11 @@
   hosts: all
 
   sources:
-    - ansible.eda.webhook:
-        host: 0.0.0.0
-        port: 8443
-        # EDA will present a URL like:
-        # https://<AAP_EIP>:8443/api/eda/v1/external_event_stream/jira-patch/
-        # Configure this URL in Jira Automation → Send web request action
+    - name: jira-patch
+      ansible.eda.pg_listener:
+        dsn: "{{ EDA_PG_DSN }}"
+        channels:
+          - "eda_jira_patch"
 
   rules:
 
