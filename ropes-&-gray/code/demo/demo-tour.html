@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hybrid Patch Management - Demo Tour</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --card-hover: #1c2230; --border: #30363d;
+    --text: #e6edf3; --text2: #8b949e; --muted: #6e7681;
+    --red: #e94560; --blue: #58a6ff; --jira: #2684FF; --aap: #EE0000;
+    --azure: #0078D4; --green: #3fb950; --yellow: #d29922; --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: var(--card); border-bottom: 1px solid var(--border);
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .header-logo {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--aap), var(--red));
+    border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    font-weight: bold; font-size: 14px; color: white;
+  }
+  .header-title { font-size: 16px; font-weight: 600; }
+  .header-sub { font-size: 11px; color: var(--text2); }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+
+  /* Ticket ID input in header */
+  .ticket-input-group {
+    display: none; align-items: center; gap: 6px;
+    padding: 3px 4px 3px 12px; background: var(--card-hover);
+    border: 1px solid var(--jira); border-radius: 20px;
+  }
+  .ticket-input-group label { font-size: 11px; color: var(--jira); font-weight: 600; }
+  .ticket-input-group input {
+    width: 70px; background: transparent; border: none; color: white;
+    font-size: 13px; font-weight: 700; outline: none; font-family: 'SF Mono', Monaco, monospace;
+  }
+  .ticket-input-group input::placeholder { color: var(--muted); font-weight: 400; }
+  .ticket-set-btn {
+    padding: 3px 10px; background: var(--jira); color: white; border: none;
+    border-radius: 16px; font-size: 11px; cursor: pointer; font-weight: 600;
+  }
+
+  .reset-btn {
+    padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px;
+    background: transparent; color: var(--text2); cursor: pointer; font-size: 12px;
+  }
+  .reset-btn:hover { border-color: var(--red); color: var(--red); }
+
+  /* Selector */
+  .selector {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; flex: 1; gap: 28px; padding: 40px;
+  }
+  .selector h2 { font-size: 26px; font-weight: 300; }
+  .selector p { color: var(--text2); max-width: 480px; text-align: center; }
+  .scenario-cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+  .s-card {
+    padding: 20px 28px; border: 2px solid var(--border); border-radius: 12px;
+    background: var(--card); color: var(--text); cursor: pointer; transition: all 0.2s;
+    text-align: center; width: 240px;
+  }
+  .s-card:hover { border-color: var(--red); background: var(--card-hover); }
+  .s-card .icon { font-size: 28px; margin-bottom: 10px; }
+  .s-card h3 { font-size: 16px; margin-bottom: 6px; }
+  .s-card .info { font-size: 12px; color: var(--text2); }
+
+  /* Main */
+  .main { display: none; flex: 1; flex-direction: column; padding: 16px 20px; gap: 12px; overflow-y: auto; }
+  .progress-row { display: flex; align-items: center; gap: 12px; }
+  .progress-bar { display: flex; flex: 1; gap: 3px; height: 6px; }
+  .seg { flex: 1; background: var(--border); border-radius: 3px; transition: background 0.3s; }
+  .seg.done { background: var(--green); }
+  .seg.active { background: var(--yellow); }
+  .progress-label { font-size: 12px; color: var(--text2); white-space: nowrap; }
+  .scenario-tag {
+    text-transform: uppercase; letter-spacing: 1px; font-size: 10px;
+    padding: 2px 8px; border-radius: 4px; background: var(--card); color: var(--text2);
+    border: 1px solid var(--border);
+  }
+
+  /* Step Card */
+  .step-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px; flex: 1; overflow-y: auto;
+  }
+  .step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .step-num {
+    font-size: 11px; font-weight: 600; padding: 2px 8px;
+    background: var(--card-hover); border: 1px solid var(--border); border-radius: 4px; color: var(--text2);
+  }
+  .screen-badge {
+    font-size: 10px; font-weight: 600; padding: 2px 10px;
+    border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .screen-badge.jira { background: rgba(38,132,255,0.15); color: var(--jira); }
+  .screen-badge.aap { background: rgba(238,0,0,0.15); color: var(--aap); }
+  .screen-badge.azure { background: rgba(0,120,212,0.15); color: var(--azure); }
+  .screen-badge.tour { background: rgba(59,185,80,0.12); color: var(--green); }
+  .fire-badge {
+    font-size: 10px; font-weight: 700; padding: 2px 10px;
+    border-radius: 20px; background: rgba(233,69,96,0.2); color: var(--red);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .step-title { font-size: 20px; font-weight: 600; margin-bottom: 12px; }
+
+  .notes {
+    font-size: 15px; line-height: 1.7; color: var(--text);
+    padding: 14px 16px; border-radius: var(--radius); margin-bottom: 14px;
+    border-left: 3px solid var(--muted); background: rgba(255,255,255,0.02);
+  }
+  .notes.jira { border-left-color: var(--jira); }
+  .notes.aap { border-left-color: var(--aap); }
+  .notes.azure { border-left-color: var(--azure); }
+  .notes.tour { border-left-color: var(--green); }
+
+  /* Action Links */
+  .action-box {
+    background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.2);
+    border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px;
+  }
+  .action-box h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--blue); margin-bottom: 10px; }
+  .action-link {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 16px; background: var(--blue); color: white;
+    border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;
+    margin-right: 8px; margin-bottom: 6px; transition: opacity 0.2s;
+  }
+  .action-link:hover { opacity: 0.85; }
+  .action-link.jira { background: var(--jira); }
+  .action-link.aap { background: var(--aap); }
+  .action-link.azure { background: var(--azure); }
+
+  /* Tech Detail */
+  .tech-box {
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 10px;
+  }
+  .tech-toggle {
+    width: 100%; text-align: left; padding: 10px 14px;
+    background: transparent; border: none; color: var(--text2);
+    cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px;
+  }
+  .tech-toggle:hover { color: var(--text); }
+  .tech-toggle .arrow { transition: transform 0.2s; }
+  .tech-toggle.open .arrow { transform: rotate(90deg); }
+  .tech-content {
+    display: none; padding: 0 14px 14px; font-size: 13px;
+    color: var(--text2); line-height: 1.8;
+  }
+  .tech-content.show { display: block; }
+  .tech-content ol, .tech-content ul { padding-left: 20px; margin: 6px 0; }
+  .tech-content li { margin: 4px 0; }
+  .tech-content code {
+    background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 3px;
+    font-family: 'SF Mono', Monaco, monospace; font-size: 12px; color: var(--text);
+  }
+  .tech-content .highlight {
+    background: rgba(233,69,96,0.1); border-left: 3px solid var(--red);
+    padding: 8px 12px; border-radius: 4px; margin: 8px 0; color: var(--text);
+  }
+
+  .summary-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px;
+  }
+  .summary-item {
+    background: var(--card-hover); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px; text-align: center;
+  }
+  .summary-item h4 { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .summary-item .val { font-size: 22px; font-weight: 700; color: var(--green); margin-bottom: 4px; }
+  .summary-item .sub { font-size: 11px; color: var(--muted); }
+
+  .nav-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+  .nav-btn {
+    padding: 10px 24px; border-radius: 6px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s; border: none;
+  }
+  .nav-btn.prev { background: var(--card); color: var(--text2); border: 1px solid var(--border); }
+  .nav-btn.prev:hover:not(:disabled) { border-color: var(--text2); }
+  .nav-btn.prev:disabled { opacity: 0.3; cursor: default; }
+  .nav-btn.next { background: var(--green); color: #000; }
+  .nav-btn.next:hover { opacity: 0.9; }
+  .nav-btn.fire { background: var(--red); color: white; animation: pulse 1.5s infinite; }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; max-width: 400px; text-align: center;
+  }
+  .modal h3 { margin-bottom: 10px; }
+  .modal p { color: var(--text2); font-size: 13px; margin-bottom: 16px; }
+  .modal-btns { display: flex; gap: 10px; justify-content: center; }
+  .modal-btn {
+    padding: 8px 20px; border-radius: 6px; font-size: 13px; cursor: pointer; border: none;
+  }
+  .modal-btn.cancel { background: var(--card-hover); color: var(--text2); border: 1px solid var(--border); }
+  .modal-btn.confirm { background: var(--red); color: white; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="header-logo">HP</div>
+    <div>
+      <div class="header-title">Hybrid Patch Management</div>
+      <div class="header-sub">Interactive Demo Tour - Self-Guided</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="ticket-input-group" id="ticketGroup">
+      <label>TICKET:</label>
+      <input type="text" id="ticketInput" placeholder="CHG-?" maxlength="10" onkeyup="if(event.key==='Enter')setTicket()">
+      <button class="ticket-set-btn" onclick="setTicket()">Set</button>
+    </div>
+    <button class="reset-btn" onclick="showReset()">Reset Demo</button>
+  </div>
+</div>
+
+<div class="selector" id="selector">
+  <h2>Choose a Demo Scenario</h2>
+  <p>Each step has speaker notes, clickable navigation buttons, and technical instructions.</p>
+  <div class="scenario-cards">
+    <div class="s-card" onclick="start('patch')">
+      <div class="icon">&#x1F6E1;&#xFE0F;</div>
+      <h3>Patch Windows</h3>
+      <div class="info">18 steps &middot; Full patching pipeline</div>
+    </div>
+    <div class="s-card" onclick="start('revert')">
+      <div class="icon">&#x21A9;&#xFE0F;</div>
+      <h3>Revert Patch</h3>
+      <div class="info">9 steps &middot; Rollback pipeline</div>
+    </div>
+  </div>
+</div>
+
+<div class="main" id="main">
+  <div class="progress-row">
+    <span class="scenario-tag" id="scenarioTag"></span>
+    <div class="progress-bar" id="progressBar"></div>
+    <span class="progress-label" id="progressLabel"></span>
+  </div>
+  <div class="step-card" id="stepCard"></div>
+  <div class="nav-row">
+    <button class="nav-btn prev" id="btnPrev" onclick="prev()">&#8592; Previous</button>
+    <button class="nav-btn next" id="btnNext" onclick="next()">Next Step &#8594;</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="resetModal">
+  <div class="modal">
+    <h3>Reset Demo?</h3>
+    <p>Returns to scenario selector. Jira tickets won't be deleted.</p>
+    <div class="modal-btns">
+      <button class="modal-btn cancel" onclick="hideReset()">Cancel</button>
+      <button class="modal-btn confirm" onclick="doReset()">Reset</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ======================================================================
+// URLS
+// ======================================================================
+const AZURE_SUB = '62e011bd-876a-4f15-aa29-5267d77768d2';
+const U = {
+  azureVM: `https://portal.azure.com/#@iisl.com/resource/subscriptions/${AZURE_SUB}/resourceGroups/rg-patch-demo/providers/Microsoft.Compute/virtualMachines/vm-win-target/overview`,
+  azureDisks: `https://portal.azure.com/#@iisl.com/resource/subscriptions/${AZURE_SUB}/resourceGroups/rg-patch-demo/providers/Microsoft.Compute/virtualMachines/vm-win-target/disks`,
+  azureSnapshots: `https://portal.azure.com/#browse/Microsoft.Compute%2Fsnapshots`,
+  jiraBoard: 'https://iisl.atlassian.net/jira/servicedesk/projects/CHG/queues',
+  jiraCreate: 'https://iisl.atlassian.net/jira/servicedesk/projects/CHG/queues',
+  jiraTicket: (id) => `https://iisl.atlassian.net/browse/${id}`,
+  aapOverview: 'https://aap.iisdemolab.click/overview',
+  aapJobs: 'https://aap.iisdemolab.click/execution/jobs',
+  aapEDA: 'https://aap.iisdemolab.click/decisions/rulebook-activations',
+  aapStreams: 'https://aap.iisdemolab.click/decisions/event-streams',
+  aapTemplates: 'https://aap.iisdemolab.click/execution/templates',
+};
+
+function targetFor(cls) {
+  if (cls === 'jira') return 'demo-jira';
+  if (cls === 'aap') return 'demo-aap';
+  if (cls === 'azure') return 'demo-azure';
+  return 'demo-shared';
+}
+function L(url, label, cls) {
+  return `<a class="action-link ${cls||''}" href="${url}" target="${targetFor(cls)}">${label}</a>`;
+}
+function jiraTicketLink(label) {
+  const id = state.ticketId || 'CHG-?';
+  const url = state.ticketId ? U.jiraTicket(state.ticketId) : U.jiraBoard;
+  return `<a class="action-link jira" href="${url}" target="demo-jira">${label || 'Open ' + id + ' in Jira'}</a>`;
+}
+
+// ======================================================================
+// PATCH STEPS (functions return links dynamically based on ticketId)
+// ======================================================================
+const patchSteps = [
+  {
+    title: "Azure VM - Current State",
+    screen: "azure", fire: false,
+    notes: "Let us start by looking at the Azure environment. Here is our Windows Server 2019 virtual machine running in the rg-patch-demo resource group in UK South. It is a Standard B2s instance, fully running and healthy. This VM is managed by Azure Update Manager for compliance tracking. Today, we are going to patch it with the latest security updates - but not manually. We will use a fully automated, event-driven pipeline that starts from a Jira ticket.",
+    getLinks: () => L(U.azureVM, 'Open Azure VM', 'azure'),
+    tech: `<ol>
+      <li>Click the button above to open the Azure VM overview</li>
+      <li>Point out: <strong>Status: Running</strong>, <strong>IP: 20.117.166.170</strong>, <strong>OS: Windows Server 2019</strong></li>
+      <li>Note the tags: <code>AAPTarget: true</code>, <code>AUMManaged: true</code></li>
+      <li>WinRM is configured on HTTPS port 5986 (self-signed cert)</li>
+    </ol>`
+  },
+  {
+    title: "Ansible Automation Platform - Overview",
+    screen: "aap", fire: false,
+    notes: "Now let us look at Red Hat Ansible Automation Platform. This is our central automation engine running on AWS. Notice on the dashboard we have our Projects synced with Git, our Inventories pointing to the Azure VM, and our Job Templates ready for the patching workflow. Most importantly, the Event-Driven Ansible controller is active - it is listening right now for webhook events from Jira.",
+    getLinks: () => L(U.aapOverview, 'Open AAP Dashboard', 'aap'),
+    tech: `<ol>
+      <li>Click the button to open AAP Overview</li>
+      <li>Point out: <strong>Hosts: 1</strong> (Ready), <strong>Projects: 1</strong> (Synced), <strong>Inventories: 1</strong></li>
+      <li>Mention EDA is active in the background listening for Jira webhooks</li>
+    </ol>
+    <div class="highlight">Optional: Click <strong>Automation Decisions > Rulebook Activations</strong> to show EDA rulebook is Running</div>`
+  },
+  {
+    title: "Jira Service Management - Change Board",
+    screen: "jira", fire: false,
+    notes: "Here is our Jira Service Management project for Change Management. This is where all change requests live. Every patch must go through an ITSM workflow. No patches happen without a formal ticket and approval chain. This ensures full governance and audit compliance.",
+    getLinks: () => L(U.jiraBoard, 'Open Jira Change Board', 'jira'),
+    tech: `<ol>
+      <li>Click the button to open the Change Management queues</li>
+      <li>Show the <strong>All open</strong> queue</li>
+      <li>Point out the CHG project key and JSM workflow</li>
+    </ol>`
+  },
+  {
+    title: "Create Change Request",
+    screen: "jira", fire: false,
+    notes: "Let us create a new change request. We will set the summary to describe the security patch. This is the formal record that an engineer is requesting a security patch. Once submitted, it enters the approval workflow.",
+    getLinks: () => L(U.jiraCreate, 'Open Jira Board', 'jira'),
+    tech: `<ol>
+      <li>Click <strong>+ Create</strong> button (top-right blue button in Jira)</li>
+      <li>Set <strong>Summary</strong>: <code>Patch Windows Server security updates - March 2026</code></li>
+      <li>Click <strong>Create</strong> to submit</li>
+      <li><strong>Note the ticket number</strong> (e.g. CHG-2)</li>
+      <li>Come back here and <strong>type the ticket ID in the header bar</strong> (top-right) and click Set</li>
+    </ol>
+    <div class="highlight">After creating, type the ticket ID (e.g. CHG-2) in the "TICKET:" field in the header above, then click Set. All future Jira links will point to your ticket.</div>`
+  },
+  {
+    title: "Approval Workflow - Pending",
+    screen: "jira", fire: false,
+    notes: "Now the governance workflow kicks in. The ticket starts as Open. We'll move it through the approval stages. Notice that nothing has been automated yet - this is all human governance and decision-making. The automation only triggers when we explicitly start execution.",
+    getLinks: () => jiraTicketLink(),
+    tech: `<ol>
+      <li>Click the button above to open your ticket</li>
+      <li>Click the <strong>"Open"</strong> status dropdown (top-right of ticket)</li>
+      <li>Select <strong>"Pending"</strong> to transition</li>
+      <li>Status should now show <strong>PENDING</strong></li>
+    </ol>
+    <div class="highlight">This simulates a reviewer accepting the change request for review</div>`
+  },
+  {
+    title: "Azure VM Snapshot - Safety Net",
+    screen: "azure", fire: false,
+    notes: "Before we trigger any automation, let us look at the Azure VM disk. This is our insurance policy. If anything goes wrong during patching we can restore the VM to this exact state in minutes. The Ansible playbook also creates its own snapshot as part of the pre-check phase.",
+    getLinks: () => L(U.azureDisks, 'Open Azure VM Disks', 'azure'),
+    tech: `<ol>
+      <li>Click the button to see the VM's disk blade</li>
+      <li>Point out the OS disk attached to the VM</li>
+      <li>Mention: The Ansible pre-check role will capture a snapshot automatically</li>
+      <li>The <code>azure_snapshot_enabled: true</code> setting in group_vars controls this</li>
+    </ol>`
+  },
+  {
+    title: "TRIGGER AUTOMATION - Start Implementing",
+    screen: "jira", fire: true,
+    notes: "This is the moment of truth. When we transition the ticket to Implementing, three things happen simultaneously. First, Jira fires a webhook to the EDA Controller. Second, EDA evaluates the event against our rulebook - checking the project key, the status transition, and the issue type. Third, if all conditions match, AAP launches the patching workflow automatically. One click in Jira kicks off the entire patching pipeline across three platforms.",
+    getLinks: () => jiraTicketLink('Open Ticket - TRIGGER AUTOMATION'),
+    tech: `<ol>
+      <li>Click the button above to open your ticket</li>
+      <li>Click the current status dropdown</li>
+      <li>Select <strong>"Start progress"</strong> to move to <strong>WORK IN PROGRESS</strong></li>
+    </ol>
+    <div class="highlight"><strong>THIS FIRES THE WEBHOOK!</strong><br>
+    Jira Automation rule "Notify AAP on Implementing" sends POST to:<br>
+    <code>https://aap.iisdemolab.click:8443/api/eda/v1/external_event_stream/jira-patch/</code><br>
+    Payload: issue_key, issue_summary, issue_status, project_key</div>`
+  },
+  {
+    title: "EDA - Event Received",
+    screen: "aap", fire: false,
+    notes: "Switch to the AAP Event-Driven Ansible controller. Look at the event stream - it has received the Jira webhook event. The rulebook evaluated the conditions: project key is CHG, the transition target matches, and all criteria are met. The rule has fired, and it is launching the patching workflow job template with the Jira ticket data passed as extra variables.",
+    getLinks: () => L(U.aapStreams, 'Open EDA Event Streams', 'aap') + L(U.aapEDA, 'Open Rulebook Activations', 'aap'),
+    tech: `<ol>
+      <li>Click <strong>Event Streams</strong> - check that <strong>jira-patch</strong> stream shows events received</li>
+      <li>Click <strong>Rulebook Activations</strong> - verify the rulebook is <strong>Running</strong> and Fire count increased</li>
+      <li>Click into the activation to see the rule history / audit log</li>
+    </ol>
+    <div class="highlight">If no event: check Jira Automation rule execution log, and ensure port 8443 is open in AWS Security Group</div>`
+  },
+  {
+    title: "AAP Jobs - Workflow Launched",
+    screen: "aap", fire: false,
+    notes: "Here in the AAP Jobs view, the patching workflow has been launched automatically by EDA. It runs through pre-change snapshot, actual patching, and post-change verification. If any phase fails, the workflow can trigger rollback. Let us watch it execute.",
+    getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
+    tech: `<ol>
+      <li>Click the button to see the Jobs list</li>
+      <li>Look for the most recent job - should be running or just completed</li>
+      <li>Click into the job to see the output log</li>
+    </ol>
+    <div class="highlight">The job may take 5-10 seconds to appear. Refresh if needed.</div>`
+  },
+  {
+    title: "Phase 1 - Pre-Change Snapshot",
+    screen: "aap", fire: false,
+    notes: "Phase 1 is the pre-change snapshot. Ansible connects to the Windows VM via WinRM, captures the current list of all installed KBs using Get-HotFix, checks system uptime, and flags any pre-existing risk conditions. All of this data is stored as Ansible facts for comparison after patching.",
+    getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
+    tech: `<ol>
+      <li>In the job output, look for the <strong>pre_change_snapshot</strong> role tasks</li>
+      <li>Key tasks: <code>Get-HotFix</code> (current KBs), system uptime, pending reboot check</li>
+      <li>Outputs: <code>pre_change_state</code> fact with kb_list, uptime, risk_flags</li>
+      <li>Risk flags: HIGH_UPTIME (>60d), PENDING_REBOOT, HIGH_PENDING_UPDATES (>20)</li>
+    </ol>`
+  },
+  {
+    title: "Phase 2 - Patching in Progress",
+    screen: "aap", fire: false,
+    notes: "Phase 2 is the actual patching. Ansible uses the win_updates module to install security and critical updates from Windows Update. It handles reboots automatically if required. Each KB installed is recorded for the audit trail.",
+    getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
+    tech: `<ol>
+      <li>In the job output, look for <code>ansible.windows.win_updates</code> task</li>
+      <li>Categories: SecurityUpdates, CriticalUpdates</li>
+      <li>If a reboot is required, you'll see reboot tasks execute</li>
+      <li>Output: list of newly installed KBs</li>
+    </ol>
+    <div class="highlight">Patching may take 5-15 minutes. The job output streams in real-time.</div>`
+  },
+  {
+    title: "Phase 3 - Post-Change Verification",
+    screen: "aap", fire: false,
+    notes: "Phase 3 is post-change verification. Ansible gathers the KB list again, computes the diff, checks critical Windows services, and computes a verdict: PASS or FAIL. It then posts a comprehensive patch report directly to the Jira ticket as a comment.",
+    getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
+    tech: `<ol>
+      <li>Look for <strong>post_change_verify</strong> role in job output</li>
+      <li>Checks: KB diff (before vs after), critical service status, pending reboot</li>
+      <li>Services: wuauserv, W32Time, EventLog, LanmanServer, Spooler</li>
+      <li>Verdict: <strong>PASS</strong> (all green) or <strong>FAIL</strong> (any red)</li>
+      <li>Jira comment posted automatically with full report</li>
+    </ol>`
+  },
+  {
+    title: "Before vs After — Patch Comparison",
+    screen: "tour", fire: false,
+    notes: "This is the key evidence slide. The AAP job output shows the complete before-and-after comparison. Point out the difference in KB count, the new KBs installed, service health, and the overall verdict. This data was gathered automatically — no manual RDP session needed.",
+    getLinks: () => L(U.aapJobs, 'Open AAP Jobs (see output)', 'aap'),
+    tech: `<div class="highlight" style="font-size:14px;">
+      <strong>BEFORE vs AFTER — Read these from AAP job output:</strong>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:13px;">
+      <tr style="border-bottom:1px solid var(--border);">
+        <th style="text-align:left;padding:8px;color:var(--text2);width:35%;">Metric</th>
+        <th style="text-align:left;padding:8px;color:var(--yellow);">BEFORE (Pre-Check)</th>
+        <th style="text-align:left;padding:8px;color:var(--green);">AFTER (Post-Verify)</th>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;">Installed KB Count</td>
+        <td style="padding:8px;"><em>from pre_change_snapshot output</em></td>
+        <td style="padding:8px;"><em>from post_change_verify output</em></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;">New KBs Applied</td>
+        <td style="padding:8px;">—</td>
+        <td style="padding:8px;"><em>kb_diff_added list in output</em></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;">Critical Services (5)</td>
+        <td style="padding:8px;">All Running ✓</td>
+        <td style="padding:8px;"><em>check output — should be all Running</em></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;">Pending Reboot</td>
+        <td style="padding:8px;">No</td>
+        <td style="padding:8px;"><em>check output — should be No after reboot</em></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;">System Uptime</td>
+        <td style="padding:8px;"><em>from output</em></td>
+        <td style="padding:8px;"><em>reset after reboot</em></td>
+      </tr>
+      <tr>
+        <td style="padding:8px;font-weight:700;">Verdict</td>
+        <td style="padding:8px;">—</td>
+        <td style="padding:8px;font-weight:700;color:var(--green);">PASS / FAIL</td>
+      </tr>
+    </table>
+    <div class="highlight">
+      <strong>How to show this to the audience:</strong><br>
+      1. Click "Open AAP Jobs" above → open the latest job → scroll through output<br>
+      2. The Jira comment (next step) also contains this exact comparison in a formatted report
+    </div>`
+  },
+  {
+    title: "Jira - Automated Patch Report",
+    screen: "jira", fire: false,
+    notes: "Back in Jira, look at the ticket comments. Ansible has posted a complete patch report automatically. It shows the pre-change state, post-change state, every new KB applied, service status, and a clear verdict. The QA engineer has everything they need right here in the ticket.",
+    getLinks: () => jiraTicketLink('Open Ticket - View Patch Report'),
+    tech: `<ol>
+      <li>Click the button above to open your ticket</li>
+      <li>Scroll down to the <strong>Comments</strong> section</li>
+      <li>Look for the automated comment from Ansible containing:
+        <ul>
+          <li>Pre/Post KB counts</li>
+          <li>Net new KBs installed</li>
+          <li>Service status (5 critical services)</li>
+          <li>Risk flags</li>
+          <li>Verdict: PASS or FAIL</li>
+        </ul>
+      </li>
+    </ol>
+    <div class="highlight">If no comment: check the Jira API credential in AAP and ensure the playbook has the jira_comment task</div>`
+  },
+  {
+    title: "Jira - Status Auto-Updated",
+    screen: "jira", fire: false,
+    notes: "Notice the ticket status may have automatically changed. Ansible did this via the Jira REST API after posting the comment. The QA engineer now has a clear action item: review the patch report and either approve or request a rollback.",
+    getLinks: () => jiraTicketLink('Open Ticket - Check Status'),
+    tech: `<ol>
+      <li>Click the button to open your ticket</li>
+      <li>Check the ticket status - it may have auto-transitioned</li>
+      <li>If not auto-transitioned, this is where QA reviews the report</li>
+      <li>QA decision: Accept (resolve) or Reject (request rollback)</li>
+    </ol>`
+  },
+  {
+    title: "Azure - Post-Patch Verification",
+    screen: "azure", fire: false,
+    notes: "Back in the Azure Portal, we can verify the VM is still healthy. We have snapshots for rollback safety. If the QA engineer finds an issue days later, we still have clean restore points. This belt-and-suspenders approach gives us complete reversibility.",
+    getLinks: () => L(U.azureVM, 'Open Azure VM', 'azure') + L(U.azureSnapshots, 'Open Snapshots', 'azure'),
+    tech: `<ol>
+      <li>Open the VM overview - verify <strong>Status: Running</strong></li>
+      <li>Check Snapshots blade for any pre-patch snapshots</li>
+      <li>Snapshot restore: Create disk from snapshot > Stop VM > Swap OS disk > Start VM</li>
+    </ol>`
+  },
+  {
+    title: "QA Passes - Change Resolved",
+    screen: "jira", fire: false,
+    notes: "The QA engineer reviews the patch report, sees the verdict is PASS with no risk flags, and resolves the ticket. The change is now formally closed with a complete audit trail.",
+    getLinks: () => jiraTicketLink('Open Ticket - Resolve'),
+    tech: `<ol>
+      <li>Click the button to open your ticket</li>
+      <li>Click the status dropdown</li>
+      <li>Select <strong>"Mark as done"</strong> or <strong>"Resolve"</strong></li>
+      <li>The ticket is now closed with full audit trail in comments</li>
+    </ol>`
+  },
+  {
+    title: "Demo Summary - Patch Windows",
+    screen: "tour", fire: false,
+    notes: "Let us recap. One click in Jira triggered an end-to-end automated patching pipeline across three platforms - Jira for governance, AAP for automation, and Azure for infrastructure. Every step was audited. Every decision recorded. The entire flow is reversible. The engineer never logged into a server. The QA engineer never left Jira. Complete paper trail.",
+    getLinks: () => '',
+    tech: '',
+    summary: 'patch'
+  }
+];
+
+// ======================================================================
+// REVERT STEPS
+// ======================================================================
+const revertSteps = [
+  {
+    title: "Starting Point - Post-Patch",
+    screen: "jira", fire: false,
+    notes: "We are picking up from a completed patch run. The ticket has the full patch report in the comments. The QA engineer has reviewed the report and noticed something is not right. They need to roll back.",
+    getLinks: () => jiraTicketLink('Open Ticket - Starting Point'),
+    tech: `<ol>
+      <li>Click to open the CHG ticket that was patched in Scenario 1</li>
+      <li>Verify the patch report comment is present</li>
+      <li>Ensure the ticket is NOT yet in "Done" status</li>
+    </ol>
+    <div class="highlight">Prerequisite: Run Scenario 1 (Patch Windows) first!</div>`
+  },
+  {
+    title: "TRIGGER ROLLBACK - Request Rollback",
+    screen: "jira", fire: true,
+    notes: "The QA engineer transitions the ticket to trigger a rollback. This fires a second webhook to EDA. EDA matches the rollback rule in our rulebook. It launches the Rollback Patch job template. The entire rollback is initiated from Jira.",
+    getLinks: () => jiraTicketLink('Open Ticket - TRIGGER ROLLBACK'),
+    tech: `<ol>
+      <li>Click the button to open your ticket</li>
+      <li>Click the status dropdown</li>
+      <li>Select the transition that triggers rollback</li>
+    </ol>
+    <div class="highlight"><strong>THIS FIRES THE ROLLBACK WEBHOOK!</strong><br>
+    EDA matches Rule 2: "Rollback requested"<br>
+    Action: Launch "Rollback Patch" job template</div>`
+  },
+  {
+    title: "EDA - Rollback Event Received",
+    screen: "aap", fire: false,
+    notes: "In the EDA Controller, the rollback event has been received and matched. The rollback rule fires. The automation responds to the QA decision within seconds.",
+    getLinks: () => L(U.aapStreams, 'Open EDA Event Streams', 'aap') + L(U.aapEDA, 'Open Rulebook Activations', 'aap'),
+    tech: `<ol>
+      <li>Click Event Streams - verify event count increased</li>
+      <li>Click into Rulebook Activation to see the rule audit log</li>
+      <li>Verify the rollback rule matched</li>
+    </ol>`
+  },
+  {
+    title: "AAP - Rollback Job Launched",
+    screen: "aap", fire: false,
+    notes: "The Rollback Patch job is now running. It targets the same Windows VM and will methodically uninstall each KB that was applied. Ansible knows exactly which KBs to remove because they were recorded during the patching phase.",
+    getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
+    tech: `<ol>
+      <li>Open AAP Jobs - look for the <strong>Rollback</strong> job</li>
+      <li>Click into the job to watch the output</li>
+      <li>Playbook: <code>rollback.yml</code></li>
+    </ol>`
+  },
+  {
+    title: "Rollback Progress - KB Removal",
+    screen: "aap", fire: false,
+    notes: "Watch the job output. Ansible is using wusa.exe to uninstall each KB individually. After all KBs are removed, it reboots the server, waits for WinRM to recover, and verifies the KBs are truly absent.",
+    getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
+    tech: `<ol>
+      <li>In job output, look for KB uninstall tasks</li>
+      <li>Method: <code>wusa.exe /uninstall /kb:XXXXX /quiet /norestart</code></li>
+      <li>Sequence: Uninstall all KBs > Reboot > Verify KBs absent</li>
+      <li>Verdict: SUCCESS (all removed) or PARTIAL (some remain)</li>
+    </ol>
+    <div class="highlight">Rollback may take 5-10 minutes</div>`
+  },
+  {
+    title: "Jira - Rollback Report Posted",
+    screen: "jira", fire: false,
+    notes: "Back in Jira, the rollback has posted its own report: KBs targeted, KBs removed, reboot status, and rollback verdict. Both the patch report AND rollback report are visible in the comment history.",
+    getLinks: () => jiraTicketLink('Open Ticket - View Rollback Report'),
+    tech: `<ol>
+      <li>Click to open your ticket</li>
+      <li>Scroll to Comments - look for the rollback report</li>
+      <li>Should show: KBs removed, reboot status, verdict</li>
+    </ol>`
+  },
+  {
+    title: "Ticket Resolved - Rollback Complete",
+    screen: "jira", fire: false,
+    notes: "The ticket is resolved after the rollback. The change record now contains the complete story: patch applied, issue found, rollback requested, system restored. Complete audit trail.",
+    getLinks: () => jiraTicketLink('Open Ticket - Resolve'),
+    tech: `<ol>
+      <li>Click to open your ticket</li>
+      <li>Click the status dropdown</li>
+      <li>Select <strong>"Mark as done"</strong> or <strong>"Resolve"</strong></li>
+    </ol>`
+  },
+  {
+    title: "Azure Snapshot - Fallback Option",
+    screen: "azure", fire: false,
+    notes: "If KB-level rollback had failed, we have the Azure disk snapshot as our ultimate fallback. We can restore the entire OS disk to the pre-patch state. Belt-and-suspenders: software rollback first, infrastructure rollback as backup.",
+    getLinks: () => L(U.azureSnapshots, 'Open Azure Snapshots', 'azure') + L(U.azureVM, 'Open Azure VM', 'azure'),
+    tech: `<ol>
+      <li>Open Snapshots blade - find the pre-patch snapshot</li>
+      <li>Restore steps:
+        <ul>
+          <li>Create new managed disk from snapshot</li>
+          <li>Stop VM</li>
+          <li>Swap OS disk</li>
+          <li>Start VM</li>
+        </ul>
+      </li>
+      <li>Recovery time: ~5 minutes</li>
+    </ol>`
+  },
+  {
+    title: "Demo Summary - Revert Patch",
+    screen: "tour", fire: false,
+    notes: "We demonstrated complete reversibility. A QA failure triggers automated rollback from a single Jira transition. Ansible removes KBs, posts a report to Jira, and Azure snapshots provide a guaranteed restore. Every step logged and auditable.",
+    getLinks: () => '',
+    tech: '',
+    summary: 'revert'
+  }
+];
+
+// ======================================================================
+// STATE
+// ======================================================================
+let state = { scenario: null, step: 0, steps: [], ticketId: '' };
+
+function setTicket() {
+  const v = document.getElementById('ticketInput').value.trim().toUpperCase();
+  if (v) {
+    state.ticketId = v;
+    render(); // re-render to update links
+  }
+}
+
+function start(scenario) {
+  state.scenario = scenario;
+  state.step = 0;
+  state.steps = scenario === 'patch' ? patchSteps : revertSteps;
+  document.getElementById('selector').style.display = 'none';
+  document.getElementById('main').style.display = 'flex';
+  document.getElementById('scenarioTag').textContent = scenario === 'patch' ? 'Patch Windows' : 'Revert Patch';
+  document.getElementById('ticketGroup').style.display = 'flex';
+  buildProgress();
+  render();
+}
+
+function buildProgress() {
+  const bar = document.getElementById('progressBar');
+  bar.innerHTML = '';
+  for (let i = 0; i < state.steps.length; i++) {
+    const s = document.createElement('div');
+    s.className = 'seg'; s.id = `seg-${i}`;
+    bar.appendChild(s);
+  }
+  updateProgress();
+}
+
+function updateProgress() {
+  for (let i = 0; i < state.steps.length; i++) {
+    const s = document.getElementById(`seg-${i}`);
+    s.className = 'seg';
+    if (i < state.step) s.classList.add('done');
+    if (i === state.step) s.classList.add('active');
+  }
+  document.getElementById('progressLabel').textContent = `Step ${state.step + 1} of ${state.steps.length}`;
+}
+
+function render() {
+  const s = state.steps[state.step];
+  const card = document.getElementById('stepCard');
+  const links = s.getLinks ? s.getLinks() : '';
+
+  let html = `
+    <div class="step-head">
+      <span class="step-num">Step ${state.step + 1}</span>
+      <span class="screen-badge ${s.screen}">${s.screen.toUpperCase()}</span>
+      ${s.fire ? '<span class="fire-badge">WEBHOOK FIRES</span>' : ''}
+    </div>
+    <div class="step-title">${s.title}</div>
+    <div class="notes ${s.screen}">${s.notes}</div>
+  `;
+
+  if (links) {
+    html += `<div class="action-box"><h4>Open in Shared Screen</h4>${links}</div>`;
+  }
+
+  if (s.tech) {
+    html += `
+      <div class="tech-box">
+        <button class="tech-toggle" onclick="toggleTech(this)">
+          <span class="arrow">&#9654;</span> Technical Instructions (what to do)
+        </button>
+        <div class="tech-content">${s.tech}</div>
+      </div>`;
+  }
+
+  if (s.summary === 'patch') {
+    html += `<div class="summary-grid">
+      <div class="summary-item"><h4>Platforms</h4><div class="val">3</div><div class="sub">Jira + AAP + Azure</div></div>
+      <div class="summary-item"><h4>Manual Steps</h4><div class="val">2</div><div class="sub">Create ticket + QA</div></div>
+      <div class="summary-item"><h4>Automated</h4><div class="val">5</div><div class="sub">Webhook, pre-check, patch, verify, report</div></div>
+      <div class="summary-item"><h4>Server Logins</h4><div class="val">0</div><div class="sub">Fully agentless</div></div>
+      <div class="summary-item"><h4>Audit Trail</h4><div class="val">Complete</div><div class="sub">Jira + AAP logs</div></div>
+      <div class="summary-item"><h4>Rollback</h4><div class="val">2 Options</div><div class="sub">KB uninstall + Snapshot</div></div>
+    </div>`;
+  }
+  if (s.summary === 'revert') {
+    html += `<div class="summary-grid">
+      <div class="summary-item"><h4>Trigger</h4><div class="val">1 Click</div><div class="sub">Jira transition</div></div>
+      <div class="summary-item"><h4>KB Removal</h4><div class="val">Auto</div><div class="sub">wusa.exe per KB</div></div>
+      <div class="summary-item"><h4>Fallback</h4><div class="val">Snapshot</div><div class="sub">Azure disk restore</div></div>
+      <div class="summary-item"><h4>Audit</h4><div class="val">Complete</div><div class="sub">Patch + Rollback reports</div></div>
+    </div>`;
+  }
+
+  card.innerHTML = html;
+  card.scrollTop = 0;
+
+  document.getElementById('btnPrev').disabled = state.step === 0;
+  const nb = document.getElementById('btnNext');
+  nb.textContent = state.step === state.steps.length - 1 ? 'Finish' : 'Next Step \u2192';
+  nb.className = s.fire ? 'nav-btn next fire' : 'nav-btn next';
+}
+
+function next() {
+  if (state.step >= state.steps.length - 1) { doReset(); return; }
+  state.step++;
+  updateProgress();
+  render();
+}
+
+function prev() {
+  if (state.step > 0) { state.step--; updateProgress(); render(); }
+}
+
+function toggleTech(btn) {
+  btn.classList.toggle('open');
+  btn.nextElementSibling.classList.toggle('show');
+}
+
+function showReset() { document.getElementById('resetModal').classList.add('show'); }
+function hideReset() { document.getElementById('resetModal').classList.remove('show'); }
+function doReset() {
+  hideReset();
+  state = { scenario: null, step: 0, steps: [], ticketId: '' };
+  document.getElementById('main').style.display = 'none';
+  document.getElementById('selector').style.display = 'flex';
+  document.getElementById('ticketGroup').style.display = 'none';
+  document.getElementById('ticketInput').value = '';
+}
+</script>
+</body>
+</html>

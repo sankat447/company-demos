@@ -33,7 +33,8 @@
       condition: >
         event.payload.issue.fields.project.key == "CHG" and
         event.payload.transition.to_status == "In Progress" and
-        event.payload.issue.fields.issuetype.name in ["Change Request", "Standard Change"]
+        event.payload.issue.fields.issuetype.name in ["Change Request", "Standard Change"] and
+        (event.payload.issue.fields.labels is not defined or "dry-run" not in event.payload.issue.fields.labels)
 
       action:
         run_job_template:
@@ -48,7 +49,7 @@
               jira_reporter:      "{{ event.payload.issue.fields.reporter.emailAddress | default('') }}"
               jira_assignee:      "{{ event.payload.issue.fields.assignee.emailAddress | default('') }}"
               dry_run:            false
-              aap_job_url_base:   "https://{{ ansible_host }}"
+              aap_job_url_base:   "https://aap.iisdemolab.click"
 
     # ── RULE 2: Ticket transitions to "Rollback Requested" → rollback workflow ──
     - name: "Jira | Rollback requested after failed QA"

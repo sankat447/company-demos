@@ -19,11 +19,26 @@
   register: patch_result
   check_mode: "{{ dry_run | default(false) | bool }}"
 
-- name: "PATCH | Record results"
+- name: "PATCH | Record basic results"
   ansible.builtin.set_fact:
-    newly_installed_kbs:  "{{ patch_result.updates | default({}) | dict2items | selectattr('value.installed','equalto',true) | map(attribute='key') | list }}"
     patch_reboot_required: "{{ patch_result.reboot_required | default(false) }}"
     patch_failed_count:    "{{ patch_result.failed_update_count | default(0) }}"
+
+- name: "PATCH | Extract actual KB IDs from update titles"
+  ansible.builtin.set_fact:
+    newly_installed_kbs: >-
+      {{
+        patch_result.updates | default({}) | dict2items |
+        selectattr('value.installed', 'equalto', true) |
+        map(attribute='key') |
+        map('regex_findall', 'KB\d+') | flatten | unique | list
+      }}
+
+- name: "PATCH | Persist installed KBs to VM for rollback"
+  when: newly_installed_kbs | length > 0
+  ansible.windows.win_copy:
+    content: "{{ newly_installed_kbs | to_json }}"
+    dest: 'C:\Windows\Temp\ansible_last_patch_kbs.json'
 
 - name: "PATCH | Fail if any updates failed"
   ansible.builtin.fail:
