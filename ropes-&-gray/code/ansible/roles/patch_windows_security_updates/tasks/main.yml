@@ -5,10 +5,25 @@
     that: pre_change_state is defined
     fail_msg: "Run pre_change_snapshot role first."
 
-- name: "PATCH | Abort if pending reboot already exists"
-  ansible.builtin.fail:
-    msg: "Pending reboot detected before patching on {{ inventory_hostname }}. Resolve first."
+- name: "PATCH | Warn if pending reboot already exists"
+  ansible.builtin.debug:
+    msg: "WARNING: Pending reboot detected on {{ inventory_hostname }}. Rebooting before patching."
   when: pre_change_state.pending_reboot | bool
+
+- name: "PATCH | Clear pending reboot before patching"
+  when: pre_change_state.pending_reboot | bool and not (dry_run | default(false) | bool)
+  block:
+    - name: "PATCH | Reboot to clear pending state"
+      ansible.windows.win_reboot:
+        msg: "Ansible pre-patch reboot to clear pending state"
+        reboot_timeout: "{{ patch_reboot_timeout | default(900) }}"
+        post_reboot_delay: 60
+
+    - name: "PATCH | Wait for WinRM after pre-patch reboot"
+      ansible.builtin.wait_for_connection:
+        delay: 30
+        sleep: 10
+        timeout: 300
 
 - name: "PATCH | Install Windows security updates"
   ansible.windows.win_updates:

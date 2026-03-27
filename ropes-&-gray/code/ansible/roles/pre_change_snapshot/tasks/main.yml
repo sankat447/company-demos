@@ -89,13 +89,36 @@
         (['HIGH_PENDING_UPDATES_' + (aum_pending_security | default(0) | string)] if (aum_pending_security | default(0) | int) > (risk_pending_updates_warn | default(20) | int) else [])
       }}
 
-- name: "PRE | Take Azure disk snapshot"
+- name: "PRE | Take Azure disk snapshot via CLI"
   when: cloud_provider == 'azure' and azure_snapshot_enabled | default(false) | bool
-  ansible.builtin.debug:
-    msg: >
-      Azure snapshot would be triggered here via azure.azcollection.
-      Snapshot name: {{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}
-      Requires azure_access_token set as AAP credential at runtime.
+  block:
+    - name: "PRE | Get OS disk name"
+      ansible.builtin.command: >
+        az vm show
+        --resource-group {{ azure_resource_group }}
+        --name {{ azure_vm_name | default('vm-win-target') }}
+        --query "storageProfile.osDisk.name" -o tsv
+      register: os_disk_name
+      delegate_to: localhost
+      changed_when: false
+
+    - name: "PRE | Create snapshot"
+      ansible.builtin.command: >
+        az snapshot create
+        --resource-group {{ azure_resource_group }}
+        --name "{{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}"
+        --source "{{ os_disk_name.stdout | trim }}"
+        --tags Purpose=pre-patch Ticket={{ jira_ticket_id | default('unknown') }} CreatedBy=ansible
+      register: snapshot_result
+      delegate_to: localhost
+
+    - name: "PRE | Snapshot created"
+      ansible.builtin.debug:
+        msg: "Snapshot created: {{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}"
+  rescue:
+    - name: "PRE | Snapshot failed (non-fatal)"
+      ansible.builtin.debug:
+        msg: "Azure snapshot creation failed: {{ ansible_failed_result.msg | default('unknown error') }}. Continuing without snapshot."
 
 - name: "PRE | Build pre_change_state fact"
   ansible.builtin.set_fact:
