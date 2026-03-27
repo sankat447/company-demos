@@ -62,6 +62,25 @@
   }
   .selector h2 { font-size: 26px; font-weight: 300; }
   .selector p { color: var(--text2); max-width: 480px; text-align: center; }
+  .launch-btn {
+    padding: 14px 32px; background: linear-gradient(135deg, var(--green), #2ea043);
+    color: #000; border: none; border-radius: 10px; font-size: 16px; font-weight: 700;
+    cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 10px;
+  }
+  .launch-btn:hover { transform: scale(1.03); box-shadow: 0 4px 20px rgba(59,185,80,0.3); }
+  .launch-status {
+    font-size: 12px; color: var(--green); margin-top: 6px;
+    display: none; align-items: center; gap: 6px;
+  }
+  .launch-status.show { display: flex; }
+  .tab-indicators { display: flex; gap: 12px; margin-top: 8px; }
+  .tab-dot {
+    display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text2);
+  }
+  .tab-dot .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--border);
+  }
+  .tab-dot .dot.open { background: var(--green); }
   .scenario-cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
   .s-card {
     padding: 20px 28px; border: 2px solid var(--border); border-radius: 12px;
@@ -232,8 +251,17 @@
 </div>
 
 <div class="selector" id="selector">
-  <h2>Choose a Demo Scenario</h2>
-  <p>Each step has speaker notes, clickable navigation buttons, and technical instructions.</p>
+  <h2>Hybrid Patch Management Demo</h2>
+  <p>Step 1: Launch all demo tabs. Step 2: Choose a scenario. Each step has speaker notes, clickable buttons, and technical instructions.</p>
+  <button class="launch-btn" id="launchBtn" onclick="launchAllTabs()">
+    &#x1F680; Launch Demo Tabs (Jira + AAP + Azure)
+  </button>
+  <div class="tab-indicators" id="tabIndicators">
+    <div class="tab-dot"><span class="dot" id="dot-jira"></span> Jira</div>
+    <div class="tab-dot"><span class="dot" id="dot-aap"></span> AAP</div>
+    <div class="tab-dot"><span class="dot" id="dot-azure"></span> Azure</div>
+  </div>
+  <div class="launch-status" id="launchStatus">&#x2705; All tabs opened — arrange them on your shared screen</div>
   <div class="scenario-cards">
     <div class="s-card" onclick="start('patch')">
       <div class="icon">&#x1F6E1;&#xFE0F;</div>
@@ -290,6 +318,27 @@ const U = {
   aapStreams: 'https://aap.iisdemolab.click/decisions/event-streams',
   aapTemplates: 'https://aap.iisdemolab.click/execution/templates',
 };
+
+// Track opened windows
+const demoWindows = { jira: null, aap: null, azure: null };
+
+function launchAllTabs() {
+  demoWindows.jira = window.open(U.jiraBoard, 'demo-jira');
+  demoWindows.aap = window.open(U.aapOverview, 'demo-aap');
+  demoWindows.azure = window.open(U.azureVM, 'demo-azure');
+
+  // Update indicators
+  setTimeout(() => {
+    ['jira','aap','azure'].forEach(k => {
+      const dot = document.getElementById('dot-' + k);
+      if (demoWindows[k] && !demoWindows[k].closed) {
+        dot.classList.add('open');
+      }
+    });
+    document.getElementById('launchStatus').classList.add('show');
+    document.getElementById('launchBtn').innerHTML = '&#x2705; Tabs Launched — Click again to re-open';
+  }, 1000);
+}
 
 function targetFor(cls) {
   if (cls === 'jira') return 'demo-jira';
