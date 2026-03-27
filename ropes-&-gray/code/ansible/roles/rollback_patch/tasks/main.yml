@@ -8,6 +8,23 @@
   ansible.builtin.set_fact:
     rollback_start: "{{ ansible_date_time.iso8601 }}"
 
+- name: "ROLLBACK | Load KB list from VM if not provided"
+  when: newly_installed_kbs is not defined or (newly_installed_kbs | length) == 0
+  block:
+    - name: "ROLLBACK | Read persisted KB list from VM"
+      ansible.windows.win_shell: |
+        if (Test-Path 'C:\Windows\Temp\ansible_last_patch_kbs.json') {
+          Get-Content 'C:\Windows\Temp\ansible_last_patch_kbs.json' -Raw
+        } else {
+          Write-Output '[]'
+        }
+      register: persisted_kbs_raw
+      changed_when: false
+
+    - name: "ROLLBACK | Set newly_installed_kbs from persisted file"
+      ansible.builtin.set_fact:
+        newly_installed_kbs: "{{ persisted_kbs_raw.stdout | from_json }}"
+
 - name: "ROLLBACK | Assert KB list exists"
   ansible.builtin.assert:
     that: newly_installed_kbs is defined and (newly_installed_kbs | length) > 0
@@ -125,6 +142,7 @@
   when:
     - jira_ticket_id is defined and jira_ticket_id | length > 0
     - rollback_transitions is not failed
+    - rb_transition_id | length > 0
   vars:
     rb_transition_id: >-
       {{
@@ -144,7 +162,6 @@
         id: "{{ rb_transition_id }}"
     status_code: [204]
   delegate_to: localhost
-  when: rb_transition_id | length > 0
 
 - name: "ROLLBACK | Summary"
   ansible.builtin.debug:

@@ -137,6 +137,7 @@
     - jira_ticket_id is defined and jira_ticket_id | length > 0
     - post_change_state.verdict == 'PASS'
     - jira_transitions is not failed
+    - transition_id | length > 0
   vars:
     transition_id: >-
       {{
@@ -156,7 +157,6 @@
         id: "{{ transition_id }}"
     status_code: [204]
   delegate_to: localhost
-  when: transition_id | length > 0
 
 - name: "VERIFY | Fail playbook if verdict is FAIL (triggers rollback edge in AAP workflow)"
   ansible.builtin.fail:
