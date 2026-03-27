@@ -1,0 +1,12 @@
+---
+# ansible/collections/requirements.yml
+# AAP Project will auto-install these when syncing from Git
+collections:
+  - name: ansible.windows
+    version: ">=2.3.0"
+  - name: community.windows
+    version: ">=2.1.0"
+  - name: azure.azcollection
+    version: ">=2.3.0"
+  - name: ansible.utils
+    version: ">=3.0.0"

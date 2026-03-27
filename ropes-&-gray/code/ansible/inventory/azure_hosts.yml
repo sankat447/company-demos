@@ -8,7 +8,7 @@ all:
     windows:
       hosts:
         win-azure-01:
-          ansible_host: "AZURE_WIN_IP"
+          ansible_host: "20.117.166.170"
           ansible_user: demoAdmin
           cloud_provider: azure
           azure_resource_group: "rg-patch-demo"
@@ -17,7 +17,7 @@ all:
 
       vars:
         ansible_connection: winrm
-        ansible_winrm_transport: basic
+        ansible_winrm_transport: ntlm
         ansible_winrm_scheme: https
         ansible_winrm_port: 5986
         ansible_winrm_server_cert_validation: ignore
