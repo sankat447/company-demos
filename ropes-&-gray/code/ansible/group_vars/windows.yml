@@ -7,7 +7,7 @@
 ansible_password: "{{ vault_windows_password | default(lookup('env','WIN_PASS') | default('DemoP@ssw0rd2024!')) }}"
 
 # Jira – injected by the Jira API Token custom credential
-jira_base_url:   "{{ jira_base_url | default('https://yoursite.atlassian.net') }}"
+jira_base_url:   "{{ jira_base_url | default('https://iisl.atlassian.net') }}"
 jira_project_key: "CHG"
 jira_api_token:  "{{ jira_api_token | default('') }}"
 jira_user_email: "{{ jira_user_email | default('') }}"
