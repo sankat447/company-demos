@@ -99,12 +99,12 @@
   delegate_to: localhost
 
 - name: "VERIFY | Post comment to Jira ticket"
-  when: jira_ticket_id is defined and jira_ticket_id | length > 0
+  when: jira_ticket_id is defined and jira_ticket_id | length > 0 and jira_api_token is defined and jira_api_token | length > 0
   ansible.builtin.uri:
-    url: "{{ jira_base_url }}/rest/api/3/issue/{{ jira_ticket_id }}/comment"
+    url: "{{ jira_base_url | default('https://iisl.atlassian.net') }}/rest/api/3/issue/{{ jira_ticket_id }}/comment"
     method: POST
     headers:
-      Authorization: "Basic {{ (jira_user_email + ':' + jira_api_token) | b64encode }}"
+      Authorization: "Basic {{ ((jira_user_email | default('skumar@iisl.com')) + ':' + jira_api_token) | b64encode }}"
       Content-Type:  "application/json"
     body_format: json
     body:
@@ -123,7 +123,7 @@
 - name: "VERIFY | Get available Jira transitions"
   when: jira_ticket_id is defined and jira_ticket_id | length > 0
   ansible.builtin.uri:
-    url: "{{ jira_base_url }}/rest/api/3/issue/{{ jira_ticket_id }}/transitions"
+    url: "{{ jira_base_url | default('https://iisl.atlassian.net') }}/rest/api/3/issue/{{ jira_ticket_id }}/transitions"
     method: GET
     headers:
       Authorization: "Basic {{ (jira_user_email + ':' + jira_api_token) | b64encode }}"
@@ -146,7 +146,7 @@
         map(attribute='id') | first | default('')
       }}
   ansible.builtin.uri:
-    url: "{{ jira_base_url }}/rest/api/3/issue/{{ jira_ticket_id }}/transitions"
+    url: "{{ jira_base_url | default('https://iisl.atlassian.net') }}/rest/api/3/issue/{{ jira_ticket_id }}/transitions"
     method: POST
     headers:
       Authorization: "Basic {{ (jira_user_email + ':' + jira_api_token) | b64encode }}"
