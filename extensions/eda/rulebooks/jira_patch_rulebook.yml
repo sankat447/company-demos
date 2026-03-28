@@ -1,11 +1,4 @@
 ---
-# aap/eda/rulebooks/jira_patch_rulebook.yml
-#
-# EDA Controller rulebook for Jira → AAP patching.
-# Source is empty webhook — EDA Controller injects the external event stream.
-# Condition uses simple "is defined" catch-all for reliability.
-
----
 - name: Jira patch lifecycle handler
   hosts: all
 
@@ -13,9 +6,7 @@
     - ansible.eda.webhook: {}
 
   rules:
-
-    # ── RULE 1: Any event with payload → launch patch ──
-    - name: "Jira | Event received – launch patch"
+    - name: "Jira | Event received - launch patch"
       condition: event.payload is defined
       action:
         run_job_template:
@@ -23,8 +14,8 @@
           organization: "IIS Demo Lab"
           job_args:
             extra_vars:
-              jira_ticket_id:   "{{ event.payload.issue_key | default('CHG-0') }}"
-              jira_summary:     "{{ event.payload.issue_summary | default('Manual trigger') }}"
-              target_hosts:     "windows"
-              dry_run:          false
+              jira_ticket_id: "{{ event.payload.issue_key | default('CHG-0') }}"
+              jira_summary: "{{ event.payload.issue_summary | default('Manual trigger') }}"
+              target_hosts: "windows"
+              dry_run: false
               aap_job_url_base: "https://aap.iisdemolab.click"
