@@ -15,7 +15,7 @@
   vars:
     dry_run: "{{ dry_run | default(false) | bool }}"
   roles:
-    - pre_change_snapshot
+    - role: ../roles/pre_change_snapshot
 
 - name: "Phase 2 | Patch Windows security updates"
   hosts: "{{ target_hosts | default('windows') }}"
@@ -23,7 +23,7 @@
   vars:
     dry_run: "{{ dry_run | default(false) | bool }}"
   roles:
-    - patch_windows_security_updates
+    - role: ../roles/patch_windows_security_updates
 
 - name: "Phase 3 | Post-change verification and Jira update"
   hosts: "{{ target_hosts | default('windows') }}"
@@ -31,4 +31,4 @@
   vars:
     dry_run: "{{ dry_run | default(false) | bool }}"
   roles:
-    - post_change_verify
+    - role: ../roles/post_change_verify
