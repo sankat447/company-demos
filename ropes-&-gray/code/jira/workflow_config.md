@@ -1,62 +1,64 @@
 # Jira Workflow Configuration
 
-## Statuses to create (in order)
+## Workflow: CHG: Azure Windows Infrastructure Management
 
-Go to: **Settings → Issues → Statuses → Add status** for each one.
+### Statuses
 
 | Status name | Category | Description |
 |---|---|---|
-| New | To Do | Change request submitted, not yet reviewed |
-| Pending Review | In Progress | Technical review in progress |
-| Approved | In Progress | Change approved by CAB / manager |
-| In Progress | In Progress | Execution triggered; AAP workflow running |
-| Pending QA | In Progress | Patch complete; awaiting QA sign-off |
-| Rollback Requested | In Progress | QA failed; rollback workflow triggered |
-| Resolved | Done | Change complete and QA approved |
-| Cancelled | Done | Change cancelled before execution |
+| New CHG Request | To Do | Change request submitted, not yet reviewed |
+| Under Review | In Progress | Technical review in progress |
+| Patch Windows (Automation) | In Progress | EDA webhook fires; AAP patch workflow running |
+| QA Testing | In Progress | Patch complete; awaiting QA sign-off |
+| Accepted | Done | Change accepted after QA |
+| Revert Patch | In Progress | QA failed; EDA rollback webhook fires |
+| Resolved | Done | Rollback complete |
 
-## Workflow transitions to create
-
-Go to: **Project Settings → Workflows → Edit** on your Change Request workflow.
+### Transitions
 
 | Transition name | From | To | Who triggers | How |
 |---|---|---|---|---|
-| Submit for review | New | Pending Review | Engineer | Manual |
-| Approve | Pending Review | Approved | Manager / CAB | Manual (with approval screen) |
-| Start execution | Approved | In Progress | Change approver | Manual — **this fires the EDA webhook** |
-| Execution complete | In Progress | Pending QA | AAP (automated) | REST API call from Ansible playbook |
-| QA passed | Pending QA | Resolved | QA engineer | Manual |
-| Request rollback | Pending QA | Rollback Requested | QA engineer | Manual — **this fires EDA rollback rule** |
-| Rollback complete | Rollback Requested | Resolved | AAP (automated) | REST API call from rollback role |
-| Cancel | Any open state | Cancelled | Engineer / manager | Manual |
+| Submit for review | New CHG Request | Under Review | Engineer | Manual |
+| Start patching | Under Review | Patch Windows (Automation) | Change approver | Manual — **fires EDA patch webhook** |
+| Execution complete | Patch Windows (Automation) | QA Testing | AAP (automated) | REST API call from Ansible playbook |
+| QA passed | QA Testing | Accepted | QA engineer | Manual |
+| Request rollback | QA Testing | Revert Patch | QA engineer | Manual — **fires EDA rollback webhook** |
+| Rollback complete | Revert Patch | Resolved | AAP (automated) | REST API call from rollback role |
 
-## Step-by-step: create the workflow
+### Flow diagram
 
-1. Go to **Settings → Issues → Workflows → Add workflow**
-2. Name: `Change Request Lifecycle`
-3. Add all 8 statuses above (drag from left panel)
-4. Add each transition listed above (click between status bubbles)
-5. For the **Approve** transition, add a screen:
-   - Create screen: `Approval Screen`
-   - Fields: Approver comments (text field), Risk acceptance (checkbox)
-   - Attach to Approve transition
-6. Click **Publish**
+```
+[New CHG Request] → [Under Review] → [Patch Windows (Automation)] → [QA Testing] → [Accepted]
+                                              ↑ fires EDA                  ↓
+                                              webhook               [Revert Patch] → [Resolved]
+                                                                     ↑ fires EDA
+                                                                     rollback webhook
+```
 
-## Associate workflow to project
+## Jira Automation rules
 
-1. **Project Settings → Workflows → Add workflow scheme**
-2. Name: `CHG Workflow Scheme`
-3. Associate `Change Request Lifecycle` to issue type `Change Request`
-4. Click **Associate** and migrate existing issues
+### Rule 1: Notify AAP on Patch Windows
+- Trigger: `Work item transitioned`
+- From status: `Under Review`
+- To status: `Patch Windows (Automation)`
+- Action: Send web request POST to EDA webhook
+- Payload: `{"issue_key": "{{issue.key}}", "issue_summary": "{{issue.summary}}", "project_key": "{{issue.fields.project.key}}", "issue_status": "Patch Windows (Automation)"}`
 
-## Setting the automation to fire on "In Progress" transition
+### Rule 2: Trigger AAP Rollback
+- Trigger: `Work item transitioned`
+- From status: `QA Testing`
+- To status: `Revert Patch`
+- Action: Send web request POST to EDA webhook
+- Payload: `{"issue_key": "{{issue.key}}", "issue_summary": "{{issue.summary}}", "project_key": "{{issue.fields.project.key}}", "issue_status": "Revert Patch"}`
 
-The EDA webhook fires specifically when a ticket transitions to **In Progress**.
-This maps to the "Start execution" transition above.
+## Webhook URL
+```
+https://54.86.7.223/eda-event-streams/api/eda/v1/external_event_stream/<event-stream-uuid>/post/
+```
 
-In the Jira Automation rule (see `webhook_eda_config.md`), set:
-- Trigger: `Issue transitioned`
-- From status: `Approved`
-- To status: `In Progress`
-
-This ensures the webhook only fires on deliberate approval, not accidental transitions.
+## Ansible status mappings (group_vars/windows.yml)
+```yaml
+jira_status_pending_qa:          "QA Testing"
+jira_status_rollback_requested:  "Revert Patch"
+jira_status_resolved:            "Resolved"
+```
