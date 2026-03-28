@@ -1,60 +1,30 @@
 ---
-# EDA rulebook: Jira webhook events → AAP job templates
-# Jira Automation sends a POST with custom JSON when a Change ticket transitions.
-# Payload format: {"issue_key":"CHG-1","status":"Implementing","issue_type":"Change",...}
+# aap/eda/rulebooks/jira_patch_rulebook.yml
+#
+# EDA Controller rulebook for Jira → AAP patching.
+# Source is empty webhook — EDA Controller injects the external event stream.
+# Condition uses simple "is defined" catch-all for reliability.
+
+---
 - name: Jira patch lifecycle handler
   hosts: all
 
   sources:
-    - ansible.eda.webhook:
-        host: 0.0.0.0
-        port: 5000
+    - ansible.eda.webhook: {}
 
   rules:
 
-    # ── RULE 1: Change ticket moves to "Implementing" → start patch workflow ──
-    - name: "Jira | Change ticket implementing - launch patch"
-      condition: >
-        event.payload.status is defined and
-        event.payload.status == "Implementing"
-
+    # ── RULE 1: Any event with payload → launch patch ──
+    - name: "Jira | Event received – launch patch"
+      condition: event.payload is defined
       action:
         run_job_template:
           name: "Hybrid Patch Workflow"
           organization: "IIS Demo Lab"
           job_args:
             extra_vars:
-              jira_ticket_id:   "{{ event.payload.issue_key }}"
-              target_hosts:     "{{ event.payload.patch_scope | default('windows') }}"
-              risk_level:       "{{ event.payload.risk_level | default('Medium') }}"
+              jira_ticket_id:   "{{ event.payload.issue_key | default('CHG-0') }}"
+              jira_summary:     "{{ event.payload.issue_summary | default('Manual trigger') }}"
+              target_hosts:     "windows"
               dry_run:          false
-
-    # ── RULE 2: Dry-run request (label detected) ──
-    - name: "Jira | Dry-run patch check"
-      condition: >
-        event.payload.status is defined and
-        event.payload.status == "Implementing" and
-        event.payload.dry_run is defined and
-        event.payload.dry_run == "true"
-
-      action:
-        run_job_template:
-          name: "Hybrid Patch Workflow"
-          organization: "IIS Demo Lab"
-          job_args:
-            extra_vars:
-              jira_ticket_id: "{{ event.payload.issue_key }}"
-              target_hosts:   "{{ event.payload.patch_scope | default('windows') }}"
-              dry_run:        true
-
-    # ── RULE 3: Catch-all – log for audit ──
-    - name: "Jira | Unhandled event – log for audit"
-      condition: >
-        event.payload.issue_key is defined
-
-      action:
-        debug:
-          msg: >
-            Jira event: {{ event.payload.issue_key }}
-            status={{ event.payload.status | default('unknown') }}
-            type={{ event.payload.issue_type | default('unknown') }}
+              aap_job_url_base: "https://aap.iisdemolab.click"
