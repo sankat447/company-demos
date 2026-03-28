@@ -13,8 +13,8 @@ jira_api_token:  "{{ jira_api_token }}"
 jira_user_email: "{{ jira_user_email }}"
 
 # Jira status transitions (must match your workflow status names exactly)
-jira_status_pending_qa:          "Pending QA"
-jira_status_rollback_requested:  "Rollback Requested"
+jira_status_pending_qa:          "QA Testing"
+jira_status_rollback_requested:  "Revert Patch"
 jira_status_resolved:            "Resolved"
 
 # Azure
