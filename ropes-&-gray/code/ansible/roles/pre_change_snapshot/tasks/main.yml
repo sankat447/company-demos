@@ -19,15 +19,12 @@
     pre_installed_kbs: "{{ pre_hotfix_raw.stdout | from_json }}"
 
 - name: "PRE | Query Azure Update Manager for pending updates"
-  when: aum_query_enabled | default(false) | bool and cloud_provider == 'azure'
+  when: aum_query_enabled | default(false) | bool and cloud_provider | default('') == 'azure'
   ansible.builtin.uri:
-    url: >-
-      https://management.azure.com/subscriptions/{{ azure_subscription_id }}/
-      resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/
-      virtualMachines/{{ inventory_hostname }}/assessPatches?api-version=2022-11-01
+    url: "https://management.azure.com/subscriptions/{{ azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/virtualMachines/{{ azure_vm_name | default('vm-win-target') }}/assessPatches?api-version=2024-03-01"
     method: POST
     headers:
-      Authorization: "Bearer {{ azure_access_token | default('') }}"
+      Authorization: "Bearer {{ _azure_token | default(azure_access_token | default('')) }}"
       Content-Type: "application/json"
     body: "{}"
     return_content: true
@@ -89,36 +86,117 @@
         (['HIGH_PENDING_UPDATES_' + (aum_pending_security | default(0) | string)] if (aum_pending_security | default(0) | int) > (risk_pending_updates_warn | default(20) | int) else [])
       }}
 
-- name: "PRE | Take Azure disk snapshot via CLI"
-  when: cloud_provider == 'azure' and azure_snapshot_enabled | default(false) | bool
-  block:
-    - name: "PRE | Get OS disk name"
-      ansible.builtin.command: >
-        az vm show
-        --resource-group {{ azure_resource_group }}
-        --name {{ azure_vm_name | default('vm-win-target') }}
-        --query "storageProfile.osDisk.name" -o tsv
-      register: os_disk_name
-      delegate_to: localhost
-      changed_when: false
+- name: "PRE | Check Azure SP credentials available"
+  ansible.builtin.set_fact:
+    azure_sp_available: >-
+      {{
+        (lookup('env', 'AZURE_CLIENT_ID') | default(azure_client_id | default(''), true) | length > 0) and
+        (lookup('env', 'AZURE_SECRET') | default(azure_client_secret | default(''), true) | length > 0)
+      }}
+  when: cloud_provider | default('') == 'azure' and azure_snapshot_enabled | default(false) | bool
 
-    - name: "PRE | Create snapshot"
-      ansible.builtin.command: >
-        az snapshot create
-        --resource-group {{ azure_resource_group }}
-        --name "{{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}"
-        --source "{{ os_disk_name.stdout | trim }}"
-        --tags Purpose=pre-patch Ticket={{ jira_ticket_id | default('unknown') }} CreatedBy=ansible
+- name: "PRE | Skip snapshot - no Azure credentials"
+  ansible.builtin.debug:
+    msg: "Skipping Azure snapshot: Service Principal credentials not configured. Set AZURE_CLIENT_ID/AZURE_SECRET via AAP credential or provide azure_client_id/azure_client_secret."
+  when:
+    - cloud_provider | default('') == 'azure'
+    - azure_snapshot_enabled | default(false) | bool
+    - not (azure_sp_available | default(false) | bool)
+
+- name: "PRE | Take Azure disk snapshot via REST API"
+  when:
+    - cloud_provider | default('') == 'azure'
+    - azure_snapshot_enabled | default(false) | bool
+    - azure_sp_available | default(false) | bool
+  block:
+    - name: "PRE | Set Azure SP vars from environment"
+      ansible.builtin.set_fact:
+        _azure_client_id: "{{ lookup('env', 'AZURE_CLIENT_ID') | default(azure_client_id, true) }}"
+        _azure_client_secret: "{{ lookup('env', 'AZURE_SECRET') | default(azure_client_secret, true) }}"
+        _azure_tenant_id: "{{ lookup('env', 'AZURE_TENANT') | default(azure_tenant_id | default('3b6a72b3-61ba-4247-b769-2e682380a0ab'), true) }}"
+        _azure_subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') | default(azure_subscription_id, true) }}"
+      no_log: true
+
+    - name: "PRE | Get Azure access token via SP"
+      ansible.builtin.uri:
+        url: "https://login.microsoftonline.com/{{ _azure_tenant_id }}/oauth2/v2.0/token"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: client_credentials
+          client_id: "{{ _azure_client_id }}"
+          client_secret: "{{ _azure_client_secret }}"
+          scope: "https://management.azure.com/.default"
+        return_content: true
+        status_code: [200]
+      register: azure_token_response
+      delegate_to: localhost
+      no_log: true
+
+    - name: "PRE | Set access token"
+      ansible.builtin.set_fact:
+        _azure_token: "{{ azure_token_response.json.access_token }}"
+      no_log: true
+
+    - name: "PRE | Get VM info for OS disk"
+      ansible.builtin.uri:
+        url: "https://management.azure.com/subscriptions/{{ _azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/virtualMachines/{{ azure_vm_name | default('vm-win-target') }}?api-version=2024-03-01"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ _azure_token }}"
+        return_content: true
+        status_code: [200]
+      register: vm_info
+      delegate_to: localhost
+
+    - name: "PRE | Parse OS disk ID"
+      ansible.builtin.set_fact:
+        _os_disk_name: "{{ vm_info.json.properties.storageProfile.osDisk.name }}"
+        _os_disk_id: "{{ vm_info.json.properties.storageProfile.osDisk.managedDisk.id }}"
+
+    - name: "PRE | Create disk snapshot"
+      ansible.builtin.uri:
+        url: "https://management.azure.com/subscriptions/{{ _azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/snapshots/{{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}?api-version=2024-03-01"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ _azure_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          location: "{{ azure_location }}"
+          properties:
+            creationData:
+              createOption: "Copy"
+              sourceResourceId: "{{ _os_disk_id }}"
+          tags:
+            Purpose: "pre-patch"
+            Ticket: "{{ jira_ticket_id | default('unknown') }}"
+            CreatedBy: "ansible"
+            SourceDisk: "{{ _os_disk_name }}"
+        return_content: true
+        status_code: [200, 201, 202]
       register: snapshot_result
       delegate_to: localhost
 
-    - name: "PRE | Snapshot created"
+    - name: "PRE | Snapshot created successfully"
+      ansible.builtin.set_fact:
+        snapshot_created: true
+        snapshot_name: "{{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}"
+
+    - name: "PRE | Log snapshot success"
       ansible.builtin.debug:
-        msg: "Snapshot created: {{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}"
+        msg: "Azure snapshot created: {{ snapshot_name }} from disk {{ _os_disk_name }}"
   rescue:
     - name: "PRE | Snapshot failed (non-fatal)"
+      ansible.builtin.set_fact:
+        snapshot_created: false
+
+    - name: "PRE | Log snapshot failure"
       ansible.builtin.debug:
-        msg: "Azure snapshot creation failed: {{ ansible_failed_result.msg | default('unknown error') }}. Continuing without snapshot."
+        msg: >-
+          Azure snapshot skipped due to error: {{ ansible_failed_result.msg | default('unknown error') }}.
+          Patching will continue without a snapshot. To fix, update the Azure SP secret in AAP credential
+          'Azure Service Principal - Patch Demo'.
 
 - name: "PRE | Build pre_change_state fact"
   ansible.builtin.set_fact:
@@ -131,6 +209,8 @@
       uptime_days:     "{{ pre_uptime_days }}"
       risk_flags:      "{{ pre_risk_flags }}"
       aum_pending:     "{{ aum_pending_security | default('N/A') }}"
+      snapshot:        "{{ snapshot_name | default('none') }}"
+      snapshot_created: "{{ snapshot_created | default(false) }}"
 
 - name: "PRE | Summary"
   ansible.builtin.debug:

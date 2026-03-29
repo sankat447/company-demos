@@ -18,7 +18,8 @@ jira_status_rollback_requested:  "Revert Patch"
 jira_status_resolved:            "Resolved"
 
 # Azure
-azure_subscription_id: "{{ vault_azure_subscription_id | default(lookup('env','TF_VAR_azure_subscription_id') | default('')) }}"
+cloud_provider:        "azure"
+azure_subscription_id: "{{ vault_azure_subscription_id | default(lookup('env','TF_VAR_azure_subscription_id') | default('62e011bd-876a-4f15-aa29-5267d77768d2')) }}"
 azure_resource_group:  "rg-patch-demo"
 azure_location:        "uksouth"
 azure_vm_name:         "vm-win-target"
