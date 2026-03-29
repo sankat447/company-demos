@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IIS Technology | Hybrid Patch Management Demo - Ropes &amp; Gray</title>
+<title>IIS Technology | Automated Azure Windows Patch Management Demo - Ropes &amp; Gray</title>
 <style>
   :root {
     --bg: #0d1117; --card: #161b22; --card-hover: #1c2230; --border: #30363d;
@@ -59,7 +59,8 @@
   /* Selector */
   .selector {
     display: flex; flex-direction: column; align-items: center;
-    justify-content: center; flex: 1; gap: 28px; padding: 40px;
+    justify-content: flex-start; flex: 1; gap: 24px; padding: 30px 20px 40px;
+    overflow-y: auto;
   }
   .selector h2 { font-size: 26px; font-weight: 300; }
   .selector p { color: var(--text2); max-width: 480px; text-align: center; }
@@ -86,12 +87,49 @@
   .s-card {
     padding: 20px 28px; border: 2px solid var(--border); border-radius: 12px;
     background: var(--card); color: var(--text); cursor: pointer; transition: all 0.2s;
-    text-align: center; width: 240px;
+    text-align: center; width: 280px;
   }
-  .s-card:hover { border-color: var(--red); background: var(--card-hover); }
+  .s-card:hover { border-color: var(--green); background: var(--card-hover); }
   .s-card .icon { font-size: 28px; margin-bottom: 10px; }
   .s-card h3 { font-size: 16px; margin-bottom: 6px; }
   .s-card .info { font-size: 12px; color: var(--text2); }
+
+  /* Intro Section */
+  .intro-section {
+    max-width: 820px; width: 100%; text-align: center;
+    padding: 0 20px;
+  }
+  .intro-section h3 {
+    font-size: 18px; font-weight: 500; color: var(--text); margin-bottom: 8px;
+  }
+  .intro-section p {
+    font-size: 13px; color: var(--text2); line-height: 1.7; max-width: 700px; margin: 0 auto;
+  }
+
+  /* SVG Diagram */
+  .diagram-container {
+    max-width: 960px; width: 100%; padding: 0 10px;
+  }
+  .diagram-container svg {
+    width: 100%; height: auto;
+  }
+
+  /* Capability Cards */
+  .cap-cards {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    max-width: 820px; width: 100%; padding: 0 10px;
+  }
+  @media (max-width: 700px) {
+    .cap-cards { grid-template-columns: repeat(2, 1fr); }
+  }
+  .cap-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 14px; text-align: center; transition: border-color 0.2s;
+  }
+  .cap-card:hover { border-color: var(--green); }
+  .cap-card .cap-icon { font-size: 24px; margin-bottom: 8px; }
+  .cap-card h4 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .cap-card p { font-size: 11px; color: var(--text2); line-height: 1.5; }
 
   /* Main */
   .main { display: none; flex: 1; flex-direction: column; padding: 16px 20px; gap: 12px; overflow-y: auto; }
@@ -272,9 +310,9 @@
 
 <div class="header">
   <div class="header-left">
-    <div class="header-logo" style="background:linear-gradient(135deg,var(--iis),var(--aap));">HP</div>
+    <div class="header-logo" style="background:linear-gradient(135deg,var(--iis),var(--aap));">AW</div>
     <div>
-      <div class="header-title">Hybrid Patch Management</div>
+      <div class="header-title">Automated Azure Windows Patch Management</div>
       <div class="header-sub">Event-Driven Automation for Enterprise Security Compliance</div>
     </div>
   </div>
@@ -292,9 +330,323 @@
   <div class="client-badge">
     <div><span class="for">Prepared for</span><br><span class="name">Ropes &amp; Gray LLP</span></div>
   </div>
-  <h2>Hybrid Patch Management</h2>
+  <h2>Automated Azure Windows Patch Management</h2>
   <p style="max-width:560px;">Automated, auditable, and reversible Windows patching for enterprise environments. Integrating Jira Service Management, Red Hat Ansible Automation Platform, and Microsoft Azure.</p>
   <p style="font-size:12px;color:var(--muted);margin-top:-12px;">Presented by IIS Technology &middot; ISO 9001-Certified &middot; 30+ Years IT Solutions</p>
+
+  <!-- Intro Section -->
+  <div class="intro-section">
+    <h3>How It Works</h3>
+    <p>An engineer creates a change request in Jira. After human review and approval, a single status transition fires a webhook to Event-Driven Ansible, which automatically launches the patching workflow in AAP. The workflow captures a pre-change snapshot, applies security updates, verifies the result, and posts a full audit report back to Jira. If QA finds an issue, one click triggers an automated rollback. Three platforms, fully integrated, zero server logins.</p>
+  </div>
+
+  <!-- Architecture SVG Diagram -->
+  <div class="diagram-container">
+    <svg viewBox="0 0 1100 580" xmlns="http://www.w3.org/2000/svg" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+      <defs>
+        <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3fb950"/></marker>
+        <marker id="arrowJira" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2684FF"/></marker>
+        <marker id="arrowAAP" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#EE0000"/></marker>
+        <marker id="arrowAzure" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#0078D4"/></marker>
+        <marker id="arrowYellow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#d29922"/></marker>
+        <marker id="arrowRed" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#e94560"/></marker>
+        <filter id="glow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+
+      <!-- Background -->
+      <rect width="1100" height="580" rx="12" fill="#0d1117"/>
+
+      <!-- ======================== 3 USERS (left side) ======================== -->
+
+      <!-- User 1: IT Engineer (creates ticket) -->
+      <g transform="translate(30,70)">
+        <circle cx="30" cy="18" r="14" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+        <!-- face -->
+        <circle cx="25" cy="15" r="1.5" fill="#58a6ff"/>
+        <circle cx="35" cy="15" r="1.5" fill="#58a6ff"/>
+        <path d="M24 21 Q30 26 36 21" fill="none" stroke="#58a6ff" stroke-width="1"/>
+        <!-- body -->
+        <line x1="30" y1="32" x2="30" y2="56" stroke="#58a6ff" stroke-width="1.5"/>
+        <line x1="14" y1="42" x2="46" y2="42" stroke="#58a6ff" stroke-width="1.5"/>
+        <line x1="30" y1="56" x2="16" y2="74" stroke="#58a6ff" stroke-width="1.5"/>
+        <line x1="30" y1="56" x2="44" y2="74" stroke="#58a6ff" stroke-width="1.5"/>
+        <!-- laptop icon -->
+        <rect x="16" y="44" width="10" height="7" rx="1" fill="none" stroke="#58a6ff" stroke-width="0.8"/>
+        <text x="30" y="92" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="700">IT Engineer</text>
+        <text x="30" y="104" text-anchor="middle" fill="#6e7681" font-size="8">Creates ticket</text>
+      </g>
+
+      <!-- User 2: Change Manager (reviews & approves) -->
+      <g transform="translate(30,210)">
+        <circle cx="30" cy="18" r="14" fill="none" stroke="#d29922" stroke-width="1.5"/>
+        <!-- face -->
+        <circle cx="25" cy="15" r="1.5" fill="#d29922"/>
+        <circle cx="35" cy="15" r="1.5" fill="#d29922"/>
+        <path d="M24 21 Q30 26 36 21" fill="none" stroke="#d29922" stroke-width="1"/>
+        <!-- body -->
+        <line x1="30" y1="32" x2="30" y2="56" stroke="#d29922" stroke-width="1.5"/>
+        <line x1="14" y1="42" x2="46" y2="42" stroke="#d29922" stroke-width="1.5"/>
+        <line x1="30" y1="56" x2="16" y2="74" stroke="#d29922" stroke-width="1.5"/>
+        <line x1="30" y1="56" x2="44" y2="74" stroke="#d29922" stroke-width="1.5"/>
+        <!-- clipboard icon -->
+        <rect x="40" y="34" width="8" height="10" rx="1" fill="none" stroke="#d29922" stroke-width="0.8"/>
+        <line x1="42" y1="37" x2="46" y2="37" stroke="#d29922" stroke-width="0.6"/>
+        <line x1="42" y1="39.5" x2="46" y2="39.5" stroke="#d29922" stroke-width="0.6"/>
+        <text x="30" y="92" text-anchor="middle" fill="#d29922" font-size="10" font-weight="700">Change Manager</text>
+        <text x="30" y="104" text-anchor="middle" fill="#6e7681" font-size="8">Reviews &amp; approves</text>
+      </g>
+
+      <!-- User 3: QA Engineer (verifies results) -->
+      <g transform="translate(30,370)">
+        <circle cx="30" cy="18" r="14" fill="none" stroke="#3fb950" stroke-width="1.5"/>
+        <!-- face -->
+        <circle cx="25" cy="15" r="1.5" fill="#3fb950"/>
+        <circle cx="35" cy="15" r="1.5" fill="#3fb950"/>
+        <path d="M24 21 Q30 26 36 21" fill="none" stroke="#3fb950" stroke-width="1"/>
+        <!-- body -->
+        <line x1="30" y1="32" x2="30" y2="56" stroke="#3fb950" stroke-width="1.5"/>
+        <line x1="14" y1="42" x2="46" y2="42" stroke="#3fb950" stroke-width="1.5"/>
+        <line x1="30" y1="56" x2="16" y2="74" stroke="#3fb950" stroke-width="1.5"/>
+        <line x1="30" y1="56" x2="44" y2="74" stroke="#3fb950" stroke-width="1.5"/>
+        <!-- checkmark icon -->
+        <circle cx="44" cy="38" r="5" fill="none" stroke="#3fb950" stroke-width="0.8"/>
+        <path d="M41 38 L43 40 L47 35" fill="none" stroke="#3fb950" stroke-width="1"/>
+        <text x="30" y="92" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="700">QA Engineer</text>
+        <text x="30" y="104" text-anchor="middle" fill="#6e7681" font-size="8">Verifies &amp; approves</text>
+      </g>
+
+      <!-- Arrows from users to Jira -->
+      <line x1="76" y1="130" x2="138" y2="155" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowJira)"/>
+      <text x="95" y="136" fill="#58a6ff" font-size="7">Create CHG</text>
+      <line x1="76" y1="265" x2="138" y2="230" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrowYellow)"/>
+      <text x="82" y="256" fill="#d29922" font-size="7">Approve</text>
+      <line x1="76" y1="420" x2="138" y2="380" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+      <text x="82" y="412" fill="#3fb950" font-size="7">QA Review</text>
+
+      <!-- ======================== JIRA BOX ======================== -->
+      <g transform="translate(146,80)">
+        <rect width="230" height="340" rx="10" fill="#161b22" stroke="#2684FF" stroke-width="2"/>
+        <!-- Header with Jira logo -->
+        <rect width="230" height="42" rx="10" fill="#2684FF"/>
+        <rect y="32" width="230" height="10" fill="#2684FF"/>
+        <!-- Jira Logo (simplified Atlassian mark) -->
+        <g transform="translate(14,8)">
+          <path d="M12 0 L24 12 L12 24 L6 18 L12 12 L6 6 Z" fill="white" opacity="0.9" transform="scale(0.9)"/>
+        </g>
+        <text x="130" y="28" text-anchor="middle" fill="white" font-size="14" font-weight="700">JIRA SERVICE MGMT</text>
+
+        <!-- Workflow statuses -->
+        <rect x="16" y="56" width="198" height="30" rx="6" fill="rgba(38,132,255,0.12)" stroke="rgba(38,132,255,0.3)" stroke-width="1"/>
+        <circle cx="30" cy="71" r="4" fill="#58a6ff"/>
+        <text x="125" y="75" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">New CHG Request</text>
+        <text x="115" y="100" text-anchor="middle" fill="#6e7681" font-size="14">&#x2193;</text>
+
+        <rect x="16" y="108" width="198" height="30" rx="6" fill="rgba(210,153,34,0.12)" stroke="rgba(210,153,34,0.3)" stroke-width="1"/>
+        <circle cx="30" cy="123" r="4" fill="#d29922"/>
+        <text x="125" y="127" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">Under Review</text>
+        <text x="115" y="152" text-anchor="middle" fill="#6e7681" font-size="14">&#x2193;</text>
+
+        <rect x="16" y="160" width="198" height="30" rx="6" fill="rgba(233,69,96,0.15)" stroke="#e94560" stroke-width="1.5"/>
+        <circle cx="30" cy="175" r="4" fill="#e94560">
+          <animate attributeName="opacity" values="1;0.3;1" dur="1.5s" repeatCount="indefinite"/>
+        </circle>
+        <text x="125" y="179" text-anchor="middle" fill="#e94560" font-size="11" font-weight="700">Patch Windows</text>
+        <circle cx="210" cy="175" r="7" fill="#e94560">
+          <animate attributeName="opacity" values="1;0.3;1" dur="1.5s" repeatCount="indefinite"/>
+        </circle>
+        <text x="210" y="178" text-anchor="middle" fill="white" font-size="7" font-weight="700">!</text>
+        <text x="115" y="205" text-anchor="middle" fill="#8b949e" font-size="9" font-weight="600">&#x26A1; WEBHOOK FIRES</text>
+
+        <rect x="16" y="214" width="198" height="30" rx="6" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="1"/>
+        <circle cx="30" cy="229" r="4" fill="#3fb950"/>
+        <text x="125" y="233" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">QA Testing</text>
+
+        <!-- QA Outcomes -->
+        <g transform="translate(16,258)">
+          <rect width="90" height="28" rx="6" fill="rgba(63,185,80,0.15)" stroke="#3fb950" stroke-width="1.5"/>
+          <text x="45" y="18" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="700">Accepted</text>
+        </g>
+        <g transform="translate(124,258)">
+          <rect width="90" height="28" rx="6" fill="rgba(233,69,96,0.15)" stroke="#e94560" stroke-width="1.5"/>
+          <text x="45" y="18" text-anchor="middle" fill="#e94560" font-size="10" font-weight="700">Revert Patch</text>
+        </g>
+
+        <!-- Resolved -->
+        <rect x="16" y="300" width="198" height="26" rx="6" fill="rgba(139,148,158,0.1)" stroke="rgba(139,148,158,0.3)" stroke-width="1"/>
+        <text x="115" y="317" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="600">Resolved</text>
+      </g>
+
+      <!-- ======================== WEBHOOK ARROW: Jira to EDA ======================== -->
+      <line x1="376" y1="255" x2="444" y2="255" stroke="#e94560" stroke-width="2.5" stroke-dasharray="6,3" marker-end="url(#arrowRed)" filter="url(#glow)"/>
+      <text x="410" y="245" text-anchor="middle" fill="#e94560" font-size="9" font-weight="700">Webhook POST</text>
+
+      <!-- ======================== EDA BOX ======================== -->
+      <g transform="translate(452,185)">
+        <rect width="170" height="140" rx="10" fill="#161b22" stroke="#EE0000" stroke-width="2"/>
+        <!-- Header with Red Hat logo -->
+        <rect width="170" height="42" rx="10" fill="#EE0000"/>
+        <rect y="32" width="170" height="10" fill="#EE0000"/>
+        <!-- Red Hat fedora icon (simplified) -->
+        <g transform="translate(10,6)">
+          <ellipse cx="14" cy="18" rx="12" ry="5" fill="white" opacity="0.9"/>
+          <path d="M6 18 Q6 6 14 4 Q22 6 22 18" fill="white" opacity="0.9"/>
+        </g>
+        <text x="100" y="28" text-anchor="middle" fill="white" font-size="12" font-weight="700">EDA CONTROLLER</text>
+        <text x="85" y="62" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Event-Driven Ansible</text>
+        <line x1="20" y1="72" x2="150" y2="72" stroke="rgba(238,0,0,0.3)" stroke-width="1"/>
+        <text x="85" y="90" text-anchor="middle" fill="#8b949e" font-size="9">Rulebook evaluates</text>
+        <text x="85" y="104" text-anchor="middle" fill="#8b949e" font-size="9">incoming event payload</text>
+        <line x1="20" y1="112" x2="150" y2="112" stroke="rgba(238,0,0,0.3)" stroke-width="1"/>
+        <text x="85" y="130" text-anchor="middle" fill="#e6edf3" font-size="10" font-weight="600">Rule Match &#x2192; Launch Job</text>
+      </g>
+
+      <!-- ======================== ARROW: EDA to AAP ======================== -->
+      <line x1="622" y1="255" x2="688" y2="255" stroke="#EE0000" stroke-width="2" marker-end="url(#arrowAAP)"/>
+      <text x="655" y="245" text-anchor="middle" fill="#EE0000" font-size="8" font-weight="600">Trigger</text>
+
+      <!-- ======================== AAP BOX ======================== -->
+      <g transform="translate(696,80)">
+        <rect width="230" height="280" rx="10" fill="#161b22" stroke="#EE0000" stroke-width="2"/>
+        <!-- Header with Red Hat logo -->
+        <rect width="230" height="42" rx="10" fill="#EE0000"/>
+        <rect y="32" width="230" height="10" fill="#EE0000"/>
+        <!-- Red Hat fedora icon -->
+        <g transform="translate(10,6)">
+          <ellipse cx="14" cy="18" rx="12" ry="5" fill="white" opacity="0.9"/>
+          <path d="M6 18 Q6 6 14 4 Q22 6 22 18" fill="white" opacity="0.9"/>
+        </g>
+        <text x="130" y="28" text-anchor="middle" fill="white" font-size="14" font-weight="700">ANSIBLE AAP</text>
+        <text x="115" y="60" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Hybrid Patch Workflow</text>
+
+        <!-- 3 Phases -->
+        <rect x="14" y="74" width="202" height="52" rx="6" fill="rgba(210,153,34,0.1)" stroke="rgba(210,153,34,0.4)" stroke-width="1"/>
+        <text x="24" y="92" fill="#d29922" font-size="11" font-weight="700">Phase 1: Pre-Change Snapshot</text>
+        <text x="24" y="108" fill="#8b949e" font-size="9">KBs, Uptime, Risk Flags, Azure Disk Snapshot</text>
+
+        <path d="M115 126 L115 134" stroke="#6e7681" stroke-width="1.5"/>
+        <polygon points="110,134 120,134 115,140" fill="#6e7681"/>
+
+        <rect x="14" y="144" width="202" height="52" rx="6" fill="rgba(233,69,96,0.1)" stroke="rgba(233,69,96,0.4)" stroke-width="1"/>
+        <text x="24" y="162" fill="#e94560" font-size="11" font-weight="700">Phase 2: Apply Security Updates</text>
+        <text x="24" y="178" fill="#8b949e" font-size="9">win_updates module, Controlled Reboot</text>
+
+        <path d="M115 196 L115 204" stroke="#6e7681" stroke-width="1.5"/>
+        <polygon points="110,204 120,204 115,210" fill="#6e7681"/>
+
+        <rect x="14" y="214" width="202" height="52" rx="6" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.4)" stroke-width="1"/>
+        <text x="24" y="232" fill="#3fb950" font-size="11" font-weight="700">Phase 3: Post-Change Verify</text>
+        <text x="24" y="248" fill="#8b949e" font-size="9">KB Diff, Service Health, Jira Comment</text>
+      </g>
+
+      <!-- ======================== AZURE BOX (rectangular, larger) ======================== -->
+      <g transform="translate(696,388)">
+        <rect width="230" height="160" rx="10" fill="#161b22" stroke="#0078D4" stroke-width="2"/>
+        <!-- Header with Azure logo -->
+        <rect width="230" height="42" rx="10" fill="#0078D4"/>
+        <rect y="32" width="230" height="10" fill="#0078D4"/>
+        <!-- Azure logo (simplified triangle mark) -->
+        <g transform="translate(12,8)">
+          <path d="M4 22 L14 2 L18 12 L26 12 L10 22 Z" fill="white" opacity="0.9"/>
+        </g>
+        <text x="130" y="28" text-anchor="middle" fill="white" font-size="14" font-weight="700">MICROSOFT AZURE</text>
+
+        <!-- Azure services grid -->
+        <rect x="14" y="52" width="96" height="40" rx="5" fill="rgba(0,120,212,0.1)" stroke="rgba(0,120,212,0.3)" stroke-width="1"/>
+        <text x="62" y="70" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="600">Windows VM</text>
+        <text x="62" y="84" text-anchor="middle" fill="#6e7681" font-size="8">Server 2019</text>
+
+        <rect x="120" y="52" width="96" height="40" rx="5" fill="rgba(0,120,212,0.1)" stroke="rgba(0,120,212,0.3)" stroke-width="1"/>
+        <text x="168" y="70" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="600">Disk Snapshots</text>
+        <text x="168" y="84" text-anchor="middle" fill="#6e7681" font-size="8">Pre-patch backup</text>
+
+        <rect x="14" y="100" width="96" height="40" rx="5" fill="rgba(0,120,212,0.1)" stroke="rgba(0,120,212,0.3)" stroke-width="1"/>
+        <text x="62" y="118" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="600">Update Manager</text>
+        <text x="62" y="132" text-anchor="middle" fill="#6e7681" font-size="8">AUM Assessment</text>
+
+        <rect x="120" y="100" width="96" height="40" rx="5" fill="rgba(0,120,212,0.1)" stroke="rgba(0,120,212,0.3)" stroke-width="1"/>
+        <text x="168" y="118" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="600">Log Analytics</text>
+        <text x="168" y="132" text-anchor="middle" fill="#6e7681" font-size="8">Monitoring</text>
+      </g>
+
+      <!-- ======================== ARROW: AAP to Azure ======================== -->
+      <line x1="811" y1="360" x2="811" y2="380" stroke="#0078D4" stroke-width="2" marker-end="url(#arrowAzure)"/>
+      <text x="845" y="375" fill="#0078D4" font-size="8" font-weight="600">WinRM / Azure REST API</text>
+
+      <!-- ======================== FEEDBACK ARROW: AAP back to Jira (straight lines) ======================== -->
+      <!-- Down from AAP bottom-left to bottom row -->
+      <line x1="720" y1="360" x2="720" y2="565" stroke="#3fb950" stroke-width="2"/>
+      <!-- Horizontal across bottom -->
+      <line x1="720" y1="565" x2="261" y2="565" stroke="#3fb950" stroke-width="2"/>
+      <!-- Up to Jira bottom -->
+      <line x1="261" y1="565" x2="261" y2="428" stroke="#3fb950" stroke-width="2" marker-end="url(#arrowGreen)"/>
+      <text x="490" y="558" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">&#x2705; Patch Report + Auto-Transition to QA Testing</text>
+
+      <!-- ======================== REVERT ARROW: Jira Revert to EDA (straight lines) ======================== -->
+      <!-- Horizontal from Jira Revert box to EDA -->
+      <line x1="376" y1="350" x2="452" y2="350" stroke="#e94560" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrowRed)"/>
+      <text x="414" y="342" text-anchor="middle" fill="#e94560" font-size="8" font-weight="600">Rollback Webhook</text>
+
+      <!-- ======================== STEP NUMBER BADGES ======================== -->
+      <g>
+        <!-- Step 1 badge -->
+        <circle cx="105" cy="134" r="10" fill="#58a6ff"/>
+        <text x="105" y="138" text-anchor="middle" fill="white" font-size="9" font-weight="700">1</text>
+        <!-- Step 2 badge -->
+        <circle cx="105" cy="245" r="10" fill="#d29922"/>
+        <text x="105" y="249" text-anchor="middle" fill="white" font-size="9" font-weight="700">2</text>
+        <!-- Step 3 badge (webhook) -->
+        <circle cx="410" cy="268" r="10" fill="#e94560"/>
+        <text x="410" y="272" text-anchor="middle" fill="white" font-size="9" font-weight="700">3</text>
+        <!-- Step 4 badge (EDA) -->
+        <circle cx="655" cy="268" r="10" fill="#EE0000"/>
+        <text x="655" y="272" text-anchor="middle" fill="white" font-size="9" font-weight="700">4</text>
+        <!-- Step 5 badge (AAP) -->
+        <circle cx="940" cy="220" r="10" fill="#EE0000"/>
+        <text x="940" y="224" text-anchor="middle" fill="white" font-size="9" font-weight="700">5</text>
+        <!-- Step 6 badge (Azure) -->
+        <circle cx="940" cy="470" r="10" fill="#0078D4"/>
+        <text x="940" y="474" text-anchor="middle" fill="white" font-size="9" font-weight="700">6</text>
+        <!-- Step 7 badge (QA) -->
+        <circle cx="105" cy="408" r="10" fill="#3fb950"/>
+        <text x="105" y="412" text-anchor="middle" fill="white" font-size="9" font-weight="700">7</text>
+      </g>
+
+      <!-- ======================== LEGEND (top-right corner, no overlap) ======================== -->
+      <g transform="translate(20,530)">
+        <rect width="180" height="40" rx="8" fill="rgba(22,27,34,0.9)" stroke="rgba(139,148,158,0.3)" stroke-width="1"/>
+        <line x1="12" y1="16" x2="40" y2="16" stroke="#e94560" stroke-width="2" stroke-dasharray="4,2"/>
+        <text x="46" y="19" fill="#8b949e" font-size="8">Webhook (event-driven)</text>
+        <line x1="12" y1="30" x2="40" y2="30" stroke="#3fb950" stroke-width="2"/>
+        <text x="46" y="33" fill="#8b949e" font-size="8">Feedback (API callback)</text>
+      </g>
+
+    </svg>
+  </div>
+
+  <!-- Key Capability Cards -->
+  <div class="cap-cards">
+    <div class="cap-card">
+      <div class="cap-icon">&#x1F6E1;&#xFE0F;</div>
+      <h4>Zero Server Logins</h4>
+      <p>No RDP, no SSH. Ansible connects via WinRM. Engineers never touch the server directly.</p>
+    </div>
+    <div class="cap-card">
+      <div class="cap-icon">&#x1F4CB;</div>
+      <h4>Full Audit Trail</h4>
+      <p>Every action recorded in Jira comments and AAP job logs. Complete compliance evidence.</p>
+    </div>
+    <div class="cap-card">
+      <div class="cap-icon">&#x21A9;&#xFE0F;</div>
+      <h4>One-Click Rollback</h4>
+      <p>QA can trigger automated KB removal from Jira. Azure snapshots provide a second safety net.</p>
+    </div>
+    <div class="cap-card">
+      <div class="cap-icon">&#x26A1;</div>
+      <h4>Event-Driven</h4>
+      <p>Jira status transitions fire webhooks to EDA. No scheduled jobs, no manual triggers required.</p>
+    </div>
+  </div>
+
   <button class="launch-btn" id="launchBtn" onclick="launchAllTabs()">
     &#x1F680; Launch Demo Tabs (Jira + AAP + Azure)
   </button>
@@ -308,12 +660,7 @@
     <div class="s-card" onclick="start('patch')">
       <div class="icon">&#x1F6E1;&#xFE0F;</div>
       <h3>Patch Windows</h3>
-      <div class="info">18 steps &middot; Full patching pipeline</div>
-    </div>
-    <div class="s-card" onclick="start('revert')">
-      <div class="icon">&#x21A9;&#xFE0F;</div>
-      <h3>Revert Patch</h3>
-      <div class="info">9 steps &middot; Rollback pipeline</div>
+      <div class="info">17 steps &middot; Full patching pipeline with QA and rollback</div>
     </div>
   </div>
 </div>
@@ -359,6 +706,7 @@ const U = {
   aapEDA: 'https://aap.iisdemolab.click/decisions/rulebook-activations',
   aapStreams: 'https://aap.iisdemolab.click/decisions/event-streams',
   aapTemplates: 'https://aap.iisdemolab.click/execution/templates',
+  edaWebhook: 'https://54.86.7.223/eda-event-streams/api/eda/v1/external_event_stream/e04c1e6e-1c48-489f-961a-0ca15de3ad41/post/',
 };
 
 // Track opened windows
@@ -398,13 +746,26 @@ function jiraTicketLink(label) {
 }
 
 // ======================================================================
-// PATCH STEPS (functions return links dynamically based on ticketId)
+// PATCH STEPS
 // ======================================================================
 const patchSteps = [
   {
+    title: "Solution Architecture",
+    screen: "tour", fire: false,
+    notes: "Welcome to the Automated Azure Windows Patch Management demo. This solution brings together three platforms to deliver automated, auditable, and reversible Windows patching. Jira Service Management handles governance and change control. Red Hat Ansible Automation Platform handles execution via Event-Driven Ansible and job workflows. Microsoft Azure provides the infrastructure layer with VMs, snapshots, and Update Manager. The diagram on the landing page shows the end-to-end flow. One Jira transition triggers the entire pipeline. No server logins. Full audit trail. Complete reversibility.",
+    getLinks: () => '',
+    tech: `<div class="highlight">This is an overview step. Use the architecture diagram from the landing page to walk the audience through the flow before jumping into the live platforms.</div>
+    <ol>
+      <li><strong>Jira</strong>: Change request workflow (New CHG Request &rarr; Under Review &rarr; Patch Windows &rarr; QA Testing &rarr; Accepted/Revert)</li>
+      <li><strong>EDA</strong>: Webhook listener with rulebook conditions. Fires on status transitions.</li>
+      <li><strong>AAP</strong>: Three-phase workflow (Pre-Check &rarr; Patch &rarr; Verify). Posts report back to Jira.</li>
+      <li><strong>Azure</strong>: Target VM, disk snapshots for rollback safety, Update Manager compliance.</li>
+    </ol>`
+  },
+  {
     title: "Azure VM - Current State",
     screen: "azure", fire: false,
-    notes: "Let us start by looking at the Azure environment. For a firm like Ropes and Gray, with over 1,500 attorneys across 16 global offices, maintaining security compliance across Windows infrastructure is critical. Here is a Windows Server 2019 virtual machine representing a typical server in your environment. It is running in Azure UK South, managed by Azure Update Manager for compliance tracking. Today, we are going to patch it with the latest security updates - but not manually. We will use a fully automated, event-driven pipeline that starts from a Jira ticket. Zero server logins. Full audit trail. Complete reversibility.",
+    notes: "Let us start by looking at the Azure environment. For a firm like Ropes and Gray, with over 1,500 attorneys across 16 global offices, maintaining security compliance across Windows infrastructure is critical. Here is a Windows Server 2019 virtual machine representing a typical server in your environment. It is running in Azure, managed by Azure Update Manager for compliance tracking. Today we will patch it with the latest security updates using a fully automated, event-driven pipeline that starts from a Jira ticket.",
     getLinks: () => L(U.azureVM, 'Open Azure VM', 'azure'),
     tech: `<ol>
       <li>Click the button above to open the Azure VM overview</li>
@@ -426,7 +787,7 @@ const patchSteps = [
     <div class="highlight">Optional: Click <strong>Automation Decisions > Rulebook Activations</strong> to show EDA rulebook is Running</div>`
   },
   {
-    title: "Jira Service Management - Change Board",
+    title: "Jira - Change Management Board",
     screen: "jira", fire: false,
     notes: "Here is our Jira Service Management project for Change Management. This is where all change requests live. Every patch must go through an ITSM workflow. No patches happen without a formal ticket and approval chain. This ensures full governance and audit compliance.",
     getLinks: () => L(U.jiraBoard, 'Open Jira Change Board', 'jira'),
@@ -439,7 +800,7 @@ const patchSteps = [
   {
     title: "Create Change Request",
     screen: "jira", fire: false,
-    notes: "Let us create a new change request. We will set the summary to describe the security patch. This is the formal record that an engineer is requesting a security patch. Once submitted, it enters the approval workflow.",
+    notes: "Let us create a new change request. We will set the summary to describe the security patch. Once created, it enters the \"New CHG Request\" status. This is the formal record that an engineer is requesting a security patch.",
     getLinks: () => L(U.jiraCreate, 'Open Jira Board', 'jira'),
     tech: `<ol>
       <li>Click <strong>+ Create</strong> button (top-right blue button in Jira)</li>
@@ -451,114 +812,125 @@ const patchSteps = [
     <div class="highlight">After creating, type the ticket ID (e.g. CHG-2) in the "TICKET:" field in the header above, then click Set. All future Jira links will point to your ticket.</div>`
   },
   {
-    title: "Approval Workflow - Pending",
+    title: "Submit for Review",
     screen: "jira", fire: false,
-    notes: "Now the governance workflow kicks in. The ticket starts as Open. We'll move it through the approval stages. Notice that nothing has been automated yet - this is all human governance and decision-making. The automation only triggers when we explicitly start execution.",
+    notes: "The ticket moves from \"New CHG Request\" to \"Under Review\". A reviewer evaluates the change request, checks the scope and risk level. Nothing is automated yet - this is human governance. The reviewer ensures the change is properly scoped and approved before any automation runs.",
     getLinks: () => jiraTicketLink(),
     tech: `<ol>
       <li>Click the button above to open your ticket</li>
-      <li>Click the <strong>"Open"</strong> status dropdown (top-right of ticket)</li>
-      <li>Select <strong>"Pending"</strong> to transition</li>
-      <li>Status should now show <strong>PENDING</strong></li>
+      <li>Click the current status dropdown (top-right of ticket)</li>
+      <li>Select <strong>"Submit for review"</strong> to move to <strong>Under Review</strong></li>
+      <li>Status should now show <strong>UNDER REVIEW</strong></li>
     </ol>
-    <div class="highlight">This simulates a reviewer accepting the change request for review</div>`
+    <div class="highlight">This simulates a reviewer accepting the change request for evaluation. Nothing is automated yet - this is human governance.</div>`
   },
   {
-    title: "Azure VM Snapshot - Safety Net",
-    screen: "azure", fire: false,
-    notes: "Before we trigger any automation, let us look at the Azure VM disk. This is our insurance policy. If anything goes wrong during patching we can restore the VM to this exact state in minutes. The Ansible playbook also creates its own snapshot as part of the pre-check phase.",
-    getLinks: () => L(U.azureDisks, 'Open Azure VM Disks', 'azure'),
-    tech: `<ol>
-      <li>Click the button to see the VM's disk blade</li>
-      <li>Point out the OS disk attached to the VM</li>
-      <li>Mention: The Ansible pre-check role will capture a snapshot automatically</li>
-      <li>The <code>azure_snapshot_enabled: true</code> setting in group_vars controls this</li>
-    </ol>`
-  },
-  {
-    title: "TRIGGER AUTOMATION - Start Implementing",
+    title: "TRIGGER AUTOMATION - Start Patching",
     screen: "jira", fire: true,
-    notes: "This is the moment of truth. When we transition the ticket to Implementing, three things happen simultaneously. First, Jira fires a webhook to the EDA Controller. Second, EDA evaluates the event against our rulebook - checking the project key, the status transition, and the issue type. Third, if all conditions match, AAP launches the patching workflow automatically. One click in Jira kicks off the entire patching pipeline across three platforms.",
+    notes: "This is the trigger point. Transitioning from \"Under Review\" to \"Patch Windows (Automation)\" fires the EDA webhook. Three things happen simultaneously: Jira sends a webhook to the EDA Controller, EDA evaluates the event against the rulebook conditions, and AAP launches the Hybrid Patch Workflow automatically. One click in Jira triggers the full pipeline across three platforms.",
     getLinks: () => jiraTicketLink('Open Ticket - TRIGGER AUTOMATION'),
     tech: `<ol>
       <li>Click the button above to open your ticket</li>
       <li>Click the current status dropdown</li>
-      <li>Select <strong>"Start progress"</strong> to move to <strong>WORK IN PROGRESS</strong></li>
+      <li>Select <strong>"Start patching"</strong> to move to <strong>Patch Windows (Automation)</strong></li>
     </ol>
     <div class="highlight"><strong>THIS FIRES THE WEBHOOK!</strong><br>
-    Jira Automation rule "Notify AAP on Implementing" sends POST to:<br>
-    <code>https://aap.iisdemolab.click:8443/api/eda/v1/external_event_stream/jira-patch/</code><br>
+    Jira Automation rule sends POST to EDA webhook URL:<br>
+    <code>${U.edaWebhook}</code><br>
     Payload: issue_key, issue_summary, issue_status, project_key</div>`
   },
   {
     title: "EDA - Event Received",
     screen: "aap", fire: false,
-    notes: "Switch to the AAP Event-Driven Ansible controller. Look at the event stream - it has received the Jira webhook event. The rulebook evaluated the conditions: project key is CHG, the transition target matches, and all criteria are met. The rule has fired, and it is launching the patching workflow job template with the Jira ticket data passed as extra variables.",
+    notes: "Switch to AAP. The EDA controller has received the Jira webhook event. The rulebook evaluated the conditions: payload is defined and the status is not \"Revert Patch\". Rule 1 fires - launching the \"Hybrid Patch Workflow\" job template with Jira ticket data passed as extra variables (issue_key, issue_summary, issue_status).",
     getLinks: () => L(U.aapStreams, 'Open EDA Event Streams', 'aap') + L(U.aapEDA, 'Open Rulebook Activations', 'aap'),
     tech: `<ol>
-      <li>Click <strong>Event Streams</strong> - check that <strong>jira-patch</strong> stream shows events received</li>
+      <li>Click <strong>Event Streams</strong> - check that the stream shows events received (count increased)</li>
       <li>Click <strong>Rulebook Activations</strong> - verify the rulebook is <strong>Running</strong> and Fire count increased</li>
       <li>Click into the activation to see the rule history / audit log</li>
     </ol>
-    <div class="highlight">If no event: check Jira Automation rule execution log, and ensure port 8443 is open in AWS Security Group</div>`
+    <div class="highlight">If no event: check Jira Automation rule execution log, and ensure the EDA webhook URL is reachable from Jira Cloud</div>`
   },
   {
-    title: "AAP Jobs - Workflow Launched",
+    title: "AAP - Workflow Launched",
     screen: "aap", fire: false,
-    notes: "Here in the AAP Jobs view, the patching workflow has been launched automatically by EDA. It runs through pre-change snapshot, actual patching, and post-change verification. If any phase fails, the workflow can trigger rollback. Let us watch it execute.",
+    notes: "The patching workflow job is now running in AAP. It executes three phases in sequence: pre-change snapshot, patching, and post-change verification. Watch it execute in the AAP Jobs view. Each phase is a separate role in the Ansible playbook.",
     getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
     tech: `<ol>
       <li>Click the button to see the Jobs list</li>
-      <li>Look for the most recent job - should be running or just completed</li>
-      <li>Click into the job to see the output log</li>
+      <li>Look for the most recent running job - it should be the Hybrid Patch Workflow</li>
+      <li>Click into the job to see the real-time output log</li>
     </ol>
-    <div class="highlight">The job may take 5-10 seconds to appear. Refresh if needed.</div>`
+    <div class="highlight">The job may take 5-10 seconds to appear after the EDA rule fires. Refresh if needed.</div>`
   },
   {
     title: "Phase 1 - Pre-Change Snapshot",
     screen: "aap", fire: false,
-    notes: "Phase 1 is the pre-change snapshot. Ansible connects to the Windows VM via WinRM, captures the current list of all installed KBs using Get-HotFix, checks system uptime, and flags any pre-existing risk conditions. All of this data is stored as Ansible facts for comparison after patching.",
+    notes: "Phase 1 captures the system state before any changes. Ansible connects to the Windows VM via WinRM and gathers installed KBs using Get-HotFix, checks system uptime, detects pending reboot status, and takes an Azure disk snapshot for rollback safety. All data is stored as Ansible facts for comparison after patching.",
     getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
     tech: `<ol>
       <li>In the job output, look for the <strong>pre_change_snapshot</strong> role tasks</li>
-      <li>Key tasks: <code>Get-HotFix</code> (current KBs), system uptime, pending reboot check</li>
+      <li>Key tasks: <code>Get-HotFix</code> (current KB count), system uptime, pending reboot check</li>
+      <li>Azure snapshot creation via <code>azure.azcollection.azure_rm_snapshot</code></li>
       <li>Outputs: <code>pre_change_state</code> fact with kb_list, uptime, risk_flags</li>
-      <li>Risk flags: HIGH_UPTIME (>60d), PENDING_REBOOT, HIGH_PENDING_UPDATES (>20)</li>
+      <li>Risk flags: HIGH_UPTIME (&gt;60d), PENDING_REBOOT, HIGH_PENDING_UPDATES (&gt;20)</li>
     </ol>`
   },
   {
-    title: "Phase 2 - Patching in Progress",
+    title: "Phase 2 - Patching",
     screen: "aap", fire: false,
-    notes: "Phase 2 is the actual patching. Ansible uses the win_updates module to install security and critical updates from Windows Update. It handles reboots automatically if required. Each KB installed is recorded for the audit trail.",
+    notes: "Phase 2 applies security updates. Ansible uses the win_updates module to install SecurityUpdates and CriticalUpdates from Windows Update. It handles reboots automatically if required. Each KB installed is recorded for the audit trail.",
     getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
     tech: `<ol>
       <li>In the job output, look for <code>ansible.windows.win_updates</code> task</li>
       <li>Categories: SecurityUpdates, CriticalUpdates</li>
-      <li>If a reboot is required, you'll see reboot tasks execute</li>
-      <li>Output: list of newly installed KBs</li>
+      <li>If a reboot is required, you will see reboot tasks execute and WinRM reconnection</li>
+      <li>Output: list of newly installed KBs with their titles</li>
     </ol>
-    <div class="highlight">Patching may take 5-15 minutes. The job output streams in real-time.</div>`
+    <div class="highlight">Patching may take 5-15 minutes depending on the number of updates available. The job output streams in real-time.</div>`
   },
   {
     title: "Phase 3 - Post-Change Verification",
     screen: "aap", fire: false,
-    notes: "Phase 3 is post-change verification. Ansible gathers the KB list again, computes the diff, checks critical Windows services, and computes a verdict: PASS or FAIL. It then posts a comprehensive patch report directly to the Jira ticket as a comment.",
+    notes: "Phase 3 gathers the KB list again, computes the diff (new KBs added), checks critical Windows services (wuauserv, W32Time, EventLog, LanmanServer, Spooler), and determines a PASS or FAIL verdict. It then posts a comprehensive patch report directly to the Jira ticket as a comment and auto-transitions the ticket to \"QA Testing\".",
     getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
     tech: `<ol>
       <li>Look for <strong>post_change_verify</strong> role in job output</li>
-      <li>Checks: KB diff (before vs after), critical service status, pending reboot</li>
-      <li>Services: wuauserv, W32Time, EventLog, LanmanServer, Spooler</li>
-      <li>Verdict: <strong>PASS</strong> (all green) or <strong>FAIL</strong> (any red)</li>
-      <li>Jira comment posted automatically with full report</li>
+      <li>Checks: KB diff (before vs after count), critical service status, pending reboot</li>
+      <li>Services checked: wuauserv, W32Time, EventLog, LanmanServer, Spooler</li>
+      <li>Verdict: <strong>PASS</strong> (all green) or <strong>FAIL</strong> (any issues)</li>
+      <li>Jira comment posted automatically with full report via REST API</li>
+      <li>Ticket auto-transitions to <strong>QA Testing</strong></li>
     </ol>`
   },
   {
-    title: "Before vs After — Patch Comparison",
+    title: "Jira - Automated Patch Report",
+    screen: "jira", fire: false,
+    notes: "Back in Jira, the ticket now shows a comprehensive patch report in the comments. Pre-change state, post-change state, KB diff, service health, risk flags, and verdict. The ticket has auto-transitioned to \"QA Testing\". The QA engineer has everything they need to make a decision - without ever logging into a server.",
+    getLinks: () => jiraTicketLink('Open Ticket - View Patch Report'),
+    tech: `<ol>
+      <li>Click the button above to open your ticket</li>
+      <li>Scroll down to the <strong>Comments</strong> section</li>
+      <li>Look for the automated comment from Ansible containing:
+        <ul>
+          <li>Pre/Post KB counts and diff</li>
+          <li>Net new KBs installed (list)</li>
+          <li>Service status (5 critical services)</li>
+          <li>Risk flags</li>
+          <li>Verdict: PASS or FAIL</li>
+        </ul>
+      </li>
+      <li>Verify ticket status is now <strong>QA Testing</strong></li>
+    </ol>
+    <div class="highlight">If no comment: check the Jira API credential in AAP and ensure the playbook has the jira_comment task</div>`
+  },
+  {
+    title: "Before vs After Comparison",
     screen: "tour", fire: false,
-    notes: "This is the key evidence slide. The AAP job output shows the complete before-and-after comparison. Point out the difference in KB count, the new KBs installed, service health, and the overall verdict. This data was gathered automatically — no manual RDP session needed.",
+    notes: "This is the key evidence slide. The AAP job output and Jira comment both show the complete before-and-after comparison. Point out the difference in KB count, the new KBs installed, service health, and the overall verdict. This data was gathered automatically - no manual RDP session needed.",
     getLinks: () => L(U.aapJobs, 'Open AAP Jobs (see output)', 'aap'),
     tech: `<div class="highlight" style="font-size:14px;">
-      <strong>BEFORE vs AFTER — Read these from AAP job output:</strong>
+      <strong>BEFORE vs AFTER — Read these from AAP job output or Jira comment:</strong>
     </div>
     <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:13px;">
       <tr style="border-bottom:1px solid var(--border);">
@@ -578,7 +950,7 @@ const patchSteps = [
       </tr>
       <tr style="border-bottom:1px solid var(--border);">
         <td style="padding:8px;">Critical Services (5)</td>
-        <td style="padding:8px;">All Running ✓</td>
+        <td style="padding:8px;">All Running</td>
         <td style="padding:8px;"><em>check output — should be all Running</em></td>
       </tr>
       <tr style="border-bottom:1px solid var(--border);">
@@ -599,187 +971,45 @@ const patchSteps = [
     </table>
     <div class="highlight">
       <strong>How to show this to the audience:</strong><br>
-      1. Click "Open AAP Jobs" above → open the latest job → scroll through output<br>
-      2. The Jira comment (next step) also contains this exact comparison in a formatted report
+      1. Click "Open AAP Jobs" above &rarr; open the latest job &rarr; scroll through output<br>
+      2. The Jira comment (previous step) also contains this exact comparison in a formatted report
     </div>`
-  },
-  {
-    title: "Jira - Automated Patch Report",
-    screen: "jira", fire: false,
-    notes: "Back in Jira, look at the ticket comments. Ansible has posted a complete patch report automatically. It shows the pre-change state, post-change state, every new KB applied, service status, and a clear verdict. The QA engineer has everything they need right here in the ticket.",
-    getLinks: () => jiraTicketLink('Open Ticket - View Patch Report'),
-    tech: `<ol>
-      <li>Click the button above to open your ticket</li>
-      <li>Scroll down to the <strong>Comments</strong> section</li>
-      <li>Look for the automated comment from Ansible containing:
-        <ul>
-          <li>Pre/Post KB counts</li>
-          <li>Net new KBs installed</li>
-          <li>Service status (5 critical services)</li>
-          <li>Risk flags</li>
-          <li>Verdict: PASS or FAIL</li>
-        </ul>
-      </li>
-    </ol>
-    <div class="highlight">If no comment: check the Jira API credential in AAP and ensure the playbook has the jira_comment task</div>`
-  },
-  {
-    title: "Jira - Status Auto-Updated",
-    screen: "jira", fire: false,
-    notes: "Notice the ticket status may have automatically changed. Ansible did this via the Jira REST API after posting the comment. The QA engineer now has a clear action item: review the patch report and either approve or request a rollback.",
-    getLinks: () => jiraTicketLink('Open Ticket - Check Status'),
-    tech: `<ol>
-      <li>Click the button to open your ticket</li>
-      <li>Check the ticket status - it may have auto-transitioned</li>
-      <li>If not auto-transitioned, this is where QA reviews the report</li>
-      <li>QA decision: Accept (resolve) or Reject (request rollback)</li>
-    </ol>`
   },
   {
     title: "Azure - Post-Patch Verification",
     screen: "azure", fire: false,
-    notes: "Back in the Azure Portal, we can verify the VM is still healthy. We have snapshots for rollback safety. If the QA engineer finds an issue days later, we still have clean restore points. This belt-and-suspenders approach gives us complete reversibility.",
+    notes: "Back in the Azure Portal, we can verify the VM is still healthy after patching. Check that the VM status is Running. We can also verify the pre-patch snapshots are available for rollback safety. If the QA engineer finds an issue days later, we still have clean restore points.",
     getLinks: () => L(U.azureVM, 'Open Azure VM', 'azure') + L(U.azureSnapshots, 'Open Snapshots', 'azure'),
     tech: `<ol>
       <li>Open the VM overview - verify <strong>Status: Running</strong></li>
-      <li>Check Snapshots blade for any pre-patch snapshots</li>
-      <li>Snapshot restore: Create disk from snapshot > Stop VM > Swap OS disk > Start VM</li>
+      <li>Check Snapshots blade for the pre-patch snapshot created by Ansible</li>
+      <li>Snapshot restore: Create disk from snapshot &gt; Stop VM &gt; Swap OS disk &gt; Start VM</li>
+      <li>Recovery time: approximately 5 minutes</li>
     </ol>`
   },
   {
-    title: "QA Passes - Change Resolved",
+    title: "QA Decision - Accept or Revert",
     screen: "jira", fire: false,
-    notes: "The QA engineer reviews the patch report, sees the verdict is PASS with no risk flags, and resolves the ticket. The change is now formally closed with a complete audit trail.",
-    getLinks: () => jiraTicketLink('Open Ticket - Resolve'),
+    notes: "The QA engineer reviews the patch report. Two paths are available. Path 1: If everything looks good, transition to \"Accepted\" - the change is complete with a full audit trail. Path 2: If there is an issue, transition to \"Revert Patch\" - this fires a second EDA webhook that automatically triggers the Rollback Patch job template. The rollback uninstalls the KBs that were applied and posts its own report back to Jira. Both paths end with a resolved ticket and complete audit trail.",
+    getLinks: () => jiraTicketLink('Open Ticket - QA Decision'),
     tech: `<ol>
-      <li>Click the button to open your ticket</li>
-      <li>Click the status dropdown</li>
-      <li>Select <strong>"Mark as done"</strong> or <strong>"Resolve"</strong></li>
-      <li>The ticket is now closed with full audit trail in comments</li>
-    </ol>`
+      <li>Click the button to open your ticket (should be in <strong>QA Testing</strong> status)</li>
+      <li><strong>To Accept:</strong> Click status dropdown &rarr; Select <strong>"QA passed"</strong> &rarr; Ticket moves to <strong>Accepted</strong>. Done!</li>
+      <li><strong>To Revert:</strong> Click status dropdown &rarr; Select <strong>"Request rollback"</strong> &rarr; Ticket moves to <strong>Revert Patch</strong></li>
+    </ol>
+    <div class="highlight"><strong>Revert Patch fires EDA Rule 2!</strong><br>
+    EDA condition: status == "Revert Patch"<br>
+    Action: Launches <strong>"Rollback Patch"</strong> job template automatically.<br>
+    The rollback job uninstalls each KB via wusa.exe, reboots, verifies, and posts a rollback report to Jira.<br>
+    Both paths (Accept or Revert) result in a resolved ticket with complete audit trail.</div>`
   },
   {
-    title: "Demo Summary - Patch Windows",
+    title: "Demo Summary",
     screen: "tour", fire: false,
-    notes: "Let us recap what IIS Technology is proposing for Ropes and Gray. One click in Jira triggered an end-to-end automated patching pipeline across three platforms - Jira for governance and ITSM compliance, Red Hat Ansible Automation Platform for execution, and Microsoft Azure for infrastructure. Every step was audited. Every decision recorded. The entire flow is reversible. No engineer logged into a server. The QA team never left Jira. For a firm handling sensitive client data across global offices, this level of automation, auditability, and security compliance is essential. IIS Technology has 30 plus years of experience delivering exactly these kinds of enterprise solutions.",
+    notes: "Let us recap what IIS Technology is proposing for Ropes and Gray. One click in Jira triggered an end-to-end automated patching pipeline across three platforms. Jira for governance and ITSM compliance. Red Hat Ansible Automation Platform for execution via Event-Driven Ansible. Microsoft Azure for infrastructure with VM management and snapshots. Every step was audited. Every decision recorded. Complete reversibility from Jira - no server access needed. For a firm with 1,500 attorneys and sensitive client data across global offices, this automation ensures security compliance without risk.",
     getLinks: () => '',
     tech: '',
     summary: 'patch'
-  }
-];
-
-// ======================================================================
-// REVERT STEPS
-// ======================================================================
-const revertSteps = [
-  {
-    title: "Starting Point - Post-Patch",
-    screen: "jira", fire: false,
-    notes: "We are picking up from a completed patch run. The ticket has the full patch report in the comments. The QA engineer has reviewed the report and noticed something is not right. They need to roll back.",
-    getLinks: () => jiraTicketLink('Open Ticket - Starting Point'),
-    tech: `<ol>
-      <li>Click to open the CHG ticket that was patched in Scenario 1</li>
-      <li>Verify the patch report comment is present</li>
-      <li>Ensure the ticket is NOT yet in "Done" status</li>
-    </ol>
-    <div class="highlight">Prerequisite: Run Scenario 1 (Patch Windows) first!</div>`
-  },
-  {
-    title: "TRIGGER ROLLBACK - Request Rollback",
-    screen: "jira", fire: true,
-    notes: "The QA engineer transitions the ticket to trigger a rollback. This fires a second webhook to EDA. EDA matches the rollback rule in our rulebook. It launches the Rollback Patch job template. The entire rollback is initiated from Jira.",
-    getLinks: () => jiraTicketLink('Open Ticket - TRIGGER ROLLBACK'),
-    tech: `<ol>
-      <li>Click the button to open your ticket</li>
-      <li>Click the status dropdown</li>
-      <li>Select the transition that triggers rollback</li>
-    </ol>
-    <div class="highlight"><strong>THIS FIRES THE ROLLBACK WEBHOOK!</strong><br>
-    EDA matches Rule 2: "Rollback requested"<br>
-    Action: Launch "Rollback Patch" job template</div>`
-  },
-  {
-    title: "EDA - Rollback Event Received",
-    screen: "aap", fire: false,
-    notes: "In the EDA Controller, the rollback event has been received and matched. The rollback rule fires. The automation responds to the QA decision within seconds.",
-    getLinks: () => L(U.aapStreams, 'Open EDA Event Streams', 'aap') + L(U.aapEDA, 'Open Rulebook Activations', 'aap'),
-    tech: `<ol>
-      <li>Click Event Streams - verify event count increased</li>
-      <li>Click into Rulebook Activation to see the rule audit log</li>
-      <li>Verify the rollback rule matched</li>
-    </ol>`
-  },
-  {
-    title: "AAP - Rollback Job Launched",
-    screen: "aap", fire: false,
-    notes: "The Rollback Patch job is now running. It targets the same Windows VM and will methodically uninstall each KB that was applied. Ansible knows exactly which KBs to remove because they were recorded during the patching phase.",
-    getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
-    tech: `<ol>
-      <li>Open AAP Jobs - look for the <strong>Rollback</strong> job</li>
-      <li>Click into the job to watch the output</li>
-      <li>Playbook: <code>rollback.yml</code></li>
-    </ol>`
-  },
-  {
-    title: "Rollback Progress - KB Removal",
-    screen: "aap", fire: false,
-    notes: "Watch the job output. Ansible is using wusa.exe to uninstall each KB individually. After all KBs are removed, it reboots the server, waits for WinRM to recover, and verifies the KBs are truly absent.",
-    getLinks: () => L(U.aapJobs, 'Open AAP Jobs', 'aap'),
-    tech: `<ol>
-      <li>In job output, look for KB uninstall tasks</li>
-      <li>Method: <code>wusa.exe /uninstall /kb:XXXXX /quiet /norestart</code></li>
-      <li>Sequence: Uninstall all KBs > Reboot > Verify KBs absent</li>
-      <li>Verdict: SUCCESS (all removed) or PARTIAL (some remain)</li>
-    </ol>
-    <div class="highlight">Rollback may take 5-10 minutes</div>`
-  },
-  {
-    title: "Jira - Rollback Report Posted",
-    screen: "jira", fire: false,
-    notes: "Back in Jira, the rollback has posted its own report: KBs targeted, KBs removed, reboot status, and rollback verdict. Both the patch report AND rollback report are visible in the comment history.",
-    getLinks: () => jiraTicketLink('Open Ticket - View Rollback Report'),
-    tech: `<ol>
-      <li>Click to open your ticket</li>
-      <li>Scroll to Comments - look for the rollback report</li>
-      <li>Should show: KBs removed, reboot status, verdict</li>
-    </ol>`
-  },
-  {
-    title: "Ticket Resolved - Rollback Complete",
-    screen: "jira", fire: false,
-    notes: "The ticket is resolved after the rollback. The change record now contains the complete story: patch applied, issue found, rollback requested, system restored. Complete audit trail.",
-    getLinks: () => jiraTicketLink('Open Ticket - Resolve'),
-    tech: `<ol>
-      <li>Click to open your ticket</li>
-      <li>Click the status dropdown</li>
-      <li>Select <strong>"Mark as done"</strong> or <strong>"Resolve"</strong></li>
-    </ol>`
-  },
-  {
-    title: "Azure Snapshot - Fallback Option",
-    screen: "azure", fire: false,
-    notes: "If KB-level rollback had failed, we have the Azure disk snapshot as our ultimate fallback. We can restore the entire OS disk to the pre-patch state. Belt-and-suspenders: software rollback first, infrastructure rollback as backup.",
-    getLinks: () => L(U.azureSnapshots, 'Open Azure Snapshots', 'azure') + L(U.azureVM, 'Open Azure VM', 'azure'),
-    tech: `<ol>
-      <li>Open Snapshots blade - find the pre-patch snapshot</li>
-      <li>Restore steps:
-        <ul>
-          <li>Create new managed disk from snapshot</li>
-          <li>Stop VM</li>
-          <li>Swap OS disk</li>
-          <li>Start VM</li>
-        </ul>
-      </li>
-      <li>Recovery time: ~5 minutes</li>
-    </ol>`
-  },
-  {
-    title: "Demo Summary - Revert Patch",
-    screen: "tour", fire: false,
-    notes: "We demonstrated complete reversibility - a critical requirement for any firm handling sensitive legal and financial data. A QA failure triggers automated rollback from a single Jira transition. Ansible removes KBs, posts a report to Jira, and Azure snapshots provide a guaranteed restore. Every step logged and auditable. For Ropes and Gray, this means your security patching never puts production systems at risk. IIS Technology can implement this across your entire Windows server estate.",
-    getLinks: () => '',
-    tech: '',
-    summary: 'revert'
   }
 ];
 
@@ -799,10 +1029,10 @@ function setTicket() {
 function start(scenario) {
   state.scenario = scenario;
   state.step = 0;
-  state.steps = scenario === 'patch' ? patchSteps : revertSteps;
+  state.steps = patchSteps;
   document.getElementById('selector').style.display = 'none';
   document.getElementById('main').style.display = 'flex';
-  document.getElementById('scenarioTag').textContent = scenario === 'patch' ? 'Patch Windows' : 'Revert Patch';
+  document.getElementById('scenarioTag').textContent = 'Patch Windows';
   document.getElementById('ticketGroup').style.display = 'flex';
   buildProgress();
   render();
@@ -861,19 +1091,11 @@ function render() {
   if (s.summary === 'patch') {
     html += `<div class="summary-grid">
       <div class="summary-item"><h4>Platforms</h4><div class="val">3</div><div class="sub">Jira + AAP + Azure</div></div>
-      <div class="summary-item"><h4>Manual Steps</h4><div class="val">2</div><div class="sub">Create ticket + QA</div></div>
-      <div class="summary-item"><h4>Automated</h4><div class="val">5</div><div class="sub">Webhook, pre-check, patch, verify, report</div></div>
-      <div class="summary-item"><h4>Server Logins</h4><div class="val">0</div><div class="sub">Fully agentless</div></div>
-      <div class="summary-item"><h4>Audit Trail</h4><div class="val">Complete</div><div class="sub">Jira + AAP logs</div></div>
-      <div class="summary-item"><h4>Rollback</h4><div class="val">2 Options</div><div class="sub">KB uninstall + Snapshot</div></div>
-    </div>`;
-  }
-  if (s.summary === 'revert') {
-    html += `<div class="summary-grid">
-      <div class="summary-item"><h4>Trigger</h4><div class="val">1 Click</div><div class="sub">Jira transition</div></div>
-      <div class="summary-item"><h4>KB Removal</h4><div class="val">Auto</div><div class="sub">wusa.exe per KB</div></div>
-      <div class="summary-item"><h4>Fallback</h4><div class="val">Snapshot</div><div class="sub">Azure disk restore</div></div>
-      <div class="summary-item"><h4>Audit</h4><div class="val">Complete</div><div class="sub">Patch + Rollback reports</div></div>
+      <div class="summary-item"><h4>Manual Steps</h4><div class="val">2</div><div class="sub">Create ticket + QA review</div></div>
+      <div class="summary-item"><h4>Automated</h4><div class="val">6</div><div class="sub">Webhook, snapshot, patch, verify, report, transition</div></div>
+      <div class="summary-item"><h4>Server Logins</h4><div class="val">0</div><div class="sub">Fully agentless via WinRM</div></div>
+      <div class="summary-item"><h4>Audit Trail</h4><div class="val">Complete</div><div class="sub">Jira comments + AAP logs</div></div>
+      <div class="summary-item"><h4>Rollback</h4><div class="val">2 Options</div><div class="sub">KB uninstall + Azure snapshot</div></div>
     </div>`;
   }
 
