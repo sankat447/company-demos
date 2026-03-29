@@ -207,7 +207,7 @@
     rb_transition_id: >-
       {{
         rollback_transitions.json.transitions |
-        selectattr('name', 'equalto', jira_status_resolved | default('Resolved')) |
+        selectattr('to.name', 'equalto', jira_status_resolved | default('Resolved')) |
         map(attribute='id') | first | default('')
       }}
   ansible.builtin.uri:
