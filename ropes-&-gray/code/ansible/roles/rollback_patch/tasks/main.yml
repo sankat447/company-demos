@@ -138,7 +138,7 @@
   register: rollback_transitions
   delegate_to: localhost
 
-- name: "ROLLBACK | Execute Jira transition"
+- name: "ROLLBACK | Execute Jira transition to Resolved"
   when:
     - jira_ticket_id is defined and jira_ticket_id | length > 0
     - rollback_transitions is not failed
@@ -147,7 +147,7 @@
     rb_transition_id: >-
       {{
         rollback_transitions.json.transitions |
-        selectattr('name', 'equalto', jira_status_rollback_requested | default('Rollback Requested')) |
+        selectattr('name', 'equalto', jira_status_resolved | default('Resolved')) |
         map(attribute='id') | first | default('')
       }}
   ansible.builtin.uri:
@@ -169,4 +169,4 @@
       Rollback {{ rollback_state.verdict }} on {{ inventory_hostname }}
         Removed : {{ newly_installed_kbs | difference(rollback_failed_kbs) | join(', ') | default('none') }}
         Failed  : {{ rollback_state.kbs_failed | join(', ') | default('none') }}
-        Jira    : {{ jira_ticket_id | default('N/A') }} → Rollback Requested
+        Jira    : {{ jira_ticket_id | default('N/A') }} → Resolved
