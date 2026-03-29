@@ -1,11 +1,4 @@
 ---
-# aap/eda/rulebooks/jira_patch_rulebook.yml
-#
-# EDA Controller rulebook for Jira → AAP patching.
-# Source is empty webhook — EDA Controller injects the external event stream.
-# Two rules: patch on "Patch Windows (Automation)", rollback on "Revert Patch".
-
----
 - name: Jira patch lifecycle handler
   hosts: all
 
@@ -14,8 +7,7 @@
 
   rules:
 
-    # ── RULE 1: Patch Windows – launch patch workflow ──
-    - name: "Jira | Patch Windows – launch patch"
+    - name: "Jira | Patch Windows - launch patch"
       condition: event.payload is defined and (event.payload.issue_status is not defined or event.payload.issue_status != "Revert Patch")
       action:
         run_job_template:
@@ -29,8 +21,7 @@
               dry_run:          false
               aap_job_url_base: "https://aap.iisdemolab.click"
 
-    # ── RULE 2: Revert Patch – launch rollback workflow ──
-    - name: "Jira | Revert Patch – launch rollback"
+    - name: "Jira | Revert Patch - launch rollback"
       condition: event.payload is defined and event.payload.issue_status == "Revert Patch"
       action:
         run_job_template:
