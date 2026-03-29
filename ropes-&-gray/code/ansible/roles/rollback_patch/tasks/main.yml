@@ -2,7 +2,9 @@
 # roles/rollback_patch/tasks/main.yml
 # Triggered by AAP workflow on_failure edge OR Jira "Rollback Requested" transition.
 # Uninstalls newly applied KBs, reboots, re-verifies, posts result to Jira,
-# then transitions ticket to "Rollback Requested" or back to "Resolved" if clean.
+# then transitions ticket to "Resolved".
+# If no KBs were installed (nothing to rollback), posts informational comment
+# and still transitions to Resolved.
 
 - name: "ROLLBACK | Record start time"
   ansible.builtin.set_fact:
@@ -25,12 +27,46 @@
       ansible.builtin.set_fact:
         newly_installed_kbs: "{{ persisted_kbs_raw.stdout | from_json }}"
 
-- name: "ROLLBACK | Assert KB list exists"
-  ansible.builtin.assert:
-    that: newly_installed_kbs is defined and (newly_installed_kbs | length) > 0
-    fail_msg: "newly_installed_kbs is empty – nothing to uninstall."
+# ── Handle case: nothing to rollback ──────────────────────────────────────────
+- name: "ROLLBACK | Check if there are KBs to rollback"
+  ansible.builtin.set_fact:
+    rollback_has_kbs: "{{ newly_installed_kbs is defined and (newly_installed_kbs | length) > 0 }}"
 
+- name: "ROLLBACK | Nothing to rollback — set state"
+  when: not rollback_has_kbs
+  ansible.builtin.set_fact:
+    rollback_state:
+      timestamp:         "{{ rollback_start }}"
+      kbs_targeted:      []
+      kbs_failed:        []
+      kbs_still_present: []
+      verdict:           "NO_CHANGES"
+
+- name: "ROLLBACK | Nothing to rollback — build Jira comment"
+  when: not rollback_has_kbs
+  ansible.builtin.set_fact:
+    rollback_jira_body: |
+      ════════════════════════════════════════════════════
+       ROLLBACK REPORT — NO ACTION REQUIRED
+      ════════════════════════════════════════════════════
+      Ticket    : {{ jira_ticket_id | default('N/A') }}
+      Host      : {{ inventory_hostname }}
+      Timestamp : {{ rollback_start }}
+      Verdict   : NO CHANGES TO ROLLBACK
+
+      The previous patch run did not install any new KBs on this system.
+      No rollback action was necessary. System state is unchanged.
+
+      ────────────────────────────────────────────────────
+       NEXT ACTION
+      ────────────────────────────────────────────────────
+      Ticket will be transitioned to Resolved.
+      No further action required.
+      ════════════════════════════════════════════════════
+
+# ── Perform actual rollback if KBs exist ──────────────────────────────────────
 - name: "ROLLBACK | Uninstall each KB"
+  when: rollback_has_kbs
   ansible.windows.win_shell: |
     $kb = "{{ item }}"
     $kbNum = $kb.Replace('KB','').Replace('kb','')
@@ -43,6 +79,7 @@
   ignore_errors: true
 
 - name: "ROLLBACK | Identify failed uninstalls"
+  when: rollback_has_kbs
   ansible.builtin.set_fact:
     rollback_failed_kbs: >-
       {{
@@ -52,28 +89,33 @@
       }}
 
 - name: "ROLLBACK | Reboot after KB removal"
+  when: rollback_has_kbs
   ansible.windows.win_reboot:
     msg: "Ansible rollback reboot – {{ jira_ticket_id | default('no-ticket') }}"
     reboot_timeout: "{{ patch_reboot_timeout | default(900) }}"
     post_reboot_delay: 60
 
 - name: "ROLLBACK | Wait for WinRM to recover"
+  when: rollback_has_kbs
   ansible.builtin.wait_for_connection:
     delay: 30
     sleep: 10
     timeout: 300
 
 - name: "ROLLBACK | Verify KBs were removed"
+  when: rollback_has_kbs
   ansible.windows.win_shell: |
     Get-HotFix | Select-Object HotFixID | ConvertTo-Json -Depth 2
   register: post_rollback_kbs_raw
   changed_when: false
 
 - name: "ROLLBACK | Parse post-rollback KB list"
+  when: rollback_has_kbs
   ansible.builtin.set_fact:
     post_rollback_kbs: "{{ post_rollback_kbs_raw.stdout | from_json | map(attribute='HotFixID') | list }}"
 
 - name: "ROLLBACK | Confirm KBs are absent"
+  when: rollback_has_kbs
   ansible.builtin.set_fact:
     kbs_still_present: >-
       {{
@@ -82,6 +124,7 @@
       }}
 
 - name: "ROLLBACK | Build rollback summary"
+  when: rollback_has_kbs
   ansible.builtin.set_fact:
     rollback_state:
       timestamp:         "{{ rollback_start }}"
@@ -90,22 +133,39 @@
       kbs_still_present: "{{ kbs_still_present }}"
       verdict:           "{{ 'PARTIAL' if (rollback_failed_kbs or kbs_still_present) else 'SUCCESS' }}"
 
-# ── Post rollback result to Jira ─────────────────────────────────────────────
 - name: "ROLLBACK | Build Jira rollback comment"
+  when: rollback_has_kbs
   ansible.builtin.set_fact:
     rollback_jira_body: |
-      ROLLBACK EXECUTED — {{ rollback_start }}
-      Host      : {{ inventory_hostname }}
+      ════════════════════════════════════════════════════
+       ROLLBACK REPORT
+      ════════════════════════════════════════════════════
       Ticket    : {{ jira_ticket_id | default('N/A') }}
+      Host      : {{ inventory_hostname }}
+      Timestamp : {{ rollback_start }}
       Verdict   : {{ rollback_state.verdict }}
 
-      KBs targeted    : {{ rollback_state.kbs_targeted | join(', ') | default('none') }}
-      KBs failed      : {{ rollback_state.kbs_failed | join(', ') | default('none') }}
+      ────────────────────────────────────────────────────
+       KB REMOVAL DETAILS
+      ────────────────────────────────────────────────────
+      KBs targeted     : {{ rollback_state.kbs_targeted | join(', ') | default('none') }}
+      KBs failed       : {{ rollback_state.kbs_failed | join(', ') | default('none') }}
       KBs still present: {{ rollback_state.kbs_still_present | join(', ') | default('none') }}
 
       System rebooted: yes
-      Next step: QA engineer to verify system state and resolve or re-escalate.
 
+      ────────────────────────────────────────────────────
+       NEXT ACTION
+      ────────────────────────────────────────────────────
+      {% if rollback_state.verdict == 'SUCCESS' %}
+      All patches successfully removed. Ticket transitioning to Resolved.
+      {% else %}
+      PARTIAL rollback — some KBs could not be removed.
+      QA engineer: verify system state and re-escalate if needed.
+      {% endif %}
+      ════════════════════════════════════════════════════
+
+# ── Post rollback result to Jira ─────────────────────────────────────────────
 - name: "ROLLBACK | Post comment to Jira"
   when: jira_ticket_id is defined and jira_ticket_id | length > 0
   ansible.builtin.uri:
@@ -127,7 +187,7 @@
     status_code: [201]
   delegate_to: localhost
 
-- name: "ROLLBACK | Transition Jira ticket to Rollback Requested"
+- name: "ROLLBACK | Get available Jira transitions"
   when: jira_ticket_id is defined and jira_ticket_id | length > 0
   ansible.builtin.uri:
     url: "{{ jira_base_url }}/rest/api/3/issue/{{ jira_ticket_id }}/transitions"
@@ -167,6 +227,6 @@
   ansible.builtin.debug:
     msg: |
       Rollback {{ rollback_state.verdict }} on {{ inventory_hostname }}
-        Removed : {{ newly_installed_kbs | difference(rollback_failed_kbs) | join(', ') | default('none') }}
-        Failed  : {{ rollback_state.kbs_failed | join(', ') | default('none') }}
-        Jira    : {{ jira_ticket_id | default('N/A') }} → Resolved
+        KBs targeted: {{ rollback_state.kbs_targeted | join(', ') | default('none') }}
+        Failed      : {{ rollback_state.kbs_failed | join(', ') | default('none') }}
+        Jira        : {{ jira_ticket_id | default('N/A') }} → Resolved
