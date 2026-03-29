@@ -1,0 +1,850 @@
+================================================================================
+ REUSABLE DEMO FRAMEWORK
+ For Creating ITSM-Integrated Automation Demos for Any Company & Product Set
+================================================================================
+ Version:    2.0
+ Created:    2026-03-28
+ Updated:    2026-03-29 — Added webhook proxy pattern and ITSM URL compatibility lessons.
+ Purpose:    Template and methodology for building demos like the Ropes & Gray
+             patch management solution. Use this framework to create similar
+             demos for different companies with different product combinations.
+================================================================================
+
+TABLE OF CONTENTS
+─────────────────
+ 1.  FRAMEWORK OVERVIEW
+ 2.  DEMO ANATOMY — UNIVERSAL COMPONENTS
+ 3.  PHASE 1: DISCOVERY & SCOPING
+ 4.  PHASE 2: ARCHITECTURE DESIGN
+ 5.  PHASE 3: INFRASTRUCTURE AS CODE
+ 6.  PHASE 4: ITSM WORKFLOW SETUP
+ 7.  PHASE 5: AUTOMATION ENGINE SETUP
+ 8.  PHASE 6: EVENT-DRIVEN INTEGRATION
+ 9.  PHASE 7: TARGET SYSTEM SETUP
+ 10. PHASE 8: PLAYBOOK / RUNBOOK DEVELOPMENT
+ 11. PHASE 9: DEMO TOUR UI
+ 12. PHASE 10: TESTING & HARDENING
+ 13. PRODUCT SUBSTITUTION MATRIX
+ 14. DIRECTORY STRUCTURE TEMPLATE
+ 15. VARIABLE NAMING CONVENTIONS
+ 16. CREDENTIAL MANAGEMENT PATTERN
+ 17. CHECKLIST FOR NEW DEMO CREATION
+
+
+================================================================================
+1. FRAMEWORK OVERVIEW
+================================================================================
+
+Every enterprise automation demo follows this universal pattern:
+
+  [TRIGGER]  →  [EVENT BUS]  →  [AUTOMATION ENGINE]  →  [TARGET SYSTEMS]
+      ↑                                    │
+      └────────── FEEDBACK LOOP ───────────┘
+
+TRIGGER:         ITSM tool (Jira, ServiceNow, PagerDuty, Zendesk, etc.)
+EVENT BUS:       EDA, webhooks, message queues, API calls
+AUTOMATION:      AAP, Terraform, Jenkins, GitHub Actions, etc.
+TARGET SYSTEMS:  Cloud VMs, Kubernetes, network devices, databases, etc.
+FEEDBACK:        Comments, status updates, notifications back to ITSM
+
+The framework is product-agnostic. Swap any component and the pattern holds.
+
+
+================================================================================
+2. DEMO ANATOMY — UNIVERSAL COMPONENTS
+================================================================================
+
+Every demo needs these 7 layers:
+
+  LAYER 1: INFRASTRUCTURE AS CODE
+    → Terraform/Pulumi/CloudFormation to provision all cloud resources
+    → Reproducible, version-controlled, parameterized
+
+  LAYER 2: ITSM WORKFLOW
+    → Ticket lifecycle (create → review → approve → execute → verify → close)
+    → Custom fields for automation parameters
+    → Automation rules for webhook triggers
+    → Audit trail for compliance narrative
+
+  LAYER 3: EVENT-DRIVEN BRIDGE
+    → Listens for ITSM events (webhooks, polling)
+    → Routes events to correct automation workflow
+    → Passes context (ticket ID, parameters) to automation
+
+  LAYER 4: AUTOMATION ENGINE
+    → Job templates / pipelines for each operation
+    → Workflow orchestration (success/failure branching)
+    → Credential management (vault, secrets)
+    → Execution environment with required tools
+
+  LAYER 5: TARGET SYSTEM OPERATIONS
+    → Pre-change state capture (baseline)
+    → Execute change (patch, deploy, configure)
+    → Post-change verification (diff, health checks)
+    → Rollback capability
+
+  LAYER 6: FEEDBACK & REPORTING
+    → Post results back to ITSM ticket
+    → Transition ticket status based on outcome
+    → Rich formatted reports (pre/post diff, risk flags)
+
+  LAYER 7: DEMO PRESENTATION LAYER
+    → Interactive HTML tour guide
+    → Architecture SVG diagrams
+    → Step-by-step walkthrough with deep links
+    → Configurable for different environments
+
+
+================================================================================
+3. PHASE 1: DISCOVERY & SCOPING
+================================================================================
+
+Before writing any code, answer these questions:
+
+COMPANY CONTEXT:
+  [ ] Company name and industry
+  [ ] Number of employees/offices
+  [ ] Compliance requirements (SOX, HIPAA, PCI, etc.)
+  [ ] Current pain points (manual processes, audit gaps, slow recovery)
+
+PRODUCT SELECTION:
+  [ ] ITSM Tool:        _________________________ (Jira, ServiceNow, etc.)
+  [ ] Automation Engine: _________________________ (AAP, Jenkins, etc.)
+  [ ] Event Bridge:      _________________________ (EDA, webhooks, etc.)
+  [ ] Cloud Provider:    _________________________ (Azure, AWS, GCP, etc.)
+  [ ] Target OS/Platform: ________________________ (Windows, Linux, K8s, etc.)
+
+USE CASE:
+  [ ] Primary operation:  ________________________ (patching, deployment, etc.)
+  [ ] Secondary operations: ______________________ (rollback, audit, etc.)
+  [ ] Compliance narrative: ______________________ (what auditors care about)
+
+DEMO SCOPE:
+  [ ] Number of target systems: ___
+  [ ] Duration of live demo: ___ minutes
+  [ ] Audience: _________________________ (CTO, IT Ops, Security, etc.)
+  [ ] Key differentiators to highlight: _________________________
+
+
+================================================================================
+4. PHASE 2: ARCHITECTURE DESIGN
+================================================================================
+
+TEMPLATE: Draw the architecture using this pattern:
+
+  ┌─────────────┐    Event/Webhook    ┌─────────────┐
+  │   ITSM      │ ──────────────────▶ │  EVENT      │
+  │   TOOL      │                     │  BRIDGE     │
+  │             │ ◀── Feedback ────── │             │
+  └─────────────┘                     └──────┬──────┘
+                                             │ Trigger
+                                             ▼
+                                      ┌─────────────┐
+                                      │ AUTOMATION  │
+                                      │ ENGINE      │
+                                      │             │
+                                      │ Workflow:   │
+                                      │ Pre → Do →  │
+                                      │ Verify      │
+                                      └──────┬──────┘
+                                             │
+                              ┌──────────────┼──────────────┐
+                              ▼              ▼              ▼
+                        ┌──────────┐  ┌──────────┐  ┌──────────┐
+                        │ TARGET 1 │  │ TARGET 2 │  │ CLOUD API│
+                        └──────────┘  └──────────┘  └──────────┘
+
+DESIGN DECISIONS TO DOCUMENT:
+  1. How does ITSM trigger automation? (webhook vs polling vs queue)
+  2. How does automation authenticate to targets? (SSH, WinRM, API, etc.)
+  3. What state is captured pre-change? (baseline for diff)
+  4. How are results reported back? (comments, transitions, notifications)
+  5. What triggers rollback? (automatic on failure vs manual approval)
+  6. Where are credentials stored? (vault, secrets manager, env vars)
+
+
+================================================================================
+5. PHASE 3: INFRASTRUCTURE AS CODE
+================================================================================
+
+DIRECTORY LAYOUT:
+  <company>/code/iac/terraform/
+  ├── providers.tf              # Provider versions and auth
+  ├── variables.tf              # All input variables with defaults
+  ├── main.tf                   # Shared resources (keys, locals)
+  ├── <cloud1>_<purpose>.tf     # e.g., aws_aap.tf, azure_network.tf
+  ├── <cloud2>_<purpose>.tf     # e.g., azure_windows_target.tf
+  ├── outputs.tf                # All outputs (IPs, URLs, etc.)
+  ├── terraform.tfvars.example  # Template for user to fill in
+  └── .terraform.lock.hcl       # Provider lock (auto-generated)
+
+VARIABLES TO PARAMETERIZE:
+  - Cloud regions
+  - Instance sizes
+  - Admin credentials
+  - Network CIDRs
+  - Operator IP (for security group rules)
+  - Feature flags (deploy_X = true/false)
+  - Common tags (Project, Environment, Owner, ManagedBy)
+
+OUTPUTS TO EXPORT:
+  - Automation engine URL
+  - Event bridge webhook URL
+  - Target system IPs (public + private)
+  - SSH/RDP connection strings
+  - Resource group/project names
+
+LIFECYCLE SCRIPTS:
+  deploy.sh   — Interactive deployment with prerequisites check
+  resume.sh   — Resume interrupted deployment
+  destroy.sh  — Clean teardown of all resources
+
+
+================================================================================
+6. PHASE 4: ITSM WORKFLOW SETUP
+================================================================================
+
+UNIVERSAL WORKFLOW PATTERN:
+  New Request → Review → Approve/Execute → Verify/QA → Accept/Rollback → Resolve
+
+MAP TO YOUR ITSM TOOL:
+
+  STATUS NAME CONVENTION:
+    Status 1: "New <Type> Request"      (To Do)
+    Status 2: "Under Review"            (In Progress)
+    Status 3: "<Action> <Target>"       (In Progress) — AUTOMATION TRIGGER
+    Status 4: "QA Testing"              (In Progress)
+    Status 5: "Accepted"                (Done)
+    Status 6: "Revert <Action>"         (In Progress) — ROLLBACK TRIGGER
+    Status 7: "Resolved"                (Done)
+
+  Replace <Type> with: Change, Incident, Service Request, etc.
+  Replace <Action> with: Patch, Deploy, Configure, Migrate, etc.
+  Replace <Target> with: Windows, Linux, Kubernetes, Network, etc.
+
+CUSTOM FIELDS (adapt per use case):
+  1. Scope field       — What systems to target
+  2. Window field      — When to execute
+  3. Risk field        — Low/Medium/High
+  4. Rollback field    — Whether rollback is required
+
+AUTOMATION RULES (2 minimum):
+  Rule 1: Status → <Action> triggers webhook to event bridge
+  Rule 2: Status → Revert triggers rollback webhook
+
+WEBHOOK PAYLOAD TEMPLATE:
+  {
+    "issue_key":      "{{issue.key}}",
+    "issue_summary":  "{{issue.summary}}",
+    "project_key":    "{{issue.project.key}}",
+    "issue_status":   "{{issue.status.name}}",
+    "issue_priority": "{{issue.priority.name}}",
+    "reporter":       "{{issue.reporter.displayName}}",
+    "assignee":       "{{issue.assignee.displayName}}",
+    "timestamp":      "{{now.iso8601}}",
+    "custom_field_1": "{{issue.customfield_XXXXX}}",
+    "custom_field_2": "{{issue.customfield_YYYYY}}"
+  }
+
+WEBHOOK URL COMPATIBILITY WARNING:
+  Some ITSM tools (notably Jira Cloud Automation) normalize or mangle URLs in
+  their webhook configuration. Known issues:
+
+  - Jira Cloud converts underscores (_) to hyphens (-) in webhook URLs
+  - Jira Cloud may add trailing periods to URLs
+  - Jira Cloud requires valid, publicly-trusted SSL certificates (rejects self-signed)
+  - Jira Cloud "Send web request" shows 30s timeout even when webhook is delivered
+
+  RECOMMENDED PATTERN: Deploy an nginx/HAProxy reverse proxy between the ITSM
+  tool and the event bridge. Benefits:
+  1. Valid SSL certificate (Let's Encrypt) — required by most ITSM SaaS tools
+  2. URL rewriting — fix any URL mangling by the ITSM tool
+  3. Access logging — audit trail of all webhook calls
+  4. Rate limiting — protect event bridge from webhook storms
+
+  Proxy setup steps:
+  1. Install nginx on the automation engine host
+  2. Get Let's Encrypt cert: certbot certonly --standalone -d <domain>
+  3. Configure proxy to listen on a dedicated port (e.g., 9443)
+  4. Add rewrite rules to normalize URLs for the event bridge
+  5. Open the proxy port in firewall/security group to 0.0.0.0/0
+  6. Use the proxied URL in all ITSM automation rules
+
+
+================================================================================
+7. PHASE 5: AUTOMATION ENGINE SETUP
+================================================================================
+
+COMPONENTS TO CONFIGURE:
+
+  1. CREDENTIALS (minimum 3):
+     - Target system credential (SSH key, WinRM password, API token)
+     - ITSM credential (API token for posting comments/transitions)
+     - Cloud provider credential (SP, IAM role, service account)
+     - (Optional) Custom credential type for ITSM with injector vars
+
+  2. EXECUTION ENVIRONMENT / RUNTIME:
+     - Base image with required language runtimes
+     - Collections/modules for target platform
+     - Libraries for cloud APIs
+     - Libraries for target connectivity (pywinrm, paramiko, etc.)
+
+  3. PROJECT / SCM:
+     - Git repository containing playbooks/scripts
+     - Branch: main
+     - Update on launch: enabled
+
+  4. INVENTORY:
+     - Target hosts with connection variables
+     - Group vars for shared configuration
+     - Dynamic inventory source (optional)
+
+  5. JOB TEMPLATES (4 minimum):
+     Template 1: Pre-Change Baseline    (capture state before change)
+     Template 2: Execute Change          (perform the actual operation)
+     Template 3: Post-Change Verify      (verify + report to ITSM)
+     Template 4: Rollback                (revert change if needed)
+     Template 5: Connectivity Test       (pre-demo validation)
+
+  6. WORKFLOW TEMPLATE:
+     Pre-Change → Execute → Verify (on_fail → Rollback)
+
+     Survey variables:
+       - ticket_id (required, text)
+       - target_hosts (required, choice)
+       - dry_run (required, boolean)
+       - risk_level (optional, choice)
+
+  7. API TOKEN:
+     Generate token for event bridge to trigger jobs.
+
+
+================================================================================
+8. PHASE 6: EVENT-DRIVEN INTEGRATION
+================================================================================
+
+BRIDGE PATTERN:
+
+  Event Source (webhook) → Event Stream → Rulebook → Action (launch job)
+
+RULEBOOK TEMPLATE (for EDA):
+  ---
+  - name: ITSM Event Handler
+    hosts: all
+    sources:
+      - name: itsm_events
+        <source_plugin>:
+          host: 0.0.0.0
+          port: <port>
+
+    rules:
+      - name: "Execute <action> workflow"
+        condition: >-
+          event.payload is defined and
+          (event.payload.issue_status is not defined or
+           event.payload.issue_status != "<rollback_status>")
+        action:
+          run_job_template:
+            name: "<workflow_template_name>"
+            organization: "<org_name>"
+            job_args:
+              extra_vars:
+                ticket_id: "{{ event.payload.issue_key }}"
+                summary:   "{{ event.payload.issue_summary }}"
+
+      - name: "Execute rollback workflow"
+        condition: >-
+          event.payload is defined and
+          event.payload.issue_status == "<rollback_status>"
+        action:
+          run_job_template:
+            name: "<rollback_template_name>"
+            organization: "<org_name>"
+            job_args:
+              extra_vars:
+                ticket_id: "{{ event.payload.issue_key }}"
+
+WEBHOOK URL PROXY PATTERN:
+  When using EDA with Jira Cloud (or similar SaaS ITSM tools), the native EDA
+  event stream URL may not work directly due to:
+  - Self-signed SSL certificates (rejected by SaaS tools)
+  - URL path normalization by the ITSM tool
+
+  Solution: nginx reverse proxy with Let's Encrypt SSL
+
+  Nginx config template (/etc/nginx/conf.d/eda-rewrite.conf):
+    server {
+      listen 9443 ssl;
+      server_name <your-domain>;
+      ssl_certificate     /etc/letsencrypt/live/<domain>/fullchain.pem;
+      ssl_certificate_key /etc/letsencrypt/live/<domain>/privkey.pem;
+
+      location /eda-event-streams/ {
+        # Rewrite hyphens back to underscores for EDA compatibility
+        rewrite ^/eda-event-streams/api/eda/v1/external-event-stream/(.*)$
+                /eda-event-streams/api/eda/v1/external_event_stream/$1 break;
+
+        proxy_pass https://localhost;
+        proxy_ssl_verify off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+      }
+    }
+
+FOR NON-EDA ALTERNATIVES:
+  - GitHub Actions: use repository_dispatch event
+  - Jenkins: use Generic Webhook Trigger plugin
+  - AWS Lambda: use API Gateway + Lambda function
+  - Azure Functions: use HTTP trigger function
+
+
+================================================================================
+9. PHASE 7: TARGET SYSTEM SETUP
+================================================================================
+
+WINDOWS TARGETS:
+  - WinRM HTTPS on port 5986
+  - Self-signed cert or CA cert
+  - Firewall allows 5986 from automation engine
+  - Admin credentials stored in vault
+  - Ansible connection: winrm, transport: ntlm
+
+LINUX TARGETS:
+  - SSH on port 22
+  - Key-based auth (preferred) or password
+  - Firewall allows 22 from automation engine
+  - sudo access for privileged operations
+  - Ansible connection: ssh
+
+KUBERNETES TARGETS:
+  - kubeconfig with appropriate RBAC
+  - kubectl/helm available in EE
+  - API server reachable from automation engine
+
+NETWORK DEVICES:
+  - SSH or NETCONF access
+  - Device-specific collections (cisco.ios, arista.eos, etc.)
+  - Backup before change pattern
+
+CLOUD-NATIVE (API-driven):
+  - Service principal or IAM role
+  - Cloud SDK in EE (azure-cli, aws-cli, gcloud)
+  - REST API calls for state capture and modification
+
+
+================================================================================
+10. PHASE 8: PLAYBOOK / RUNBOOK DEVELOPMENT
+================================================================================
+
+ROLE PATTERN (4 roles minimum):
+
+  ROLE 1: pre_change_<action>
+  ────────────────────────────
+  Purpose: Capture baseline state before any changes.
+  Tasks:
+    1. Record timestamp
+    2. Gather current state (installed packages, configs, versions)
+    3. Query cloud API for additional context (pending updates, metrics)
+    4. Check system health (services, connectivity, disk space)
+    5. Compute risk flags (uptime too high, pending reboot, etc.)
+    6. Take infrastructure snapshot (disk, config backup)
+    7. Store all state as Ansible facts for later comparison
+  Error handling: block/rescue — failures warn but don't block
+
+  ROLE 2: execute_<action>
+  ────────────────────────────
+  Purpose: Perform the actual operation.
+  Tasks:
+    1. Assert pre-change state exists (dependency check)
+    2. Handle pre-conditions (clear pending state, etc.)
+    3. Execute primary operation (install updates, deploy, configure)
+    4. Record what changed (list of items applied)
+    5. Persist change list for rollback (save to file on target)
+    6. Handle required restarts/reboots
+    7. Wait for system to come back online
+  Error handling: fail fast on critical errors → triggers rollback
+
+  ROLE 3: post_change_verify
+  ────────────────────────────
+  Purpose: Verify change succeeded and report to ITSM.
+  Tasks:
+    1. Record timestamp
+    2. Gather post-change state (same queries as pre-change)
+    3. Compute diff (what's new, what changed)
+    4. Check system health post-change
+    5. Probe application endpoints (health checks)
+    6. Compute post-risk flags
+    7. Render ITSM comment from template (pre/post/diff/risk report)
+    8. POST comment to ITSM API
+    9. Transition ticket to QA/verification status
+    10. Fail if verification criteria not met (triggers rollback edge)
+  Error handling: fail on FAIL verdict → workflow on_failure edge
+
+  ROLE 4: rollback_<action>
+  ────────────────────────────
+  Purpose: Revert changes and report rollback result.
+  Tasks:
+    1. Load change list from persisted file on target
+    2. Revert each change (uninstall, restore, rollback)
+    3. Handle required restarts
+    4. Verify changes were reverted (state check)
+    5. Render rollback report
+    6. POST rollback result to ITSM
+    7. Transition ticket to rollback/resolved status
+
+JINJA2 TEMPLATE FOR ITSM COMMENT:
+───────────────────────────────────
+  Include these sections:
+    - Header: Ticket, Host, Cloud, Risk, Timestamps, Verdict
+    - Pre-change state: Key metrics before change
+    - Execution details: What was applied, dry-run mode
+    - Post-change state: Key metrics after change
+    - Diff: What's new/changed
+    - Risk flags: Warnings for QA engineer
+    - Next action: Instructions for reviewer
+
+
+================================================================================
+11. PHASE 9: DEMO TOUR UI
+================================================================================
+
+Create an HTML page that guides the presenter through the demo.
+
+TEMPLATE STRUCTURE:
+  1. Header with company logo/name and demo title
+  2. Architecture diagram (inline SVG)
+  3. Step-by-step walkthrough with:
+     - Step number and title
+     - Description of what happens
+     - Deep link to the relevant tool (Jira, AAP, Azure, etc.)
+     - "What to show" callout for the presenter
+     - Technical detail toggle (expandable)
+  4. Ticket ID tracker (input field to store current ticket number)
+  5. Progress indicator
+
+FEATURES TO INCLUDE:
+  - Collapsible sections for technical details
+  - Direct links to Jira tickets, AAP jobs, Azure portal
+  - Dynamic URL generation using ticket ID
+  - Mobile-responsive layout
+  - Print-friendly view for handouts
+  - SVG architecture diagram with flow arrows
+
+SERVING:
+  python3 -m http.server 8888
+  Open: http://localhost:8888/demo-tour.html
+
+
+================================================================================
+12. PHASE 10: TESTING & HARDENING
+================================================================================
+
+PRE-DEMO CHECKLIST:
+  [ ] All infrastructure is running (check Terraform state)
+  [ ] Automation engine is accessible (login works)
+  [ ] Event bridge is listening (rulebook activation running)
+  [ ] Connectivity to all targets verified (test template runs)
+  [ ] ITSM webhooks configured and enabled
+  [ ] Demo tour HTML loads and links work
+  [ ] Run full E2E smoke test with a test ticket
+  [ ] Verify ITSM comment posted correctly
+  [ ] Verify ticket transitions work
+  [ ] Test rollback scenario
+  [ ] Check all credentials are valid (not expired)
+  [ ] Note approximate demo duration
+
+COMMON FAILURE MODES TO TEST:
+  1. Webhook timeout (ITSM shows timeout but job still runs)
+  2. Credential rotation (tokens expired mid-demo)
+  3. Target unreachable (network/firewall issue)
+  4. Cloud API quota exceeded
+  5. ITSM workflow status mismatch (case-sensitive names!)
+  6. Event bridge rulebook crashed (check activation status)
+  7. ITSM webhook URL mangling (underscores converted to hyphens)
+  8. SSL certificate rejected by ITSM SaaS tool (requires publicly-trusted cert)
+  9. ITSM issue type mismatch (wrong type = wrong workflow = no automation triggers)
+  10. Rollback role path not found (relative path must match other playbooks)
+  11. Rollback transition targets wrong status (ticket already in rollback status)
+  12. Jira "From status" in automation rule doesn't match workflow transitions
+
+
+================================================================================
+13. PRODUCT SUBSTITUTION MATRIX
+================================================================================
+
+Replace any product in the stack:
+
+  ┌───────────────┬──────────────────────────────────────────────────┐
+  │ LAYER         │ PRODUCT OPTIONS                                  │
+  ├───────────────┼──────────────────────────────────────────────────┤
+  │ ITSM          │ Jira Cloud, Jira Data Center, ServiceNow,       │
+  │               │ PagerDuty, Zendesk, Freshservice, BMC Helix     │
+  ├───────────────┼──────────────────────────────────────────────────┤
+  │ Event Bridge  │ EDA Controller, AWS EventBridge, Azure Event    │
+  │               │ Grid, Kafka, RabbitMQ, direct webhook           │
+  ├───────────────┼──────────────────────────────────────────────────┤
+  │ Automation    │ AAP, Jenkins, GitHub Actions, GitLab CI/CD,     │
+  │               │ Terraform Cloud, AWS Systems Manager, Azure     │
+  │               │ Automation, Rundeck, StackStorm                 │
+  ├───────────────┼──────────────────────────────────────────────────┤
+  │ Cloud / IaC   │ Azure, AWS, GCP, VMware vSphere, OpenStack,    │
+  │               │ Terraform, Pulumi, CloudFormation, ARM/Bicep   │
+  ├───────────────┼──────────────────────────────────────────────────┤
+  │ Target OS     │ Windows Server, RHEL, Ubuntu, CentOS, SUSE     │
+  ├───────────────┼──────────────────────────────────────────────────┤
+  │ Target Type   │ VMs, Containers, Kubernetes, Network Devices,   │
+  │               │ Databases, Load Balancers, DNS, Storage         │
+  ├───────────────┼──────────────────────────────────────────────────┤
+  │ Use Case      │ Patching, Deployment, Configuration Drift,      │
+  │               │ Incident Response, Scaling, Migration,          │
+  │               │ Compliance Scan, Certificate Rotation           │
+  └───────────────┴──────────────────────────────────────────────────┘
+
+ADAPTATION NOTES:
+
+  SERVICENOW INSTEAD OF JIRA:
+    - Use Business Rules or Flow Designer instead of Jira Automation
+    - REST API: /api/now/table/<table_name>
+    - Webhook: Outbound REST Message + Business Rule trigger
+    - Status mapping: State field (integer) instead of status name
+
+  AWS INSTEAD OF AZURE:
+    - Replace Azure SP with IAM role/user
+    - Snapshots: EBS CreateSnapshot API
+    - Update Manager: AWS Systems Manager Patch Manager
+    - Replace azure.azcollection with amazon.aws collection
+    - Replace WinRM with SSM Session Manager (optional)
+
+  LINUX INSTEAD OF WINDOWS:
+    - Replace WinRM with SSH
+    - Replace win_updates with yum/dnf/apt modules
+    - Replace Get-HotFix with rpm -qa / dpkg -l
+    - Replace wusa.exe with yum history undo / apt remove
+    - Replace PowerShell scripts with Bash scripts
+
+  KUBERNETES INSTEAD OF VMs:
+    - Replace VM patching with image rolling updates
+    - Snapshot = backup current deployment spec
+    - Rollback = kubectl rollout undo
+    - Health check = pod readiness probes
+    - Pre-change = current image versions + replica counts
+
+
+================================================================================
+14. DIRECTORY STRUCTURE TEMPLATE
+================================================================================
+
+<company-name>/
+├── code/
+│   ├── README.md                          # Solution overview
+│   ├── docs/
+│   │   └── architecture.md                # Detailed architecture narrative
+│   ├── <automation-tool>/                  # e.g., aap/, jenkins/, github-actions/
+│   │   ├── README.md                      # Setup guide
+│   │   ├── execution_environment.yml      # Runtime spec (if applicable)
+│   │   ├── install/
+│   │   │   └── README.md                  # Installation guide
+│   │   └── eda/                           # Event-driven config (if applicable)
+│   │       └── rulebooks/
+│   │           └── <itsm>_<action>_rulebook.yml
+│   ├── <config-mgmt>/                     # e.g., ansible/, puppet/, chef/
+│   │   ├── README.md
+│   │   ├── ansible.cfg                    # (or equivalent)
+│   │   ├── collections/
+│   │   │   └── requirements.yml
+│   │   ├── group_vars/
+│   │   │   └── <target_group>.yml
+│   │   ├── inventory/
+│   │   │   └── <cloud>_hosts.yml
+│   │   ├── playbooks/
+│   │   │   ├── <action>_workflow.yml      # Main workflow
+│   │   │   ├── rollback.yml               # Rollback
+│   │   │   └── test_connectivity.yml      # Pre-demo check
+│   │   ├── roles/
+│   │   │   ├── pre_change_<action>/
+│   │   │   ├── <action>_<target>/
+│   │   │   ├── post_change_verify/
+│   │   │   └── rollback_<action>/
+│   │   └── templates/
+│   │       └── <itsm>_comment.j2
+│   ├── demo/
+│   │   └── demo-tour.html                 # Interactive demo guide
+│   ├── iac/
+│   │   ├── deploy.sh
+│   │   ├── resume.sh
+│   │   ├── destroy.sh
+│   │   └── terraform/                     # (or pulumi/, cloudformation/)
+│   │       ├── providers.tf
+│   │       ├── variables.tf
+│   │       ├── main.tf
+│   │       ├── <cloud>_<purpose>.tf
+│   │       ├── outputs.tf
+│   │       └── terraform.tfvars.example
+│   └── <itsm>/                            # e.g., jira/, servicenow/
+│       ├── README.md
+│       ├── setup_guide.md
+│       ├── workflow_config.md
+│       └── webhook_config.md
+
+
+================================================================================
+15. VARIABLE NAMING CONVENTIONS
+================================================================================
+
+Use consistent naming across all files:
+
+  ITSM VARIABLES:
+    <itsm>_base_url              # e.g., jira_base_url
+    <itsm>_project_key           # e.g., jira_project_key
+    <itsm>_api_token             # e.g., jira_api_token
+    <itsm>_user_email            # e.g., jira_user_email
+    <itsm>_status_<stage>        # e.g., jira_status_pending_qa
+    <itsm>_ticket_id             # Runtime: passed from event
+
+  CLOUD VARIABLES:
+    <cloud>_subscription_id      # e.g., azure_subscription_id
+    <cloud>_resource_group       # e.g., azure_resource_group
+    <cloud>_location             # e.g., azure_location
+    <cloud>_vm_name              # e.g., azure_vm_name
+
+  TARGET VARIABLES:
+    target_hosts                 # Inventory group to target
+    ansible_host                 # Target IP/hostname
+    ansible_user                 # Target login user
+    ansible_password             # Target login password
+
+  OPERATION VARIABLES:
+    dry_run                      # Boolean: check mode
+    risk_level                   # Low/Medium/High
+    maint_window                 # Maintenance window label
+    phase_override               # Which phase to run
+
+  FEATURE FLAGS:
+    <cloud>_snapshot_enabled     # e.g., azure_snapshot_enabled
+    aum_query_enabled            # Cloud update manager integration
+    health_check_enabled         # Application health probes
+
+  TERRAFORM VARIABLES:
+    demo_prefix                  # Prefix for all resource names
+    operator_cidr                # Operator IP for security rules
+    deploy_<cloud>               # Feature flag per cloud
+    <cloud>_<resource>_size      # Instance sizing
+
+
+================================================================================
+16. CREDENTIAL MANAGEMENT PATTERN
+================================================================================
+
+PRINCIPLE: Never hardcode credentials. Always use vault/secrets.
+
+  LEVEL 1: TERRAFORM (infrastructure)
+    → terraform.tfvars (git-ignored, operator fills in)
+    → Sensitive outputs marked sensitive = true
+    → State file contains secrets — protect access
+
+  LEVEL 2: AUTOMATION ENGINE (job execution)
+    → Built-in credential store (AAP vault, Jenkins credentials)
+    → Custom credential types with injector config
+    → Credentials attached to job templates, not playbooks
+
+  LEVEL 3: PLAYBOOKS (runtime)
+    → Variables injected by credential injector (extra_vars)
+    → ansible-vault for local testing
+    → no_log: true on tasks handling secrets
+
+  LEVEL 4: ITSM (webhook auth)
+    → Basic auth or Bearer token
+    → Stored in ITSM automation rule (not in git)
+    → Rotate independently of other credentials
+
+CREDENTIAL ROTATION CHECKLIST:
+  [ ] Cloud SP/IAM key — rotate every 90 days
+  [ ] ITSM API token — rotate every 180 days
+  [ ] Target admin password — rotate after each demo series
+  [ ] Automation engine admin — rotate annually
+  [ ] Webhook auth — rotate if exposed
+
+
+================================================================================
+17. CHECKLIST FOR NEW DEMO CREATION
+================================================================================
+
+Use this checklist when starting a new demo for a new company:
+
+SETUP:
+  [ ] Create folder: company-demos/<company-name>/
+  [ ] Copy directory structure from template (Section 14)
+  [ ] Fill in Phase 1 discovery questions
+
+INFRASTRUCTURE:
+  [ ] Write Terraform for all cloud resources
+  [ ] Create terraform.tfvars.example
+  [ ] Test: terraform init && terraform plan
+  [ ] Deploy: terraform apply
+  [ ] Record all outputs
+
+ITSM:
+  [ ] Create project with correct key
+  [ ] Create custom fields
+  [ ] Create workflow with 7 statuses
+  [ ] Create 2 automation rules (execute + rollback)
+  [ ] Test webhook manually with curl
+  [ ] Verify webhook URL is not mangled by ITSM tool (test with curl first)
+  [ ] Verify SSL certificate is publicly trusted (not self-signed)
+  [ ] Deploy nginx reverse proxy if ITSM tool mangles URLs
+  [ ] Confirm issue type maps to correct workflow (not default Task/Story workflow)
+  [ ] Test automation rule "From status" matches actual workflow transitions
+
+AUTOMATION ENGINE:
+  [ ] Create 3-4 credentials
+  [ ] Build execution environment
+  [ ] Create project (Git SCM)
+  [ ] Create inventory with target hosts
+  [ ] Create 4-5 job templates
+  [ ] Create workflow template with survey
+  [ ] Generate API token for event bridge
+
+EVENT BRIDGE:
+  [ ] Create event stream / webhook receiver
+  [ ] Create rulebook with 2 rules
+  [ ] Activate rulebook
+  [ ] Test: curl POST to webhook URL → verify job launches
+  [ ] Deploy nginx proxy with Let's Encrypt SSL if using SaaS ITSM tool
+  [ ] Verify proxy URL works: curl -X POST <proxy-url> with test payload
+  [ ] Check nginx access/error logs for successful proxying
+
+PLAYBOOKS:
+  [ ] Write pre_change role (baseline capture)
+  [ ] Write execute role (primary operation)
+  [ ] Write post_verify role (diff + ITSM feedback)
+  [ ] Write rollback role (revert + ITSM feedback)
+  [ ] Write ITSM comment Jinja2 template
+  [ ] Write connectivity test playbook
+  [ ] Configure group_vars with all variables
+
+DEMO UI:
+  [ ] Create demo-tour.html with architecture SVG
+  [ ] Configure all URLs and project keys
+  [ ] Test all deep links
+  [ ] Walk through all steps manually
+
+TESTING:
+  [ ] Run connectivity test
+  [ ] Run full E2E with test ticket
+  [ ] Verify ITSM comment posted correctly
+  [ ] Verify ticket transitions work
+  [ ] Test rollback scenario
+  [ ] Time the full demo (note duration)
+  [ ] Create provisioning guide document (like this one)
+
+DOCUMENTATION:
+  [ ] README.md — solution overview
+  [ ] architecture.md — detailed narrative
+  [ ] ITSM setup guides
+  [ ] AAP/automation setup guide
+  [ ] Provisioning guide (full reproduction steps)
+
+
+================================================================================
+END OF FRAMEWORK TEMPLATE
+================================================================================
