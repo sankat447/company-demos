@@ -6,4 +6,4 @@
   serial: 1
   gather_facts: true
   roles:
-    - rollback_patch
+    - role: ../roles/rollback_patch
