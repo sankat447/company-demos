@@ -1,0 +1,1038 @@
+================================================================================
+ ROPES & GRAY — AUTOMATED AZURE WINDOWS PATCH MANAGEMENT DEMO
+ COMPLETE PROVISIONING & CONFIGURATION GUIDE
+================================================================================
+ Version:    3.0
+ Updated:    2026-03-29 — Incorporates all troubleshooting fixes from end-to-end testing.
+ Created:    2026-03-28
+ Purpose:    Full reproduction guide — follow this document to rebuild the
+             entire demo from scratch in a new environment.
+================================================================================
+
+TABLE OF CONTENTS
+─────────────────
+ 1.  SOLUTION OVERVIEW
+ 2.  ARCHITECTURE DIAGRAM (TEXT)
+ 3.  PREREQUISITES & ACCOUNTS
+ 4.  INFRASTRUCTURE PROVISIONING (TERRAFORM)
+ 5.  AAP CONTROLLER CONFIGURATION
+ 6.  EDA CONTROLLER CONFIGURATION
+ 7.  JIRA CLOUD CONFIGURATION
+ 8.  ANSIBLE PLAYBOOKS & ROLES
+ 9.  AZURE INTEGRATION DETAILS
+10.  DEMO TOUR HTML SETUP
+11.  END-TO-END VERIFICATION
+12.  CREDENTIAL REFERENCE TABLE
+13.  FILE INVENTORY
+14.  KNOWN ISSUES & WORKAROUNDS
+
+
+================================================================================
+1. SOLUTION OVERVIEW
+================================================================================
+
+This demo showcases an enterprise-grade, ITSM-integrated Windows patching
+pipeline for Ropes & Gray (law firm, 1,500+ attorneys, 16 global offices).
+
+PRODUCTS INTEGRATED:
+  - Jira Service Management (Cloud) — ITSM change tickets, workflow, automation
+  - Red Hat Ansible Automation Platform 2.6 — Controller + EDA + Hub (all-in-one)
+  - Microsoft Azure — Windows Server VMs, Update Manager, Snapshots
+  - (Optional) Azure Update Manager — Scheduled patching assessment
+
+FLOW SUMMARY:
+  Engineer creates CHG ticket → Reviewer approves → Jira transitions to
+  "Patch Windows" → Jira Automation fires webhook to EDA → EDA launches
+  AAP Workflow → Pre-snapshot → Patch → Verify → Post Jira comment →
+  Transition to QA Testing → QA approves or triggers rollback.
+
+PAIN POINTS ADDRESSED:
+  1. No formal change tickets for patching
+  2. No pre-patch risk visibility
+  3. Manual scheduling and execution
+  4. Slow/risky rollback process
+  5. Missing audit trails for compliance
+  6. Fragmented multi-cloud management
+
+
+================================================================================
+2. ARCHITECTURE DIAGRAM (TEXT)
+================================================================================
+
+  ┌──────────────────┐     Webhook POST      ┌─────────────────────┐
+  │  JIRA CLOUD      │ ──────────────────────▶│  EDA CONTROLLER     │
+  │  (iisl.atlassian │  (port 9443, nginx     │  (on AAP EC2)       │
+  │   .net)          │   rewrite proxy)       │                     │
+  │                  │◀── REST API ───────────│  Rulebook matches   │
+  │  CHG Project     │   (comment + transition)│  event → launches   │
+  │  7 statuses      │                        │  AAP job template   │
+  └──────────────────┘                        └─────────┬───────────┘
+                                                        │
+                                                        ▼
+                                              ┌─────────────────────┐
+                                              │  AAP CONTROLLER     │
+                                              │  (same EC2 host)    │
+                                              │                     │
+                                              │  Workflow Template:  │
+                                              │  Pre-Snapshot →     │
+                                              │  Patch → Verify     │
+                                              │  (on_fail: Rollback)│
+                                              └─────────┬───────────┘
+                                                        │
+                              ┌──────────────────────────┼──────────────────┐
+                              │ WinRM (5986/HTTPS)       │ Azure REST API   │
+                              ▼                          ▼                  │
+                    ┌──────────────────┐     ┌──────────────────────┐       │
+                    │  WINDOWS VM      │     │  AZURE               │       │
+                    │  (azure)         │     │  - Disk Snapshots    │       │
+                    │  Win Server 2019 │     │  - Update Manager    │       │
+                    │  10.20.1.x       │     │  - Log Analytics     │       │
+                    └──────────────────┘     └──────────────────────┘       │
+
+  INFRASTRUCTURE:
+    AWS us-east-1:  VPC 10.10.0.0/16 → Subnet 10.10.1.0/24 → AAP EC2 (m5.xlarge)
+    Azure uksouth:  VNet 10.20.0.0/16 → Subnet 10.20.1.0/24 → Windows VM (Standard_B2s)
+
+
+================================================================================
+3. PREREQUISITES & ACCOUNTS
+================================================================================
+
+ACCOUNTS NEEDED:
+  [ ] Red Hat account with AAP 2.6 subscription (trial or paid)
+      - Download subscription manifest from access.redhat.com
+      - Note: rhn_username, rhn_password for registry.redhat.io
+  [ ] AWS account with permissions to create EC2, VPC, EIP, SG
+      - IAM user or role with AdministratorAccess (or scoped EC2/VPC)
+  [ ] Azure subscription with permissions to create:
+      - Resource groups, VNets, NSGs, VMs, Disks, Snapshots
+      - Service Principal with Contributor role on subscription
+      - Azure client_id, client_secret, tenant_id
+  [ ] Jira Cloud account (free tier works)
+      - Admin access to create projects, workflows, automation rules
+      - API token generated from id.atlassian.com
+      - Jira user email: skumar@iisl.com
+
+SOFTWARE NEEDED ON OPERATOR MACHINE:
+  [ ] Terraform >= 1.7.0
+  [ ] AWS CLI configured (aws configure)
+  [ ] Azure CLI configured (az login) — optional for local testing
+  [ ] ansible-builder (for building custom EE)
+  [ ] podman or docker (for EE build)
+  [ ] Git
+  [ ] curl (for testing webhooks)
+  [ ] A web browser
+  [ ] Let's Encrypt certbot (installed via pip3) for SSL cert on nginx proxy
+
+NETWORK REQUIREMENTS:
+  - Operator machine must reach AWS and Azure APIs
+  - AAP EC2 must reach Azure management APIs (outbound HTTPS)
+  - AAP EC2 must reach Windows VM on port 5986 (WinRM HTTPS)
+  - AAP EC2 port 9443 must be reachable from Jira Cloud (0.0.0.0/0) — nginx rewrite proxy with valid Let's Encrypt SSL cert
+  - AAP EC2 port 443 must be reachable from operator AND Jira Cloud (0.0.0.0/0)
+
+
+================================================================================
+4. INFRASTRUCTURE PROVISIONING (TERRAFORM)
+================================================================================
+
+All Terraform files are under: ropes-&-gray/code/iac/terraform/
+
+STEP 4.1: CREATE terraform.tfvars
+────────────────────────────────────
+Copy terraform.tfvars.example to terraform.tfvars and fill in:
+
+  # AWS
+  aws_region           = "us-east-1"
+  aap_instance_type    = "m5.xlarge"        # Minimum for AAP 2.6 all-in-one
+  aap_volume_size_gb   = 100
+  operator_cidr        = "YOUR_PUBLIC_IP/32" # Your IP for SSH/UI access
+  aap_admin_password   = "YOUR_AAP_PASSWORD"
+  rhn_username         = "YOUR_RHN_USER"
+  rhn_password         = "YOUR_RHN_PASS"
+  aap_manifest_b64     = "BASE64_ENCODED_MANIFEST"
+
+  # Azure
+  azure_subscription_id          = "YOUR_AZURE_SUB_ID"
+  azure_location                 = "uksouth"
+  deploy_azure                   = true
+  use_existing_resource_group    = false     # true for CSP subscriptions
+  existing_resource_group_name   = ""        # Only if above is true
+  windows_vm_size                = "Standard_B2s"
+  windows_admin_username         = "demoAdmin"
+  windows_admin_password         = "YOUR_WIN_PASSWORD"
+
+  # Shared
+  demo_prefix  = "patch-demo"
+  common_tags  = {
+    Project     = "Ropes-Gray-Patch-Demo"
+    Environment = "demo"
+    ManagedBy   = "terraform"
+    Owner       = "your-name"
+  }
+
+STEP 4.2: INIT & APPLY
+────────────────────────
+  cd ropes-&-gray/code/iac/terraform
+  terraform init
+  terraform plan -out=tfplan
+  terraform apply tfplan
+
+  # Or use the deploy.sh wrapper:
+  cd ropes-&-gray/code/iac
+  bash deploy.sh
+
+STEP 4.3: NOTE OUTPUTS
+────────────────────────
+After apply, record these outputs:
+
+  aap_public_ip               → e.g., 54.86.7.223
+  aap_controller_url          → https://54.86.7.223 (or DNS)
+  aap_eda_webhook_url         → https://54.86.7.223/api/eda/v1/... (native EDA on 443)
+                                 NOTE: Actual Jira webhook uses port 9443 via nginx proxy
+  azure_windows_public_ip     → e.g., 20.117.166.170
+  azure_windows_private_ip    → e.g., 10.20.1.4
+  azure_resource_group        → rg-patch-demo
+
+STEP 4.4: DNS (OPTIONAL)
+──────────────────────────
+  If using custom DNS (e.g., aap.iisdemolab.click):
+  - Create A record pointing to aap_public_ip
+  - Update all references in code (rulebook, demo-tour.html, group_vars)
+
+RESOURCES CREATED:
+  AWS:
+    - VPC (10.10.0.0/16) + public subnet + IGW + route table
+    - Security group (SSH, 443, 80, 9443)
+    - EC2 instance (m5.xlarge, RHEL 9) with EIP
+    - SSH key pair (aap_ec2_key.pem saved locally)
+
+  Azure:
+    - Resource group: rg-patch-demo
+    - VNet (10.20.0.0/16) + subnet (10.20.1.0/24)
+    - NSG (WinRM 5986 from AAP, RDP 3389 from operator)
+    - Public IP for Windows VM
+    - Windows Server 2019 VM (Standard_B2s, 128GB Premium disk)
+    - WinRM HTTPS configured via Custom Script Extension
+    - Log Analytics workspace
+    - Azure Update Manager maintenance config (Saturday 02:00-04:00 UTC)
+    - VM monitoring extension
+
+
+================================================================================
+5. AAP CONTROLLER CONFIGURATION
+================================================================================
+
+URL: https://<AAP_IP> (port 443)
+Login: admin / <aap_admin_password from terraform>
+
+STEP 5.1: UPLOAD SUBSCRIPTION MANIFEST
+────────────────────────────────────────
+  Settings → Subscription → Upload manifest file (ZIP from access.redhat.com)
+
+STEP 5.2: CREATE CREDENTIALS (4 required)
+───────────────────────────────────────────
+
+  CREDENTIAL 1: Azure Service Principal
+    Name:            Azure Service Principal - Patch Demo
+    Type:            Microsoft Azure Resource Manager
+    Subscription ID: <azure_subscription_id>
+    Client ID:       <azure_client_id>        (SP app ID)
+    Client Secret:   <azure_client_secret>     (SP password)
+    Tenant ID:       <azure_tenant_id>
+
+    Azure SP details: displayName=Ansible_OpenlinkCloud
+      client_id:  b5918a63-d15d-403e-a2e9-9bf7d4820b68
+      tenant_id:  3b6a72b3-61ba-4247-b769-2e682380a0ab
+    Note: Azure SP secret must be provided separately and stored in AAP vault.
+
+  CREDENTIAL 2: Windows Machine Credential
+    Name:            Windows Patch Target
+    Type:            Machine
+    Username:        demoAdmin
+    Password:        <windows_admin_password>
+
+  CREDENTIAL 3: Jira API Token (Custom Credential Type)
+    First, create Custom Credential Type:
+      Name:          Jira API Token
+      Input Config:
+        fields:
+          - id: jira_url
+            type: string
+            label: Jira Base URL
+          - id: jira_email
+            type: string
+            label: Jira Email
+          - id: jira_token
+            type: string
+            label: Jira API Token
+            secret: true
+        required: [jira_url, jira_email, jira_token]
+
+      Injector Config:
+        extra_vars:
+          jira_base_url: "{{ jira_url }}"
+          jira_user_email: "{{ jira_email }}"
+          jira_api_token: "{{ jira_token }}"
+
+    Then create Credential:
+      Name:           Jira API - Ropes & Gray
+      Type:           Jira API Token
+      Jira Base URL:  https://iisl.atlassian.net
+      Jira Email:     skumar@iisl.com
+      Jira API Token: <your-jira-api-token>
+
+  CREDENTIAL 4: Red Hat Registry
+    Name:            Red Hat Container Registry
+    Type:            Container Registry
+    Registry URL:    registry.redhat.io
+    Username:        <rhn_username>
+    Password:        <rhn_password>
+
+STEP 5.3: BUILD & PUSH EXECUTION ENVIRONMENT
+──────────────────────────────────────────────
+  On operator machine (with podman/docker):
+
+    cd ropes-&-gray/code/aap
+    ansible-builder build \
+      -f execution_environment.yml \
+      -t ee-windows-patching:latest \
+      -v 3
+
+    podman login <AAP_IP>
+    podman push ee-windows-patching:latest \
+      <AAP_IP>/ee-windows-patching/ee-windows-patching:latest
+
+  In AAP UI:
+    Administration → Execution Environments → Add
+    Name:   ee-windows-patching
+    Image:  <AAP_IP>/ee-windows-patching/ee-windows-patching:latest
+
+  Collections included in EE:
+    - ansible.windows >= 2.3.0
+    - community.windows >= 2.1.0
+    - azure.azcollection >= 2.3.0
+    - ansible.utils >= 3.0.0
+
+  Python packages:
+    - pywinrm >= 0.4.3
+    - requests >= 2.31.0
+    - azure-mgmt-compute >= 30.0.0
+    - azure-identity >= 1.15.0
+
+STEP 5.4: CREATE PROJECT
+──────────────────────────
+  Resources → Projects → Add
+    Name:            Ropes & Gray Patch Demo
+    Organization:    IIS Demo Lab (or your org name)
+    SCM Type:        Git
+    SCM URL:         <your-git-repo-url>
+    SCM Branch:      main
+    SCM Credential:  (if private repo)
+    Update on Launch: Yes
+
+STEP 5.5: CREATE INVENTORY
+───────────────────────────
+  Resources → Inventories → Add
+    Name:        Patch Demo Hosts
+    Organization: IIS Demo Lab
+
+  Then add Host:
+    Name:           win-azure-01
+    Variables (YAML):
+      ansible_host: "<azure_windows_public_ip>"
+      ansible_user: demoAdmin
+      ansible_connection: winrm
+      ansible_winrm_transport: ntlm
+      ansible_winrm_scheme: https
+      ansible_winrm_port: 5986
+      ansible_winrm_server_cert_validation: ignore
+      cloud_provider: azure
+      azure_resource_group: rg-patch-demo
+      patch_group: security_updates
+
+  Or use the inventory file from repo:
+    Resources → Inventories → <your inventory> → Sources → Add
+    Source:    Sourced from a Project
+    Project:   Ropes & Gray Patch Demo
+    Inventory file: ansible/inventory/azure_hosts.yml
+
+STEP 5.6: CREATE JOB TEMPLATES (5)
+────────────────────────────────────
+
+  TEMPLATE 1: Pre-Change Snapshot
+    Name:            Pre-Change Snapshot
+    Job Type:        Run
+    Inventory:       Patch Demo Hosts
+    Project:         Ropes & Gray Patch Demo
+    Playbook:        ansible/playbooks/patch_workflow.yml
+    Execution Env:   ee-windows-patching
+    Credentials:     Windows Patch Target, Azure SP, Jira API
+    Extra Variables: phase_override: pre_only
+    Verbosity:       1 (Verbose)
+
+  TEMPLATE 2: Patch Windows Security Updates
+    Name:            Patch Windows Security Updates
+    Playbook:        ansible/playbooks/patch_workflow.yml
+    (same inventory, project, EE, credentials as above)
+    Extra Variables: phase_override: patch_only
+
+  TEMPLATE 3: Post-Change Verify
+    Name:            Post-Change Verify
+    Playbook:        ansible/playbooks/patch_workflow.yml
+    Extra Variables: phase_override: verify_only
+
+  TEMPLATE 4: Rollback Patch
+    Name:            Rollback Patch
+    Playbook:        ansible/playbooks/rollback.yml
+    (same inventory, project, EE, credentials)
+
+  TEMPLATE 5: WinRM Connectivity Test
+    Name:            WinRM Connectivity Test
+    Playbook:        ansible/playbooks/test_winrm.yml
+    (same inventory, project, EE, credentials)
+    Note:            Run in check mode for pre-demo validation
+
+STEP 5.7: CREATE WORKFLOW TEMPLATE
+────────────────────────────────────
+  Resources → Templates → Add Workflow Template
+    Name:            Hybrid Patch Workflow
+    Organization:    IIS Demo Lab
+    Inventory:       Patch Demo Hosts
+
+  Survey (5 questions):
+    1. Jira Ticket ID     | Variable: jira_ticket_id  | Text    | Required
+    2. Target hosts group | Variable: target_hosts     | Choice  | Required
+       Choices: windows, windows_azure
+    3. Dry run mode       | Variable: dry_run          | Choice  | Required
+       Choices: false, true
+    4. Maintenance window | Variable: maint_window     | Text    | Optional
+    5. Risk level         | Variable: risk_level       | Choice  | Optional
+       Choices: Low, Medium, High
+
+  Workflow Visualizer (nodes + edges):
+    [START]
+      → [Pre-Change Snapshot] (always)
+          → on_success: [Patch Windows Security Updates]
+              → on_success: [Post-Change Verify]
+                  → on_success: (end — success)
+                  → on_failure: [Rollback Patch]
+              → on_failure: [Rollback Patch]
+          → on_failure: (end — failure)
+
+  Each node passes all extra_vars from workflow survey to child templates.
+
+STEP 5.8: CREATE AAP API TOKEN (for EDA)
+──────────────────────────────────────────
+  Users → admin → Tokens → Add
+    Scope:  Write
+    Copy the token value — needed for EDA Controller credential.
+
+
+================================================================================
+6. EDA CONTROLLER CONFIGURATION
+================================================================================
+
+URL: Same AAP host, EDA tab in the navigation
+
+STEP 6.1: CREATE CONTROLLER CREDENTIAL
+────────────────────────────────────────
+  EDA → Credentials → Add
+    Name:            AAP Controller Token
+    Credential Type: Red Hat Ansible Automation Platform
+    Controller URL:  https://localhost
+    Token:           <token from Step 5.8>
+    Verify SSL:      No (self-signed in demo)
+
+STEP 6.2: CREATE EVENT STREAM
+───────────────────────────────
+  EDA → Event Streams → Add
+    Name:            jira-patch
+    Event Stream Type: Generic (Webhook)
+    Credential:      (basic auth or token — configure as needed)
+
+  After creation, note the webhook URL:
+    https://<AAP_IP>/eda-event-streams/api/eda/v1/external_event_stream/<UUID>/post/
+
+  For the current demo, the URL is:
+    https://aap.iisdemolab.click/eda-event-streams/api/eda/v1/external_event_stream/e04c1e6e-1c48-489f-961a-0ca15de3ad41/post/
+
+  Create Basic Auth credential for the event stream:
+    Username: jira-webhook
+    Password: webhook123
+    Base64:   amlyYS13ZWJob29rOndlYmhvb2sxMjM=
+
+CRITICAL — JIRA URL COMPATIBILITY:
+  Jira Cloud Automation's "Send web request" action converts underscores (_) to
+  hyphens (-) in URLs. The native EDA event stream URL contains underscores
+  (external_event_stream) which Jira mangles to (external-event-stream), returning 404.
+
+  SOLUTION: Deploy an nginx reverse proxy on the AAP server (port 9443) with a valid
+  Let's Encrypt SSL certificate. The proxy rewrites the hyphenated path back to
+  underscores before forwarding to EDA on localhost:443.
+
+  Nginx config location: /etc/nginx/conf.d/eda-rewrite.conf
+  SSL cert: /etc/letsencrypt/live/aap.iisdemolab.click/fullchain.pem
+  SSL key:  /etc/letsencrypt/live/aap.iisdemolab.click/privkey.pem
+
+  The URL to use in Jira Automation rules:
+    https://aap.iisdemolab.click:9443/eda-event-streams/api/eda/v1/external-event-stream/<UUID>/post/
+
+  This proxies to the actual EDA URL:
+    https://localhost/eda-event-streams/api/eda/v1/external_event_stream/<UUID>/post/
+
+  To set up the nginx proxy:
+    1. Install nginx: sudo dnf install -y nginx
+    2. Install certbot: sudo pip3 install certbot
+    3. Open port 80 temporarily in AWS SG for Let's Encrypt verification
+    4. Get cert: sudo certbot certonly --standalone -d aap.iisdemolab.click --non-interactive --agree-tos --email your@email.com
+    5. Create /etc/nginx/conf.d/eda-rewrite.conf with rewrite rules
+    6. Open port 9443 in AWS SG to 0.0.0.0/0
+    7. Start nginx: sudo systemctl enable --now nginx
+    8. Close port 80 in AWS SG (no longer needed)
+
+STEP 6.3: CREATE EDA PROJECT
+──────────────────────────────
+  EDA → Projects → Add
+    Name:       Jira Patch Rulebooks
+    SCM Type:   Git
+    SCM URL:    <your-git-repo-url>
+    Credential: (if private repo)
+
+STEP 6.4: CREATE RULEBOOK ACTIVATION
+──────────────────────────────────────
+  EDA → Rulebook Activations → Add
+    Name:                Jira Patch Handler
+    Project:             Jira Patch Rulebooks
+    Rulebook:            aap/eda/rulebooks/jira_patch_rulebook.yml
+    Decision Environment: de-supported-rhel9 (default)
+    Controller Credential: AAP Controller Token
+    Event Streams:       jira-patch (map to "Generic" source)
+    Restart Policy:      On Failure
+    Enabled:             Yes
+
+STEP 6.5: VERIFY ACTIVATION IS RUNNING
+────────────────────────────────────────
+  Check Rulebook Activations list — status should be "Running"
+  Check Rule Audit — should show "Jira | Patch Windows - launch patch" rule
+
+
+RULEBOOK DETAILS (jira_patch_rulebook.yml):
+───────────────────────────────────────────
+  2 rules:
+
+  Rule 1: "Jira | Patch Windows - launch patch"
+    Condition: event.payload is defined AND
+               (event.payload.issue_status is not defined OR
+                event.payload.issue_status != "Revert Patch")
+    Action: run_job_template
+      Name: "Hybrid Patch Workflow"
+      Organization: "IIS Demo Lab"
+      Extra vars from event:
+        jira_ticket_id:  event.payload.issue_key
+        jira_summary:    event.payload.issue_summary
+        target_hosts:    "windows"
+        dry_run:         "false"
+
+  Rule 2: "Jira | Revert Patch - launch rollback"
+    Condition: event.payload is defined AND
+               event.payload.issue_status == "Revert Patch"
+    Action: run_job_template
+      Name: "Rollback Patch"
+      Organization: "IIS Demo Lab"
+      Extra vars from event:
+        jira_ticket_id:  event.payload.issue_key
+        jira_summary:    event.payload.issue_summary
+        target_hosts:    "windows"
+
+
+================================================================================
+7. JIRA CLOUD CONFIGURATION
+================================================================================
+
+URL: https://iisl.atlassian.net (or your Jira instance)
+
+STEP 7.1: CREATE ACCOUNT & PROJECT
+────────────────────────────────────
+  1. Sign up at atlassian.com (free tier works)
+  2. Create project:
+     Template:    IT Service Management (service_desk project type)
+     Name:        Change Management
+     Key:         CHG
+     Type:        Team-managed
+     Issue Type:  "Change" (id: 10004), NOT "Task"
+     Request Type: "Upgrade or change a server" (when creating tickets through the portal)
+
+STEP 7.2: CREATE CUSTOM FIELDS (4)
+────────────────────────────────────
+  Project Settings → Issue Types → Change Request → Add fields:
+
+  1. Patch Scope       | Short text  | e.g., "windows", "linux", "all"
+  2. Maintenance Window| Short text  | e.g., "weekly-saturday-0200utc"
+  3. Risk Level        | Dropdown    | Options: Low, Medium, High
+  4. Rollback Required | Checkbox    | Boolean
+
+  Associate all fields to the Change Request issue type screen.
+
+STEP 7.3: CREATE WORKFLOW
+──────────────────────────
+  Project Settings → Board → Workflows → Add Workflow
+
+  Name: "CHG: Azure Windows Infrastructure Management Workflow"
+
+  Statuses (7):
+    1. New CHG Request       (category: To Do)
+    2. Under Review          (category: In Progress)
+    3. Patch Windows (Automation) (category: In Progress)  — Automation trigger
+    4. QA Testing            (category: In Progress)
+    5. Accepted              (category: Done)
+    6. Revert Patch          (category: In Progress)  — Rollback trigger
+    7. Resolved              (category: Done)
+
+  Transitions (6):
+    New CHG Request   → Under Review        (Submit for Review)
+    Under Review      → Patch Windows (Automation) (Approve & Start Patching)
+    Patch Windows (Automation) → QA Testing  (Patching Complete)
+    QA Testing        → Accepted            (QA Approved)
+    QA Testing        → Revert Patch        (Request Rollback)
+    Revert Patch      → Resolved            (Rollback Complete)
+
+  Assign this workflow to the "Change Request" issue type in the CHG project.
+
+STEP 7.4: CREATE API TOKEN
+────────────────────────────
+  Go to: https://id.atlassian.com/manage-profile/security/api-tokens
+  Create token → Save the value (used in AAP Jira credential)
+
+STEP 7.5: CREATE AUTOMATION RULES (2)
+───────────────────────────────────────
+
+  RULE 1: "Notify AAP on Implementing" (Patch Trigger)
+    Project Settings → Automation → Create Rule
+
+    WHEN:    Issue transitioned
+               From status: "Under Review"
+               To status:   "Patch Windows (Automation)"
+    THEN:    Send web request
+      URL:     https://aap.iisdemolab.click:9443/eda-event-streams/api/eda/v1/external-event-stream/e04c1e6e-1c48-489f-961a-0ca15de3ad41/post/
+      NOTE:    URL uses hyphens (external-event-stream) because Jira converts underscores.
+               The nginx proxy on port 9443 rewrites hyphens back to underscores for EDA.
+      Method:  POST
+      Headers:
+        Content-Type:  application/json
+        Authorization: Basic amlyYS13ZWJob29rOndlYmhvb2sxMjM=
+      Body (Custom data):
+        {
+          "issue_key": "{{issue.key}}",
+          "issue_summary": "{{issue.summary}}",
+          "project_key": "{{issue.project.key}}",
+          "issue_status": "{{issue.status.name}}",
+          "issue_priority": "{{issue.priority.name}}",
+          "reporter": "{{issue.reporter.displayName}}",
+          "assignee": "{{issue.assignee.displayName}}",
+          "timestamp": "{{now.iso8601}}"
+        }
+
+    Enable the rule.
+
+  RULE 2: "Trigger AAP Rollback" (Rollback Trigger)
+    WHEN:    Issue transitioned
+               From status: "QA Testing"
+               To status:   "Revert Patch"
+    THEN:    Send web request
+      URL:     https://aap.iisdemolab.click:9443/eda-event-streams/api/eda/v1/external-event-stream/e04c1e6e-1c48-489f-961a-0ca15de3ad41/post/
+      NOTE:    Same port 9443 nginx proxy URL with hyphens (see Rule 1 note).
+      Method:  POST
+      Headers: (same as Rule 1)
+      Body:    (same JSON payload — EDA differentiates by issue_status field)
+
+    Enable the rule.
+
+
+================================================================================
+8. ANSIBLE PLAYBOOKS & ROLES
+================================================================================
+
+All Ansible code under: ropes-&-gray/code/ansible/
+
+DIRECTORY STRUCTURE:
+  ansible/
+  ├── ansible.cfg
+  ├── collections/
+  │   └── requirements.yml          # Collection dependencies
+  ├── group_vars/
+  │   └── windows.yml               # All variables for windows group
+  ├── inventory/
+  │   └── azure_hosts.yml           # Host inventory with WinRM settings
+  ├── playbooks/
+  │   ├── patch_workflow.yml         # Main 3-phase playbook
+  │   ├── rollback.yml              # Rollback playbook
+  │   └── test_winrm.yml            # Connectivity test
+  ├── roles/
+  │   ├── pre_change_snapshot/
+  │   │   └── tasks/main.yml        # 224 lines — system state + Azure snapshot
+  │   ├── patch_windows_security_updates/
+  │   │   └── tasks/main.yml        # 88 lines — install updates + reboot
+  │   ├── post_change_verify/
+  │   │   └── tasks/main.yml        # 176 lines — verify + Jira comment
+  │   └── rollback_patch/
+  │       └── tasks/main.yml        # 173 lines — uninstall KBs + Jira
+  └── templates/
+      └── jira_comment.j2           # 85 lines — Jira comment template
+
+KEY VARIABLES (group_vars/windows.yml):
+────────────────────────────────────────
+  # WinRM
+  ansible_password:  From vault or WIN_PASS env var
+
+  # Jira (injected by AAP credential)
+  jira_base_url:               https://iisl.atlassian.net
+  jira_project_key:            CHG
+  jira_status_pending_qa:      "QA Testing"
+  jira_status_rollback_requested: "Revert Patch"
+  jira_status_resolved:        "Resolved"
+
+  # Azure
+  azure_subscription_id:       62e011bd-876a-4f15-aa29-5267d77768d2
+  azure_resource_group:        rg-patch-demo
+  azure_location:              uksouth
+  azure_vm_name:               vm-win-target
+
+  # Patch settings
+  patch_reboot_timeout:        900
+  patch_category:              SecurityUpdates
+  patch_max_concurrency:       1
+
+  # Azure Update Manager
+  aum_query_enabled:           true
+
+  # Snapshots
+  azure_snapshot_enabled:      true
+  azure_snapshot_prefix:       "pre-patch"
+
+  # Risk thresholds
+  risk_uptime_warning_days:    60
+  risk_pending_updates_warn:   20
+
+ROLE EXECUTION ORDER:
+──────────────────────
+  patch_workflow.yml executes roles based on phase_override:
+    - pre_only:    runs pre_change_snapshot only
+    - patch_only:  runs patch_windows_security_updates only
+    - verify_only: runs post_change_verify only
+    - (no override): runs all 3 in sequence
+
+  rollback.yml:
+    - runs rollback_patch role
+
+AZURE SNAPSHOT LOGIC (pre_change_snapshot role):
+─────────────────────────────────────────────────
+  1. Get Azure access token via REST:
+     POST https://login.microsoftonline.com/<tenant_id>/oauth2/token
+     Body: grant_type=client_credentials&client_id=<id>&client_secret=<secret>&resource=https://management.azure.com/
+
+  2. Get VM details to find OS disk ID:
+     GET https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Compute/virtualMachines/<vm>?api-version=2023-09-01
+
+  3. Create disk snapshot:
+     PUT https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Compute/snapshots/<name>?api-version=2023-10-02
+     Body: location, tags (Purpose, Ticket, CreatedBy, SourceDisk), creationData (sourceResourceId = OS disk ID)
+
+  4. If any step fails → warning only, does NOT block patching
+     (block rescue pattern with debug warning)
+
+JIRA COMMENT POSTING (post_change_verify role):
+─────────────────────────────────────────────────
+  1. Render comment from jira_comment.j2 template
+  2. POST /rest/api/3/issue/<ticket>/comment
+     Auth: Basic (base64 of jira_email:jira_token)
+     Body: Atlassian Document Format (ADF) with code block
+  3. GET /rest/api/3/issue/<ticket>/transitions (find target status ID)
+  4. POST /rest/api/3/issue/<ticket>/transitions (transition to QA Testing)
+
+ROLLBACK LOGIC (rollback_patch role):
+──────────────────────────────────────
+  1. Load KB list from C:\Windows\Temp\ansible_last_patch_kbs.json
+  2. Uninstall each KB via: wusa.exe /uninstall /kb:<num> /quiet /norestart
+  3. Reboot after all uninstalls
+  4. Verify KBs removed via Get-HotFix
+  5. Post rollback comment to Jira
+  6. Transition ticket to Resolved (since ticket is already in 'Revert Patch' status)
+
+
+================================================================================
+9. AZURE INTEGRATION DETAILS
+================================================================================
+
+RESOURCE GROUP: rg-patch-demo
+LOCATION: uksouth
+SUBSCRIPTION: 62e011bd-876a-4f15-aa29-5267d77768d2
+
+SERVICE PRINCIPAL REQUIREMENTS:
+  - Role: Contributor (or custom with compute + snapshot permissions)
+  - Permissions needed:
+    Microsoft.Compute/virtualMachines/read
+    Microsoft.Compute/snapshots/write
+    Microsoft.Compute/snapshots/read
+    Microsoft.Compute/disks/read
+    Microsoft.Maintenance/* (for AUM)
+
+WINDOWS VM DETAILS:
+  Name:         vm-win-target
+  OS:           Windows Server 2019 Datacenter
+  Size:         Standard_B2s
+  Disk:         Premium_LRS 128 GB
+  Patch Mode:   AutomaticByPlatform (AUM-controlled)
+  WinRM:        HTTPS on port 5986 (self-signed cert via CSE)
+  Admin:        demoAdmin / <password>
+  Public IP:    Dynamic (note from Terraform output)
+  Private IP:   10.20.1.x
+
+AZURE UPDATE MANAGER:
+  Maintenance Config: mc-patch-demo-weekly-security
+  Schedule:           Every Saturday 02:00-04:00 UTC
+  Classifications:    Critical, Security, UpdateRollup
+  Reboot:             IfRequired
+
+LOG ANALYTICS:
+  Workspace:    law-patch-demo-<random>
+  SKU:          PerGB2018
+  Retention:    30 days
+
+
+================================================================================
+10. DEMO TOUR HTML SETUP
+================================================================================
+
+File: ropes-&-gray/code/demo/demo-tour.html
+
+This is a self-contained HTML page that guides the presenter through the demo.
+
+CONFIGURATION (update these in the HTML):
+  - JIRA_BASE_URL:    https://iisl.atlassian.net
+  - JIRA_PROJECT:     CHG
+  - AAP_URL:          https://aap.iisdemolab.click
+  - AZURE_PORTAL:     https://portal.azure.com
+  - SUBSCRIPTION_ID:  62e011bd-876a-4f15-aa29-5267d77768d2
+  - RESOURCE_GROUP:   rg-patch-demo
+
+TO SERVE LOCALLY:
+  cd ropes-&-gray/code/demo
+  python3 -m http.server 8888
+  Open: http://localhost:8888/demo-tour.html
+
+
+================================================================================
+11. END-TO-END VERIFICATION
+================================================================================
+
+Before demo day, run through this checklist:
+
+PRE-FLIGHT:
+  [ ] Terraform state is current (terraform plan shows no changes)
+  [ ] AAP UI accessible at https://<AAP_IP>
+  [ ] EDA Rulebook Activation status is "Running"
+  [ ] WinRM Connectivity Test template runs successfully
+  [ ] Azure VM is running and reachable on port 5986
+  [ ] Jira project CHG is accessible with all custom fields
+  [ ] Jira Automation rules are enabled
+  [ ] demo-tour.html loads at http://localhost:8888/demo-tour.html
+
+SMOKE TEST:
+  1. Create test ticket CHG-XX in Jira
+  2. Transition to Under Review
+  3. Transition to Patch Windows
+  4. Verify Jira Automation audit log shows SUCCESS
+  5. Verify EDA event stream received count increases
+  6. Verify AAP Jobs list shows new Hybrid Patch Workflow job
+  7. Wait for job completion (45-60 minutes)
+  8. Verify Jira comment posted to ticket
+  9. Verify ticket transitioned to QA Testing
+  10. (Optional) Test rollback by transitioning to Revert Patch
+
+
+================================================================================
+12. CREDENTIAL REFERENCE TABLE
+================================================================================
+
+  ┌─────────────────────────┬──────────────────────┬─────────────────────┐
+  │ Credential              │ Where Used           │ Sensitivity         │
+  ├─────────────────────────┼──────────────────────┼─────────────────────┤
+  │ AWS Access Key/Secret   │ Terraform            │ HIGH - rotate often │
+  │ Azure SP Client Secret  │ AAP, Terraform       │ HIGH - 90-day cycle │
+  │ Azure Subscription ID   │ Terraform, Ansible   │ MEDIUM              │
+  │ Azure Tenant ID         │ AAP, Terraform       │ LOW                 │
+  │ Azure Client ID         │ AAP, Terraform       │ LOW                 │
+  │ Windows Admin Password  │ AAP Machine cred     │ HIGH - change after │
+  │ Jira API Token          │ AAP Custom cred      │ HIGH - rotate       │
+  │ Jira Email              │ AAP Custom cred      │ LOW                 │
+  │ RHN Username/Password   │ Terraform, EE build  │ MEDIUM              │
+  │ AAP Admin Password      │ Manual login         │ HIGH                │
+  │ AAP API Token           │ EDA Controller       │ HIGH - regenerate   │
+  │ EDA Webhook Basic Auth  │ Jira Automation      │ MEDIUM              │
+  │ AAP Manifest (base64)   │ Terraform userdata   │ MEDIUM              │
+  └─────────────────────────┴──────────────────────┴─────────────────────┘
+
+  Current demo values (CHANGE FOR PRODUCTION):
+    AAP URL:           https://aap.iisdemolab.click
+    Jira URL:          https://iisl.atlassian.net
+    Jira Project Key:  CHG
+    EDA Webhook User:  jira-webhook
+    EDA Webhook Pass:  webhook123
+    Win Admin User:    demoAdmin
+
+
+================================================================================
+13. FILE INVENTORY
+================================================================================
+
+ropes-&-gray/
+├── .gitignore
+├── code/
+│   ├── README.md                              # Project overview
+│   ├── aap/
+│   │   ├── README.md                          # AAP config guide
+│   │   ├── execution_environment.yml          # EE build spec
+│   │   ├── eda/
+│   │   │   └── rulebooks/
+│   │   │       └── jira_patch_rulebook.yml    # 2 EDA rules
+│   │   └── install/
+│   │       └── README.md                      # AAP install guide
+│   ├── ansible/
+│   │   ├── ansible.cfg                        # Ansible config
+│   │   ├── collections/
+│   │   │   └── requirements.yml               # 4 collections
+│   │   ├── group_vars/
+│   │   │   └── windows.yml                    # All vars
+│   │   ├── inventory/
+│   │   │   └── azure_hosts.yml                # Host definitions
+│   │   ├── playbooks/
+│   │   │   ├── patch_workflow.yml              # Main workflow
+│   │   │   ├── rollback.yml                   # Rollback playbook
+│   │   │   └── test_winrm.yml                 # Connectivity test
+│   │   ├── roles/
+│   │   │   ├── pre_change_snapshot/
+│   │   │   │   └── tasks/main.yml             # Pre-patch + Azure snapshot
+│   │   │   ├── patch_windows_security_updates/
+│   │   │   │   └── tasks/main.yml             # Install updates
+│   │   │   ├── post_change_verify/
+│   │   │   │   └── tasks/main.yml             # Verify + Jira
+│   │   │   └── rollback_patch/
+│   │   │       └── tasks/main.yml             # Uninstall + Jira
+│   │   └── templates/
+│   │       └── jira_comment.j2                # Jira comment template
+│   ├── demo/
+│   │   └── demo-tour.html                     # Interactive demo guide
+│   ├── docs/
+│   │   └── architecture.md                    # Detailed architecture
+│   ├── iac/
+│   │   ├── deploy.sh                          # Deploy orchestrator
+│   │   ├── resume.sh                          # Resume deployment
+│   │   ├── destroy.sh                         # Teardown all
+│   │   └── terraform/
+│   │       ├── providers.tf                   # Provider versions
+│   │       ├── variables.tf                   # Input variables
+│   │       ├── main.tf                        # Shared resources
+│   │       ├── aws_aap.tf                     # AWS VPC + EC2
+│   │       ├── azure_network.tf               # Azure VNet + NSG
+│   │       ├── azure_windows_target.tf        # Windows VM
+│   │       ├── azure_update_manager.tf        # AUM + Log Analytics
+│   │       ├── outputs.tf                     # Output values
+│   │       ├── tf.sh                          # Terraform wrapper
+│   │       ├── import_state.sh                # Import resources
+│   │       └── terraform.tfvars.example       # Variables template
+│   └── jira/
+│       ├── README.md                          # Jira config index
+│       ├── setup_guide.md                     # Account + project setup
+│       ├── webhook_eda_config.md              # Webhook integration
+│       └── workflow_config.md                 # Workflow + transitions
+
+
+================================================================================
+14. KNOWN ISSUES & WORKAROUNDS
+================================================================================
+
+ISSUE 1: Jira webhook times out (30s) but job runs
+  Cause:   EDA/AAP takes >30s to process; Jira considers it timed out
+  Impact:  None — webhook was received, job runs fine
+  Fix:     Ignore Jira timeout warning; verify in EDA Rule Audit
+
+ISSUE 2: "Issue does not exist" (404) when posting Jira comment
+  Cause:   jira_ticket_id not passed correctly from EDA event payload
+  Fix:     Verify event payload field name matches rulebook extra_vars
+           Check: event.payload.issue_key vs event.payload.key
+
+ISSUE 3: Azure snapshot not created
+  Cause:   Azure SP credentials not configured or insufficient permissions
+  Fix:     Ensure Azure SP credential attached to job template
+           Verify SP has Microsoft.Compute/snapshots/write permission
+           Playbook uses block/rescue — failure is non-blocking (warning only)
+
+ISSUE 4: CSP subscription cannot create resource groups
+  Cause:   Restricted Azure subscription (CSP, MSDN, etc.)
+  Fix:     Set use_existing_resource_group = true in terraform.tfvars
+           Set existing_resource_group_name = "<your-rg>"
+           Set deploy_azure = false if needed
+
+ISSUE 5: WinRM connection refused
+  Cause:   Windows firewall, NSG rules, or CSE script failed
+  Fix:     1. Check Azure NSG allows 5986 from AAP IP
+           2. RDP into VM, check WinRM: winrm enumerate winrm/config/listener
+           3. Re-run CSE: az vm extension set ...
+
+ISSUE 6: EDA rulebook activation not running
+  Cause:   Decision environment not found, or controller credential invalid
+  Fix:     1. Verify de-supported-rhel9 exists in Decision Environments
+           2. Regenerate AAP API token and update EDA credential
+           3. Check EDA controller logs: podman logs -f eda-server
+
+ISSUE 7: Jira transition fails (no matching transition ID)
+  Cause:   Workflow status names in Ansible don't match Jira workflow
+  Fix:     Update group_vars/windows.yml status names to match exactly:
+           jira_status_pending_qa: "QA Testing"
+           (must match Jira workflow status name exactly, case-sensitive)
+
+ISSUE 8: Jira Automation URL converts underscores to hyphens
+  Cause:   Jira Cloud's "Send web request" action normalizes URLs, converting _ to -
+  Impact:  EDA returns 404 because the path doesn't match
+  Fix:     Deploy nginx reverse proxy on port 9443 with URL rewrite rule.
+           Use hyphenated URL in Jira, nginx rewrites to underscore URL for EDA.
+           See Section 6.2 for full setup instructions.
+
+ISSUE 9: Jira webhook SSL handshake failure (certificate unknown)
+  Cause:   AAP gateway uses a self-signed SSL certificate. Jira Cloud requires
+           a valid, publicly-trusted certificate.
+  Impact:  Jira sends webhook but TLS handshake fails, returns 500 to Jira
+  Fix:     Install Let's Encrypt certificate on nginx proxy (port 9443).
+           certbot certonly --standalone -d aap.iisdemolab.click
+           Update nginx to use /etc/letsencrypt/live/aap.iisdemolab.click/fullchain.pem
+
+ISSUE 10: Jira automation "SOME ERRORS" with HTTP 500 but job runs
+  Cause:   EDA returns an empty 200 response body. Jira interprets empty body
+           as error in some cases. The webhook IS delivered and processed.
+  Impact:  Cosmetic — Jira audit shows "SOME ERRORS" but the job executes.
+  Fix:     Ignore the Jira error. Verify job execution in AAP Jobs list and
+           EDA Rule Audit. The 500 is a Jira display issue, not a real failure.
+
+ISSUE 11: Ticket created as "Task" type instead of "Change" type
+  Cause:   JSM projects use Request Types in the portal. If wrong request type
+           is selected, ticket gets default Task workflow (Open/Done) instead of
+           custom Change workflow with 7 statuses.
+  Fix:     Use request type "Upgrade or change a server" (maps to Change issue type).
+           Via API: use issuetype id "10004" (Change).
+
+ISSUE 12: Rollback role path not found in AAP
+  Cause:   rollback.yml referenced "rollback_patch" without relative path prefix.
+           Other playbooks use "role: ../roles/..." but rollback.yml had bare name.
+  Fix:     Changed to "role: ../roles/rollback_patch" to match other playbooks.
+
+ISSUE 13: Rollback doesn't transition ticket after completion
+  Cause:   Rollback role tried to transition to "Rollback Requested" status which
+           doesn't exist. Ticket is already in "Revert Patch" — needs to go to "Resolved".
+  Fix:     Updated rollback role to use jira_status_resolved ("Resolved") instead of
+           jira_status_rollback_requested for the post-rollback transition.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================
