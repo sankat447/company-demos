@@ -120,6 +120,12 @@ variable "rhn_offline_token" {
   default     = ""
 }
 
+variable "customer" {
+  description = "Customer/company identifier for resource tagging (e.g. ropes-gray, acme-corp)"
+  type        = string
+  default     = "ropes-gray"
+}
+
 variable "common_tags" {
   description = "Tags applied to all resources"
   type        = map(string)
