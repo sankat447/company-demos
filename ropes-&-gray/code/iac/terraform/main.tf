@@ -2,7 +2,11 @@
 
 locals {
   prefix = var.demo_prefix
-  tags   = var.common_tags
+  tags = merge(var.common_tags, {
+    Customer           = "demo-${var.customer}"
+    TerraformWorkspace = terraform.workspace
+    TerraformDeployID  = random_id.suffix.hex
+  })
 }
 
 # ── SSH key pair for AAP EC2 ──────────────────────────────────────────────────
@@ -15,7 +19,7 @@ resource "tls_private_key" "aap_ssh" {
 resource "aws_key_pair" "aap" {
   key_name   = "${local.prefix}-aap-key"
   public_key = tls_private_key.aap_ssh.public_key_openssh
-  tags       = local.tags
+  tags = { Name = "${local.prefix}-aap-key" }
 }
 
 # Save private key locally so you can SSH in to run the AAP installer

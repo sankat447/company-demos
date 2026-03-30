@@ -4,7 +4,7 @@ resource "aws_vpc" "aap" {
   cidr_block           = "10.10.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
-  tags                 = merge(local.tags, { Name = "${local.prefix}-aap-vpc" })
+  tags = { Name = "${local.prefix}-aap-vpc" }
 }
 
 resource "aws_subnet" "aap_public" {
@@ -12,12 +12,12 @@ resource "aws_subnet" "aap_public" {
   cidr_block              = "10.10.1.0/24"
   availability_zone       = "${var.aws_region}a"
   map_public_ip_on_launch = true
-  tags                    = merge(local.tags, { Name = "${local.prefix}-aap-subnet" })
+  tags                    = { Name = "${local.prefix}-aap-subnet" }
 }
 
 resource "aws_internet_gateway" "aap" {
   vpc_id = aws_vpc.aap.id
-  tags   = merge(local.tags, { Name = "${local.prefix}-aap-igw" })
+  tags   = { Name = "${local.prefix}-aap-igw" }
 }
 
 resource "aws_route_table" "aap_public" {
@@ -26,7 +26,7 @@ resource "aws_route_table" "aap_public" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.aap.id
   }
-  tags = merge(local.tags, { Name = "${local.prefix}-aap-rt" })
+  tags = { Name = "${local.prefix}-aap-rt" }
 }
 
 resource "aws_route_table_association" "aap_public" {
@@ -71,6 +71,14 @@ resource "aws_security_group" "aap" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    description = "Jira EDA webhook rewrite"
+    from_port   = 9443
+    to_port     = 9443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     description = "All outbound"
     from_port   = 0
@@ -79,7 +87,7 @@ resource "aws_security_group" "aap" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(local.tags, { Name = "${local.prefix}-aap-sg" })
+  tags = { Name = "${local.prefix}-aap-sg" }
 }
 
 data "aws_ami" "rhel9" {
@@ -211,11 +219,11 @@ resource "aws_instance" "aap" {
     http_tokens   = "required"
   }
 
-  tags = merge(local.tags, {
+  tags = {
     Name       = "${local.prefix}-aap-controller"
     Role       = "aap-containerized"
     AAPVersion = "2.6"
-  })
+  }
 
   lifecycle { ignore_changes = [ami] }
 }
@@ -223,6 +231,6 @@ resource "aws_instance" "aap" {
 resource "aws_eip" "aap" {
   instance   = aws_instance.aap.id
   domain     = "vpc"
-  tags       = merge(local.tags, { Name = "${local.prefix}-aap-eip" })
+  tags       = { Name = "${local.prefix}-aap-eip" }
   depends_on = [aws_internet_gateway.aap]
 }

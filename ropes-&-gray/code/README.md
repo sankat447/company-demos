@@ -155,6 +155,75 @@ ansible windows -m win_ping -i /path/to/inventory/azure_hosts.yml
 bash destroy.sh
 ```
 
+## Resource tagging and cleanup
+
+All resources deployed by Terraform are automatically tagged for identification and cleanup. Tags are applied via AWS provider `default_tags` (covers every AWS resource automatically) and `local.tags` (applied to every Azure resource).
+
+### Tags applied to every resource
+
+| Tag | Example value | Purpose |
+|---|---|---|
+| `Customer` | `demo-ropes-gray` | Identifies which client this deployment belongs to |
+| `Project` | `hybrid-patch-demo` | Project name |
+| `Environment` | `demo` | Environment type |
+| `ManagedBy` | `terraform` | Distinguishes Terraform-managed resources from manually created ones |
+| `Owner` | `sa-team` | Team responsible |
+| `TerraformDeployID` | `27bce0` | Unique hex ID for this specific deployment (from `random_id.suffix`) |
+| `TerraformWorkspace` | `default` | Terraform workspace that created the resources |
+
+### Deploying for a different customer
+
+Override the `customer` variable to tag resources for another client:
+
+```bash
+terraform apply -var="customer=acme-corp"
+```
+
+This sets `Customer = demo-acme-corp` on all resources. Each customer's resources are independently identifiable.
+
+### Finding resources by tag
+
+**AWS Console:** Resource Groups & Tag Editor → Tag Editor → filter by `Customer = demo-ropes-gray`
+
+**AWS CLI:**
+
+```bash
+# All resources with tags (table format)
+aws resourcegroupstaggingapi get-resources \
+  --tag-filters Key=Customer,Values=demo-ropes-gray \
+  --region us-east-1 \
+  --output table
+
+# ARNs only (cleaner view)
+aws resourcegroupstaggingapi get-resources \
+  --tag-filters Key=Customer,Values=demo-ropes-gray \
+  --region us-east-1 \
+  --query 'ResourceTagMappingList[].ResourceARN' \
+  --output table
+```
+
+**Azure Portal:** All resources → filter by tag `Customer = demo-ropes-gray`
+
+**Azure CLI:**
+
+```bash
+# All resources with a specific tag (table format)
+az resource list --tag Customer=demo-ropes-gray --output table
+
+# Concise view — name, type, and resource group only
+az resource list --tag Customer=demo-ropes-gray \
+  --query '[].{Name:name, Type:type, ResourceGroup:resourceGroup}' \
+  --output table
+```
+
+### Identifying stale resources
+
+Resources **without** the `ManagedBy = terraform` and `TerraformDeployID` tags are not managed by this Terraform config and are likely stale leftovers from previous deployments. These can be safely reviewed and deleted.
+
+### Active VPC
+
+The Terraform-managed VPC is `vpc-0572c2189b839e69f` (tagged `patch-demo-aap-vpc`). Any other VPCs with the same name but without the `Customer` and `TerraformDeployID` tags are stale and can be removed after confirming they have no running instances or attached resources.
+
 ## Pain points this demo addresses
 
 | James's requirement | How the demo addresses it |

@@ -24,6 +24,12 @@ terraform {
 # AWS provider – auth from deploy.sh env vars (SSO profile or static keys)
 provider "aws" {
   region = var.aws_region
+
+  # local.tags is already merged on every AWS resource, so default_tags
+  # simply re-uses the same map.  Terraform deduplicates identical values.
+  default_tags {
+    tags = local.tags
+  }
 }
 
 # Azure provider – auth from deploy.sh env vars (az login or ARM_ vars)
