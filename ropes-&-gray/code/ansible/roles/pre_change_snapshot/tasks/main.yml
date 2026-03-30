@@ -113,7 +113,7 @@
       ansible.builtin.set_fact:
         _azure_client_id: "{{ lookup('env', 'AZURE_CLIENT_ID') | default(azure_client_id, true) }}"
         _azure_client_secret: "{{ lookup('env', 'AZURE_SECRET') | default(azure_client_secret, true) }}"
-        _azure_tenant_id: "{{ lookup('env', 'AZURE_TENANT') | default(azure_tenant_id | default('3b6a72b3-61ba-4247-b769-2e682380a0ab'), true) }}"
+        _azure_tenant_id: "{{ lookup('env', 'AZURE_TENANT') | default(azure_tenant_id | default('767831fe-e2a4-469a-959b-7763cfd4ecd9'), true) }}"
         _azure_subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') | default(azure_subscription_id, true) }}"
       no_log: true
 
