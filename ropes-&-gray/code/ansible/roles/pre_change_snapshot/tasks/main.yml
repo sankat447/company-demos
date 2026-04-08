@@ -71,7 +71,7 @@
 - name: "PRE | Query Azure Update Manager for pending updates"
   when: aum_query_enabled | default(false) | bool and cloud_provider | default('') == 'azure' and _azure_token is defined
   ansible.builtin.uri:
-    url: "https://management.azure.com/subscriptions/{{ azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/virtualMachines/{{ azure_vm_name | default('vm-win-target') }}/assessPatches?api-version=2024-03-01"
+    url: "https://management.azure.com/subscriptions/{{ azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/virtualMachines/{{ azure_vm_name | default('vm-win-target') }}/assessPatches?api-version=2024-03-02"
     method: POST
     headers:
       Authorization: "Bearer {{ _azure_token }}"
@@ -192,7 +192,7 @@
 
     - name: "PRE | Get VM info for OS disk"
       ansible.builtin.uri:
-        url: "https://management.azure.com/subscriptions/{{ _azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/virtualMachines/{{ azure_vm_name | default('vm-win-target') }}?api-version=2024-03-01"
+        url: "https://management.azure.com/subscriptions/{{ _azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/virtualMachines/{{ azure_vm_name | default('vm-win-target') }}?api-version=2024-03-02"
         method: GET
         headers:
           Authorization: "Bearer {{ _azure_token }}"
@@ -208,7 +208,7 @@
 
     - name: "PRE | Create disk snapshot"
       ansible.builtin.uri:
-        url: "https://management.azure.com/subscriptions/{{ _azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/snapshots/{{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}?api-version=2024-03-01"
+        url: "https://management.azure.com/subscriptions/{{ _azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/snapshots/{{ azure_snapshot_prefix }}-{{ inventory_hostname }}-{{ ansible_date_time.date | replace('-','') }}?api-version=2024-03-02"
         method: PUT
         headers:
           Authorization: "Bearer {{ _azure_token }}"
