@@ -18,13 +18,63 @@
   ansible.builtin.set_fact:
     pre_installed_kbs: "{{ pre_hotfix_raw.stdout | from_json }}"
 
+- name: "PRE | Acquire Azure access token for AUM query"
+  when:
+    - cloud_provider | default('') == 'azure'
+    - aum_query_enabled | default(false) | bool
+    - _azure_token is not defined
+  block:
+    - name: "PRE | Check Azure SP credentials for AUM"
+      ansible.builtin.set_fact:
+        _aum_sp_available: >-
+          {{
+            (lookup('env', 'AZURE_CLIENT_ID') | default(azure_client_id | default(''), true) | length > 0) and
+            (lookup('env', 'AZURE_SECRET') | default(azure_client_secret | default(''), true) | length > 0)
+          }}
+
+    - name: "PRE | Get Azure access token for AUM"
+      when: _aum_sp_available | bool
+      block:
+        - name: "PRE | Set Azure SP vars for AUM"
+          ansible.builtin.set_fact:
+            _azure_client_id: "{{ lookup('env', 'AZURE_CLIENT_ID') | default(azure_client_id, true) }}"
+            _azure_client_secret: "{{ lookup('env', 'AZURE_SECRET') | default(azure_client_secret, true) }}"
+            _azure_tenant_id: "{{ lookup('env', 'AZURE_TENANT') | default(azure_tenant_id | default('767831fe-e2a4-469a-959b-7763cfd4ecd9'), true) }}"
+            _azure_subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') | default(azure_subscription_id, true) }}"
+          no_log: true
+
+        - name: "PRE | Fetch Azure token for AUM"
+          ansible.builtin.uri:
+            url: "https://login.microsoftonline.com/{{ _azure_tenant_id }}/oauth2/v2.0/token"
+            method: POST
+            body_format: form-urlencoded
+            body:
+              grant_type: client_credentials
+              client_id: "{{ _azure_client_id }}"
+              client_secret: "{{ _azure_client_secret }}"
+              scope: "https://management.azure.com/.default"
+            return_content: true
+            status_code: [200]
+          register: _aum_token_response
+          delegate_to: localhost
+          no_log: true
+
+        - name: "PRE | Set AUM access token"
+          ansible.builtin.set_fact:
+            _azure_token: "{{ _aum_token_response.json.access_token }}"
+          no_log: true
+  rescue:
+    - name: "PRE | Azure token fetch failed (non-fatal)"
+      ansible.builtin.debug:
+        msg: "Could not acquire Azure token for AUM query. AUM assessment will be skipped."
+
 - name: "PRE | Query Azure Update Manager for pending updates"
-  when: aum_query_enabled | default(false) | bool and cloud_provider | default('') == 'azure'
+  when: aum_query_enabled | default(false) | bool and cloud_provider | default('') == 'azure' and _azure_token is defined
   ansible.builtin.uri:
     url: "https://management.azure.com/subscriptions/{{ azure_subscription_id }}/resourceGroups/{{ azure_resource_group }}/providers/Microsoft.Compute/virtualMachines/{{ azure_vm_name | default('vm-win-target') }}/assessPatches?api-version=2024-03-01"
     method: POST
     headers:
-      Authorization: "Bearer {{ _azure_token | default(azure_access_token | default('')) }}"
+      Authorization: "Bearer {{ _azure_token }}"
       Content-Type: "application/json"
     body: "{}"
     return_content: true
@@ -118,6 +168,7 @@
       no_log: true
 
     - name: "PRE | Get Azure access token via SP"
+      when: _azure_token is not defined
       ansible.builtin.uri:
         url: "https://login.microsoftonline.com/{{ _azure_tenant_id }}/oauth2/v2.0/token"
         method: POST
@@ -134,6 +185,7 @@
       no_log: true
 
     - name: "PRE | Set access token"
+      when: _azure_token is not defined
       ansible.builtin.set_fact:
         _azure_token: "{{ azure_token_response.json.access_token }}"
       no_log: true
