@@ -1,0 +1,80 @@
+# =============================================================================
+#  vLLM ServingRuntime tuned for multimodal (Qwen2.5-VL) on a T4 GPU.
+#
+#  Forked from ai-demo-stack-aws/gitops/config/inference/vllm-servingruntime.yaml
+#  with two diffs:
+#    1. namespace: pd-cctv (the platform's runtime is in ai-demo)
+#    2. args add --limit-mm-per-prompt image=8 (multimodal cap) and
+#       --gpu-memory-utilization=0.85 (was 0.90 — VLM keyframe decode needs
+#       headroom; with 0.90 we OOM on a 30s clip with 8 sampled frames).
+#
+#  Name remains "vllm-runtime" — KServe ServingRuntime is namespace-scoped, so
+#  there is no collision with the platform's runtime in ai-demo. Keeping the
+#  same name means InferenceService manifests can be lifted between namespaces
+#  with zero edits to the `runtime:` field.
+# =============================================================================
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: vllm-runtime
+  namespace: pd-cctv
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: police-department
+  annotations:
+    openshift.io/display-name: "vLLM Runtime — Multimodal (Qwen2.5-VL on T4)"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  annotations:
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+  multiModel: false
+  supportedModelFormats:
+  - name: pytorch
+    version: "1"
+    autoSelect: true
+  - name: vllm
+    version: "1"
+    autoSelect: true
+  containers:
+  - name: kserve-container
+    image: quay.io/modh/vllm:rhoai-2.16
+    command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+    args:
+    - "--port=8080"
+    - "--model=/mnt/models"
+    - "--served-model-name={{.Name}}"
+    - "--dtype=float16"
+    - "--max-model-len=2048"
+    - "--gpu-memory-utilization=0.85"
+    - "--enforce-eager"
+    - "--limit-mm-per-prompt=image=8"
+    - "--trust-remote-code"
+    ports:
+    - containerPort: 8080
+      protocol: TCP
+    env:
+    - name: HF_HOME
+      value: /tmp/hf_home
+    - name: TRANSFORMERS_CACHE
+      value: /tmp/hf_home
+    - name: CUDA_VISIBLE_DEVICES
+      value: "0"
+    resources:
+      requests:
+        cpu: "2"
+        memory: "14Gi"
+        nvidia.com/gpu: "1"
+      limits:
+        cpu: "4"
+        memory: "15Gi"
+        nvidia.com/gpu: "1"
+    volumeMounts:
+    - name: shm
+      mountPath: /dev/shm
+  volumes:
+  - name: shm
+    emptyDir:
+      medium: Memory
+      sizeLimit: 2Gi

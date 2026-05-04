@@ -1,0 +1,64 @@
+# =============================================================================
+#  pd-qwen25-vl-7b InferenceService — Qwen2.5-VL 7B on the shared T4 GPU.
+#
+#  Mirrors ai-demo-stack-aws/gitops/config/inference/llama-inferenceservice.yaml
+#  for serverless, scale-to-zero, GPU tolerations, nodeSelector, and sidecar
+#  injection. Differences:
+#    - namespace: pd-cctv (runtime: vllm-runtime resolves in-namespace)
+#    - storageUri points at the police-department prefix in the data lake
+#
+#  GPU MUTEX (read this carefully):
+#    Both this service and llama-3-1-8b request nvidia.com/gpu: 1, and the GPU
+#    MachineSet has maxReplicas: 1 (single g4dn.xlarge in the cluster).
+#    Knative scale-to-zero (minReplicas: 0, scaleMetric: concurrency,
+#    scaleTarget: 1) ensures each pod is gone after ~60s idle. The two
+#    services must NEVER both be Ready simultaneously — this is enforced by
+#    scheduling at the cluster level (only 1 GPU node) and surfaced by the
+#    PrometheusRule pd-gpu-mutex.
+# =============================================================================
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: pd-qwen25-vl-7b
+  namespace: pd-cctv
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: police-department
+    pd.cctv/gpu-mutex-group: "t4-shared"
+  annotations:
+    serving.kserve.io/deploymentMode: Serverless
+    serving.knative.openshift.io/enablePassthrough: "true"
+    sidecar.istio.io/inject: "true"
+    sidecar.istio.io/rewriteAppHTTPProbers: "true"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  predictor:
+    minReplicas: 0
+    maxReplicas: 1
+    scaleTarget: 1
+    scaleMetric: concurrency
+    model:
+      modelFormat:
+        name: vllm
+      runtime: vllm-runtime
+      # Pulled by bootstrap/02_fetch_models.sh from HuggingFace into S3.
+      storageUri: s3://ai-demo-data-lake/models/police-department/qwen2.5-vl-7b
+      resources:
+        requests:
+          cpu: "2"
+          memory: "14Gi"
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "4"
+          memory: "15Gi"
+          nvidia.com/gpu: "1"
+    tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/gpu
+      operator: Exists
+      effect: NoSchedule
+    nodeSelector:
+      nvidia.com/gpu.present: "true"

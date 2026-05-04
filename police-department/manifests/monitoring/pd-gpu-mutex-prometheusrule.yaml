@@ -1,0 +1,74 @@
+# =============================================================================
+#  Police-Department demo — GPU mutex tripwire
+#
+#  The cluster has exactly one T4 GPU (g4dn.xlarge MachineSet maxReplicas: 1).
+#  Two InferenceServices request that GPU:
+#    - llama-3-1-8b   (ns ai-demo,  platform)
+#    - pd-qwen25-vl-7b (ns pd-cctv, this demo)
+#
+#  Knative scale-to-zero is the choreography. If both services ever report
+#  Ready simultaneously the GPU is over-committed and inference is degraded
+#  (or a pod is stuck Pending waiting for the GPU). This PrometheusRule
+#  surfaces that condition as a critical alert.
+# =============================================================================
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pd-gpu-mutex
+  namespace: openshift-monitoring
+  labels:
+    app.kubernetes.io/part-of: police-department
+    role: alert-rules
+spec:
+  groups:
+  - name: police-department.gpu-mutex
+    interval: 30s
+    rules:
+    - alert: PoliceDepartmentGpuMutexViolation
+      expr: |
+        sum(
+          kube_deployment_status_replicas_ready{
+            namespace=~"ai-demo|pd-cctv",
+            deployment=~"llama-3-1-8b-predictor-.*|pd-qwen25-vl-7b-predictor-.*"
+          }
+        ) > 1
+      for: 2m
+      labels:
+        severity: critical
+        component: gpu
+        demo: police-department
+      annotations:
+        summary: "Both Llama and Qwen-VL InferenceServices are simultaneously Ready"
+        description: |
+          The cluster has a single T4 GPU. The platform's llama-3-1-8b
+          (ns ai-demo) and the police-department demo's pd-qwen25-vl-7b
+          (ns pd-cctv) both request that GPU. They must time-share via
+          Knative scale-to-zero. This alert fires when both have ready
+          replicas for >2 minutes — verify scale-to-zero is configured
+          (minReplicas 0, scaleTarget 1) and check Knative autoscaler logs.
+        runbook_url: "https://github.com/sankat447/company-demos/blob/main/police-department/docs/RUNBOOK.md#gpu-mutex"
+    - alert: PoliceDepartmentGpuMutexPending
+      expr: |
+        sum(
+          kube_pod_status_phase{
+            phase="Pending",
+            namespace=~"ai-demo|pd-cctv"
+          }
+          *
+          on(pod, namespace) group_left
+          kube_pod_container_resource_requests{resource="nvidia.com/gpu"}
+        ) > 0
+      for: 5m
+      labels:
+        severity: warning
+        component: gpu
+        demo: police-department
+      annotations:
+        summary: "GPU-requesting pod stuck Pending"
+        description: |
+          A pod requesting nvidia.com/gpu has been Pending for >5 minutes.
+          Most likely the GPU is held by the other InferenceService. Wait
+          for that one to scale to zero, or scale it down manually:
+            oc -n <ns> patch isvc <name> --type=merge \
+              -p '{"spec":{"predictor":{"minReplicas":0}}}'
