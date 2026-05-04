@@ -7,3 +7,9 @@
 *.tfstate
 *.tfstate.*
 *.tfvars
+
+# Terraform provider binaries and state
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
