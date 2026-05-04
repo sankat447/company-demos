@@ -1,0 +1,128 @@
+# =============================================================================
+#  Persona FastAPI service: Deployment + Service.
+#  Image is built by hand from police-department/personas/Dockerfile and
+#  pushed to the platform's ECR (e.g. ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/
+#  ai-demo/pd-personas:0.1.0). The exact image reference is set as an env
+#  override (PD_PERSONAS_IMAGE) by bootstrap/03_apply_argocd.sh — we keep
+#  a sensible default here so dry-runs work locally.
+# =============================================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pd-persona
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+    app.kubernetes.io/name: pd-persona
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pd-persona
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pd-persona
+        app.kubernetes.io/part-of: police-department
+      annotations:
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+      - name: pd-persona
+        image: image-registry.openshift-image-registry.svc:5000/pd-personas/pd-persona:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: LOG_LEVEL
+          value: INFO
+        - name: PORTKEY_URL
+          value: "http://portkey.ai-demo.svc.cluster.local:8787/v1/chat/completions"
+        - name: PORTKEY_MODEL
+          value: "llama-3-1-8b"
+        - name: PORTKEY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pd-portkey-key
+              key: api_key
+              optional: true
+        - name: REDIS_HOST
+          value: "redis.ai-demo.svc.cluster.local"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: endpoint
+        - name: PGDATABASE
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: database
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: password
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          failureThreshold: 4
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        resources:
+          requests:
+            cpu: "300m"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pd-persona
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  selector:
+    app.kubernetes.io/name: pd-persona
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8000
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: pd-persona
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+  annotations:
+    haproxy.router.openshift.io/timeout: "180s"
+spec:
+  to:
+    kind: Service
+    name: pd-persona
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
