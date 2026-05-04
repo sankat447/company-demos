@@ -1,0 +1,165 @@
+# =============================================================================
+#  pd_cctv schema migration ConfigMap
+#
+#  Holds the 6 SQL files that the pd-aurora-init Job runs in order. The SQL
+#  files are duplicated here from sql/ so that ArgoCD does not need to read
+#  outside this directory. Any update to sql/*.sql MUST also update this
+#  ConfigMap (a future improvement: a tiny script to regenerate the keys
+#  from sql/*.sql before commit).
+# =============================================================================
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-aurora-schema
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+data:
+  01_schema.sql: |
+    CREATE EXTENSION IF NOT EXISTS vector;
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE SCHEMA IF NOT EXISTS pd_cctv;
+    SET search_path = pd_cctv, public;
+
+  02_tables.sql: |
+    CREATE TABLE IF NOT EXISTS pd_cctv.clips (
+      clip_id        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      s3_uri         TEXT NOT NULL,
+      sha256         CHAR(64) NOT NULL UNIQUE,
+      uploaded_by    TEXT NOT NULL,
+      uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      duration_sec   NUMERIC,
+      source_label   TEXT
+    );
+    CREATE TABLE IF NOT EXISTS pd_cctv.custody_log (
+      id          BIGSERIAL PRIMARY KEY,
+      clip_id     UUID,
+      actor       TEXT NOT NULL,
+      action      TEXT NOT NULL,
+      ts          TIMESTAMPTZ NOT NULL DEFAULT now(),
+      context     JSONB
+    );
+    CREATE TABLE IF NOT EXISTS pd_cctv.narrations (
+      narration_id   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      clip_id        UUID REFERENCES pd_cctv.clips(clip_id) ON DELETE CASCADE,
+      json_payload   JSONB NOT NULL,
+      prose          TEXT NOT NULL,
+      embedding      VECTOR(384),
+      model_id       TEXT,
+      model_version  TEXT,
+      confidence     NUMERIC,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS pd_cctv.entities (
+      entity_id        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      kind             TEXT NOT NULL,
+      label            TEXT,
+      appearance_emb   VECTOR(512),
+      first_seen_clip  UUID,
+      first_seen_ts    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS pd_cctv.events (
+      event_id     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      clip_id      UUID REFERENCES pd_cctv.clips(clip_id) ON DELETE CASCADE,
+      t_start      INTERVAL,
+      t_end        INTERVAL,
+      action       TEXT,
+      confidence   NUMERIC
+    );
+    CREATE TABLE IF NOT EXISTS pd_cctv.relationships (
+      src             UUID NOT NULL,
+      dst             UUID NOT NULL,
+      kind            TEXT NOT NULL,
+      evidence_clip   UUID NOT NULL,
+      evidence_ts     INTERVAL NOT NULL DEFAULT INTERVAL '0 seconds',
+      PRIMARY KEY (src, dst, kind, evidence_clip, evidence_ts)
+    );
+
+  03_indexes.sql: |
+    CREATE INDEX IF NOT EXISTS narrations_embedding_ivfflat
+      ON pd_cctv.narrations USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+    CREATE INDEX IF NOT EXISTS entities_appearance_ivfflat
+      ON pd_cctv.entities USING ivfflat (appearance_emb vector_cosine_ops) WITH (lists = 100);
+    CREATE INDEX IF NOT EXISTS narrations_clip_id_idx ON pd_cctv.narrations(clip_id);
+    CREATE INDEX IF NOT EXISTS events_clip_id_idx     ON pd_cctv.events(clip_id);
+    CREATE INDEX IF NOT EXISTS clips_uploaded_at_idx  ON pd_cctv.clips(uploaded_at DESC);
+    CREATE INDEX IF NOT EXISTS custody_log_clip_idx   ON pd_cctv.custody_log(clip_id);
+    CREATE INDEX IF NOT EXISTS custody_log_ts_idx     ON pd_cctv.custody_log(ts DESC);
+    CREATE INDEX IF NOT EXISTS relationships_src_idx  ON pd_cctv.relationships(src);
+    CREATE INDEX IF NOT EXISTS relationships_dst_idx  ON pd_cctv.relationships(dst);
+
+  04_triggers_custody.sql: |
+    CREATE OR REPLACE FUNCTION pd_cctv.fn_block_custody_mutation()
+    RETURNS TRIGGER LANGUAGE plpgsql AS $fn$
+    BEGIN
+      RAISE EXCEPTION 'pd_cctv.custody_log is append-only; % blocked', TG_OP;
+    END;
+    $fn$;
+    DROP TRIGGER IF EXISTS trg_custody_no_update ON pd_cctv.custody_log;
+    CREATE TRIGGER trg_custody_no_update
+      BEFORE UPDATE ON pd_cctv.custody_log
+      FOR EACH ROW EXECUTE FUNCTION pd_cctv.fn_block_custody_mutation();
+    DROP TRIGGER IF EXISTS trg_custody_no_delete ON pd_cctv.custody_log;
+    CREATE TRIGGER trg_custody_no_delete
+      BEFORE DELETE ON pd_cctv.custody_log
+      FOR EACH ROW EXECUTE FUNCTION pd_cctv.fn_block_custody_mutation();
+
+    CREATE OR REPLACE FUNCTION pd_cctv.fn_log_custody()
+    RETURNS TRIGGER LANGUAGE plpgsql AS $fn$
+    DECLARE
+      v_clip_id UUID;
+      v_actor   TEXT;
+    BEGIN
+      BEGIN
+        v_clip_id := NEW.clip_id;
+      EXCEPTION WHEN undefined_column THEN
+        v_clip_id := NULL;
+      END;
+      v_actor := COALESCE(current_setting('pd_cctv.actor', TRUE), session_user);
+      INSERT INTO pd_cctv.custody_log (clip_id, actor, action, context)
+      VALUES (
+        v_clip_id, v_actor, TG_OP || ':' || TG_TABLE_NAME,
+        jsonb_build_object('table', TG_TABLE_NAME, 'op', TG_OP, 'time', now())
+      );
+      RETURN NEW;
+    END;
+    $fn$;
+
+    DO $do$
+    DECLARE t TEXT;
+    BEGIN
+      FOR t IN SELECT unnest(ARRAY['clips','narrations','entities','events','relationships'])
+      LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS trg_%s_log ON pd_cctv.%I;', t, t);
+        EXECUTE format(
+          'CREATE TRIGGER trg_%s_log AFTER INSERT OR UPDATE ON pd_cctv.%I
+             FOR EACH ROW EXECUTE FUNCTION pd_cctv.fn_log_custody();', t, t);
+      END LOOP;
+    END;
+    $do$;
+
+  05_views.sql: |
+    CREATE OR REPLACE VIEW pd_cctv.v_clip_summary AS
+    SELECT c.clip_id, c.s3_uri, c.uploaded_by, c.uploaded_at, c.duration_sec, c.source_label,
+           COUNT(DISTINCT n.narration_id) AS narration_count,
+           COUNT(DISTINCT e.event_id)     AS event_count
+    FROM pd_cctv.clips c
+    LEFT JOIN pd_cctv.narrations n ON n.clip_id = c.clip_id
+    LEFT JOIN pd_cctv.events     e ON e.clip_id = c.clip_id
+    GROUP BY c.clip_id;
+    CREATE OR REPLACE VIEW pd_cctv.v_pending_hitl AS
+    SELECT cl.id, cl.clip_id, cl.actor, cl.action, cl.ts, cl.context
+    FROM pd_cctv.custody_log cl
+    WHERE cl.action LIKE 'hitl:pending:%'
+    ORDER BY cl.ts DESC;
+
+  06_seed.sql: |
+    INSERT INTO pd_cctv.clips (clip_id, s3_uri, sha256, uploaded_by, source_label, duration_sec)
+    VALUES (
+      '00000000-0000-0000-0000-000000000001',
+      's3://ai-demo-data-lake/clips/police-department/_sentinel.mp4',
+      '0000000000000000000000000000000000000000000000000000000000000000',
+      'pd-aurora-init', 'sentinel', 0
+    )
+    ON CONFLICT (sha256) DO NOTHING;
