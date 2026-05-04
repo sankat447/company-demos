@@ -1,0 +1,43 @@
+# =============================================================================
+#  Police-Department CCTV Demo — ArgoCD Bootstrap (App-of-Apps root)
+#
+#  This is the ONE manually-applied resource for the entire demo subsystem.
+#
+#    oc apply -f police-department/argocd/bootstrap-application.yaml
+#
+#  It points at police-department/argocd/apps/, which contains 7 child
+#  Applications (one per sync wave 1..7). All resources land in the
+#  pd-cctv and pd-personas namespaces. Zero modifications to the platform.
+# =============================================================================
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pd-bootstrap
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sankat447/company-demos
+    targetRevision: HEAD
+    path: police-department/argocd/apps
+    directory:
+      recurse: false
+      include: "pd-*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openshift-gitops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
