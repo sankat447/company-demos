@@ -1,2 +1,9 @@
 .DS_Store
 **/.DS_Store
+
+# Terraform provider binaries and state — NEVER commit these
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
