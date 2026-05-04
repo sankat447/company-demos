@@ -1,0 +1,54 @@
+{% if not pending %}
+  <div class="empty">No pending approvals.</div>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>Persona</th>
+      <th>Prose</th>
+      <th>Claims</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in pending %}
+    {% set p = item.payload %}
+    <tr>
+      <td>
+        <span class="persona">{{ item.persona }}</span><br>
+        <span class="pending-id">{{ item.pending_approval_id[:8] }}…</span>
+      </td>
+      <td class="prose">{{ p.prose }}</td>
+      <td>
+        {% if p.claims %}
+          <ol>
+            {% for c in p.claims %}
+              <li title="confidence={{ c.confidence }}">
+                {{ c.text }}
+                {% if c.frame_refs %}
+                  <br><small>{{ c.frame_refs|join(", ") }}</small>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <em>no claims</em>
+        {% endif %}
+      </td>
+      <td>
+        <form hx-post="/hitl/approve/{{ item.pending_approval_id }}"
+              hx-target="closest tr" hx-swap="outerHTML">
+          <button class="approve" type="submit">Approve</button>
+        </form>
+        <form hx-post="/hitl/reject/{{ item.pending_approval_id }}"
+              hx-target="closest tr" hx-swap="outerHTML">
+          <input type="text" name="reason" placeholder="reason (optional)"
+                 style="width: 60%; margin-top: 4px;">
+          <button class="reject" type="submit">Reject</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
