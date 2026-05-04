@@ -1,0 +1,55 @@
+# =============================================================================
+#  RBAC for the S3 watcher CronJob — needs to read the cursor ConfigMap and
+#  patch it with the most recent processed key.
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pd-s3-watcher-sa
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pd-s3-watcher-role
+  namespace: pd-cctv
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["pd-s3-watcher-cursor"]
+  verbs: ["get", "patch", "update"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["pd-s3-creds"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pd-s3-watcher-rolebinding
+  namespace: pd-cctv
+subjects:
+- kind: ServiceAccount
+  name: pd-s3-watcher-sa
+  namespace: pd-cctv
+roleRef:
+  kind: Role
+  name: pd-s3-watcher-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-s3-watcher-cursor
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+data:
+  # The watcher dedupes by `seen_keys` (newline-separated). Initial state:
+  # empty list. The CronJob will patch this ConfigMap to append new keys
+  # after each successful EventListener POST.
+  seen_keys: ""
+  last_run_iso: ""
