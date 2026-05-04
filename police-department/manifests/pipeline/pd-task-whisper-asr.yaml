@@ -1,0 +1,62 @@
+# =============================================================================
+#  Task 03 — whisper-asr (CPU-only, runs in parallel with vlm-caption)
+#  Uses faster-whisper "medium" model. Output: transcript.json with word-level
+#  timestamps to the shared workspace.
+#
+#  CPU-only by design — must NOT request a GPU (the GPU is reserved for the
+#  VLM and Llama). On a 30s clip whisper-medium takes ~25s on c5.2xlarge.
+# =============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pd-task-whisper-asr
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-id
+    type: string
+  - name: model-size
+    type: string
+    default: "medium"
+  workspaces:
+  - name: shared
+  steps:
+  - name: transcribe
+    image: docker.io/onerahmet/openai-whisper-asr-webservice:v1.5.0
+    # The above image bundles ffmpeg + whisper. Use it as a CLI by overriding entrypoint.
+    command: ["/bin/bash", "-c"]
+    args:
+    - |
+      set -euo pipefail
+      cd "$(workspaces.shared.path)/$(params.clip-id)"
+      python3 - <<'PY'
+      import json, os
+      try:
+          from faster_whisper import WhisperModel
+      except Exception:
+          import subprocess, sys
+          subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "faster-whisper==1.0.3"])
+          from faster_whisper import WhisperModel
+      model = WhisperModel("$(params.model-size)", device="cpu", compute_type="int8")
+      segments, info = model.transcribe("clip.mp4", word_timestamps=True)
+      out = {"language": info.language, "duration": info.duration, "segments": []}
+      for seg in segments:
+          out["segments"].append({
+              "id": seg.id, "start": seg.start, "end": seg.end, "text": seg.text,
+              "words": [{"start": w.start, "end": w.end, "word": w.word,
+                         "probability": w.probability} for w in (seg.words or [])]
+          })
+      with open("transcript.json", "w") as f:
+          json.dump(out, f)
+      print(f"[whisper] wrote transcript.json with {len(out['segments'])} segments")
+      PY
+    resources:
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+      limits:
+        cpu: "4"
+        memory: "6Gi"

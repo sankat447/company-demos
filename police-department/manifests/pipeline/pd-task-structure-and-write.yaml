@@ -1,0 +1,193 @@
+# =============================================================================
+#  Task 05 — structure-and-write (the join task)
+#  Reads caption.json + transcript.json + detections.json + manifest.json from
+#  the workspace, structures them with Pydantic schemas, embeds the prose with
+#  BGE-small (384 dims), and writes:
+#    - pd_cctv.clips
+#    - pd_cctv.narrations (with embedding)
+#    - pd_cctv.entities + pd_cctv.events  (extracted from the VLM JSON)
+#    - artifact bundle copied to s3://ai-demo-data-lake/processed/police-department/<clip_id>/
+#    - MLflow run tagged demo=police-department
+#  custody_log entries are auto-emitted by the AFTER INSERT triggers in the
+#  schema — no application-level write needed for those.
+#
+#  All writes wrapped in a single Postgres transaction; if MLflow is down the
+#  pipeline still succeeds (the MLflow log is best-effort).
+# =============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pd-task-structure-and-write
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-id
+    type: string
+  - name: clip-s3-uri
+    type: string
+  - name: uploaded-by
+    type: string
+    default: "pipeline"
+  - name: sha256
+    type: string
+  workspaces:
+  - name: shared
+  steps:
+  - name: structure-and-write
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - name: PGHOST
+      valueFrom:
+        secretKeyRef:
+          name: pd-aurora-credentials
+          key: endpoint
+    - name: PGDATABASE
+      valueFrom:
+        secretKeyRef:
+          name: pd-aurora-credentials
+          key: database
+    - name: PGUSER
+      valueFrom:
+        secretKeyRef:
+          name: pd-aurora-credentials
+          key: username
+    - name: PGPASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: pd-aurora-credentials
+          key: password
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom:
+        secretKeyRef:
+          name: pd-s3-creds
+          key: access_key_id
+    - name: AWS_SECRET_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: pd-s3-creds
+          key: secret_access_key
+    - name: MLFLOW_TRACKING_URI
+      value: "http://mlflow.rhoai-mlflow.svc:5000"
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      pip install --quiet --no-cache-dir \
+        psycopg[binary]==3.2.3 pydantic==2.9.2 sentence-transformers==3.2.1 \
+        boto3==1.35.40 mlflow==2.17.0
+      python3 - <<'PY'
+      import json, os, uuid, sys
+      from pathlib import Path
+      import psycopg
+      from pydantic import BaseModel, Field
+      from sentence_transformers import SentenceTransformer
+      import boto3
+
+      CLIP_ID    = "$(params.clip-id)"
+      CLIP_URI   = "$(params.clip-s3-uri)"
+      UPLOADER   = "$(params.uploaded-by)"
+      SHA256     = "$(params.sha256)"
+      WORKSPACE  = "$(workspaces.shared.path)"
+      WORK = Path(WORKSPACE) / CLIP_ID
+
+      class Entity(BaseModel):
+          kind: str
+          label: str | None = None
+
+      class Event(BaseModel):
+          action: str | None = None
+          t_start_sec: float | None = None
+          t_end_sec: float | None = None
+          confidence: float | None = None
+
+      class Narration(BaseModel):
+          prose: str
+          entities: list[Entity] = Field(default_factory=list)
+          events: list[Event] = Field(default_factory=list)
+
+      # 1. Load VLM caption
+      caption_raw = json.loads((WORK / "caption.json").read_text())
+      try:
+          msg = caption_raw["choices"][0]["message"]["content"]
+          parsed = json.loads(msg) if msg.strip().startswith("{") else {"prose": msg}
+      except (KeyError, json.JSONDecodeError):
+          parsed = {"prose": json.dumps(caption_raw)[:2000]}
+      narration = Narration(**parsed) if "prose" in parsed else Narration(prose=str(parsed))
+
+      # 2. Embed the prose
+      print("[structure] loading BGE-small...")
+      embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
+      embedding = embedder.encode(narration.prose, normalize_embeddings=True).tolist()
+
+      # 3. Read transcript + detections (best-effort)
+      transcript = json.loads((WORK / "transcript.json").read_text()) if (WORK / "transcript.json").exists() else {}
+      detections = json.loads((WORK / "detections.json").read_text()) if (WORK / "detections.json").exists() else {}
+
+      payload = {
+          "narration": narration.model_dump(),
+          "transcript": transcript,
+          "detections": detections,
+      }
+
+      # 4. Write to Aurora pd_cctv (single transaction)
+      conn_kw = {k: os.environ[f"PG{k.upper()}"] for k in ("host","database","user","password")}
+      with psycopg.connect(**conn_kw, autocommit=False) as conn:
+          with conn.cursor() as cur:
+              cur.execute(
+                  "INSERT INTO pd_cctv.clips (clip_id, s3_uri, sha256, uploaded_by, source_label) "
+                  "VALUES (%s, %s, %s, %s, %s) "
+                  "ON CONFLICT (sha256) DO UPDATE SET s3_uri = EXCLUDED.s3_uri "
+                  "RETURNING clip_id",
+                  (CLIP_ID, CLIP_URI, SHA256, UPLOADER, "pipeline-ingest"))
+              clip_id = cur.fetchone()[0]
+              cur.execute(
+                  "INSERT INTO pd_cctv.narrations (clip_id, json_payload, prose, embedding, "
+                  "model_id, model_version, confidence) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                  (clip_id, json.dumps(payload), narration.prose, embedding,
+                   "qwen2.5-vl-7b", "instruct", None))
+              for ent in narration.entities:
+                  cur.execute(
+                      "INSERT INTO pd_cctv.entities (kind, label, first_seen_clip) "
+                      "VALUES (%s, %s, %s)",
+                      (ent.kind, ent.label, clip_id))
+              for ev in narration.events:
+                  cur.execute(
+                      "INSERT INTO pd_cctv.events (clip_id, t_start, t_end, action, confidence) "
+                      "VALUES (%s, "
+                      "make_interval(secs => COALESCE(%s, 0)), "
+                      "make_interval(secs => COALESCE(%s, 0)), "
+                      "%s, %s)",
+                      (clip_id, ev.t_start_sec, ev.t_end_sec, ev.action, ev.confidence))
+          conn.commit()
+      print(f"[structure] wrote pd_cctv rows for clip {CLIP_ID}")
+
+      # 5. Stage processed bundle to S3
+      bundle = WORK / "bundle.json"
+      bundle.write_text(json.dumps(payload, indent=2))
+      s3 = boto3.client("s3")
+      s3.upload_file(str(bundle),
+                     "ai-demo-data-lake",
+                     f"processed/police-department/{CLIP_ID}/bundle.json")
+      print(f"[structure] uploaded bundle to s3://.../processed/police-department/{CLIP_ID}/")
+
+      # 6. MLflow (best-effort)
+      try:
+          import mlflow
+          mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", ""))
+          mlflow.set_experiment("police-department")
+          with mlflow.start_run(run_name=f"clip-{CLIP_ID[:8]}"):
+              mlflow.set_tag("demo", "police-department")
+              mlflow.set_tag("clip_id", CLIP_ID)
+              mlflow.log_dict(payload, "bundle.json")
+      except Exception as e:
+          print(f"[structure] WARN: mlflow log failed: {e}", file=sys.stderr)
+      PY
+    resources:
+      requests:
+        cpu: "1"
+        memory: "3Gi"
+      limits:
+        cpu: "2"
+        memory: "5Gi"

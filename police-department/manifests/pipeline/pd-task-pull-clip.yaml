@@ -1,0 +1,77 @@
+# =============================================================================
+#  Task 01 — pull-clip
+#  Downloads s3://ai-demo-data-lake/clips/police-department/<clip>.mp4 to
+#  the shared workspace PVC, computes its sha256, and emits a manifest.json
+#  for downstream tasks to discover the clip path.
+# =============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pd-task-pull-clip
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-s3-uri
+    type: string
+    description: Full s3://... URI to the clip
+  - name: clip-id
+    type: string
+    description: UUID for this clip (becomes pd_cctv.clips.clip_id)
+  workspaces:
+  - name: shared
+    description: PVC where the clip is staged for downstream tasks
+  results:
+  - name: clip-path
+    description: Filesystem path of the downloaded clip on the workspace
+  - name: sha256
+    description: sha256 hex digest of the clip
+  steps:
+  - name: download
+    image: docker.io/amazon/aws-cli:2.15.40
+    env:
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom:
+        secretKeyRef:
+          name: pd-s3-creds
+          key: access_key_id
+    - name: AWS_SECRET_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: pd-s3-creds
+          key: secret_access_key
+    - name: AWS_REGION
+      valueFrom:
+        secretKeyRef:
+          name: pd-s3-creds
+          key: region
+          optional: true
+    script: |
+      #!/usr/bin/env sh
+      set -eu
+      cd "$(workspaces.shared.path)"
+      mkdir -p "$(params.clip-id)"
+      cd "$(params.clip-id)"
+      echo "[pull-clip] downloading $(params.clip-s3-uri)"
+      aws s3 cp "$(params.clip-s3-uri)" clip.mp4
+      ls -la clip.mp4
+      printf '%s' "$(workspaces.shared.path)/$(params.clip-id)/clip.mp4" > "$(results.clip-path.path)"
+  - name: hash
+    image: docker.io/library/alpine:3.20
+    script: |
+      #!/usr/bin/env sh
+      set -eu
+      cd "$(workspaces.shared.path)/$(params.clip-id)"
+      sum="$(sha256sum clip.mp4 | awk '{print $1}')"
+      echo "[pull-clip] sha256=$sum"
+      printf '%s' "$sum" > "$(results.sha256.path)"
+      cat > manifest.json <<EOF
+      {
+        "clip_id": "$(params.clip-id)",
+        "s3_uri": "$(params.clip-s3-uri)",
+        "sha256": "$sum",
+        "local_path": "$(workspaces.shared.path)/$(params.clip-id)/clip.mp4"
+      }
+      EOF

@@ -1,0 +1,95 @@
+# =============================================================================
+#  pd-perception Pipeline — wires the 5 tasks
+#
+#    pull-clip
+#       ├── vlm-caption ────┐
+#       ├── whisper-asr ────┼── structure-and-write
+#       └── yolo-detect ────┘
+#
+#  vlm-caption / whisper-asr / yolo-detect all start after pull-clip and run
+#  in parallel. structure-and-write joins them.
+# =============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: pd-perception
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-s3-uri
+    type: string
+    description: Full s3:// URI of the clip to ingest
+  - name: clip-id
+    type: string
+    description: UUID for this clip; becomes pd_cctv.clips.clip_id
+  - name: uploaded-by
+    type: string
+    default: "pipeline"
+  workspaces:
+  - name: shared
+    description: Shared workspace PVC across all tasks
+  tasks:
+  - name: pull-clip
+    taskRef:
+      name: pd-task-pull-clip
+    workspaces:
+    - name: shared
+      workspace: shared
+    params:
+    - name: clip-s3-uri
+      value: $(params.clip-s3-uri)
+    - name: clip-id
+      value: $(params.clip-id)
+
+  - name: vlm-caption
+    taskRef:
+      name: pd-task-vlm-caption
+    runAfter: [pull-clip]
+    workspaces:
+    - name: shared
+      workspace: shared
+    params:
+    - name: clip-id
+      value: $(params.clip-id)
+
+  - name: whisper-asr
+    taskRef:
+      name: pd-task-whisper-asr
+    runAfter: [pull-clip]
+    workspaces:
+    - name: shared
+      workspace: shared
+    params:
+    - name: clip-id
+      value: $(params.clip-id)
+
+  - name: yolo-detect
+    taskRef:
+      name: pd-task-yolo-detect
+    runAfter: [pull-clip]
+    workspaces:
+    - name: shared
+      workspace: shared
+    params:
+    - name: clip-id
+      value: $(params.clip-id)
+
+  - name: structure-and-write
+    taskRef:
+      name: pd-task-structure-and-write
+    runAfter: [vlm-caption, whisper-asr, yolo-detect]
+    workspaces:
+    - name: shared
+      workspace: shared
+    params:
+    - name: clip-id
+      value: $(params.clip-id)
+    - name: clip-s3-uri
+      value: $(params.clip-s3-uri)
+    - name: uploaded-by
+      value: $(params.uploaded-by)
+    - name: sha256
+      value: $(tasks.pull-clip.results.sha256)

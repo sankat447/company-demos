@@ -1,0 +1,98 @@
+# =============================================================================
+#  Task 02 — vlm-caption
+#  Extracts N keyframes via ffmpeg, base64-encodes them, then POSTs an
+#  OpenAI-compatible chat completion request to the in-cluster Qwen2.5-VL
+#  endpoint (http://pd-qwen25-vl-7b.pd-cctv.svc:8080/v1/chat/completions)
+#  with the keyframes as image content parts. Output: per-clip caption JSON
+#  on the shared workspace.
+#
+#  This task triggers the Qwen-VL InferenceService cold-start; first run
+#  takes ~120s. Subsequent runs in the same demo session are <30s.
+# =============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pd-task-vlm-caption
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-id
+    type: string
+  - name: frames
+    type: string
+    default: "8"
+    description: Number of keyframes to sample
+  workspaces:
+  - name: shared
+  steps:
+  - name: extract-keyframes
+    image: docker.io/jrottenberg/ffmpeg:6.1-alpine
+    script: |
+      #!/bin/sh
+      set -eu
+      cd "$(workspaces.shared.path)/$(params.clip-id)"
+      mkdir -p frames
+      duration=$(ffprobe -v error -show_entries format=duration \
+                  -of default=noprint_wrappers=1:nokey=1 clip.mp4 | awk '{printf "%d", $1}')
+      [ "$duration" -lt 1 ] && duration=1
+      step=$(( duration / $(params.frames) ))
+      [ "$step" -lt 1 ] && step=1
+      ffmpeg -hide_banner -loglevel error -i clip.mp4 \
+             -vf "fps=1/${step},scale=448:-1" \
+             -frames:v $(params.frames) \
+             frames/frame_%03d.jpg
+      ls frames/
+  - name: caption
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - name: VLM_ENDPOINT
+      value: "http://pd-qwen25-vl-7b-predictor.pd-cctv.svc.cluster.local/v1/chat/completions"
+    - name: VLM_MODEL
+      value: "pd-qwen25-vl-7b"
+    script: |
+      #!/usr/bin/env python3
+      import base64, json, os, sys, glob, urllib.request, urllib.error
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      frames_dir = f"{workspace}/{clip_id}/frames"
+      out_path  = f"{workspace}/{clip_id}/caption.json"
+      images = []
+      for fp in sorted(glob.glob(f"{frames_dir}/*.jpg")):
+          with open(fp, "rb") as f:
+              b64 = base64.b64encode(f.read()).decode("ascii")
+          images.append({"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+      payload = {
+          "model": os.environ["VLM_MODEL"],
+          "max_tokens": 512,
+          "temperature": 0.2,
+          "messages": [
+              {"role": "system",
+               "content": "You are a CCTV analyst. Describe what is shown in the keyframes from this clip in chronological order. Be specific about people, vehicles, actions, and timing. Return JSON with fields: prose (string), entities (list of {kind,label}), events (list of {action,t_start_sec,t_end_sec,confidence})."},
+              {"role": "user",
+               "content": [
+                   {"type": "text",
+                    "text": f"Clip {clip_id}: {len(images)} keyframes follow."},
+                   *images,
+               ]}
+          ]
+      }
+      data = json.dumps(payload).encode("utf-8")
+      req = urllib.request.Request(
+          os.environ["VLM_ENDPOINT"],
+          data=data,
+          headers={"Content-Type": "application/json"},
+          method="POST")
+      try:
+          with urllib.request.urlopen(req, timeout=300) as resp:
+              body = resp.read().decode("utf-8")
+      except urllib.error.HTTPError as e:
+          print(f"[vlm-caption] HTTP {e.code}: {e.read().decode('utf-8', 'replace')}", file=sys.stderr)
+          raise
+      print(f"[vlm-caption] response received ({len(body)} bytes)")
+      with open(out_path, "w") as f:
+          f.write(body)
+      print(f"[vlm-caption] wrote {out_path}")

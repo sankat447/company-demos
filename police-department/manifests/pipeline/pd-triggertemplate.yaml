@@ -1,0 +1,46 @@
+# =============================================================================
+#  pd-perception TriggerTemplate
+#  Materializes a PipelineRun with parameters bound from the incoming event.
+# =============================================================================
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: pd-perception-tt
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-s3-uri
+    description: s3://... URI of the clip
+  - name: clip-id
+    description: UUID for this clip
+  - name: uploaded-by
+    default: "s3-watcher"
+  resourcetemplates:
+  - apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      generateName: pd-perception-
+      namespace: pd-cctv
+      labels:
+        app.kubernetes.io/part-of: police-department
+        pd.cctv/clip-id: $(tt.params.clip-id)
+    spec:
+      pipelineRef:
+        name: pd-perception
+      serviceAccountName: pd-pipeline-sa
+      timeouts:
+        pipeline: "20m"
+      params:
+      - name: clip-s3-uri
+        value: $(tt.params.clip-s3-uri)
+      - name: clip-id
+        value: $(tt.params.clip-id)
+      - name: uploaded-by
+        value: $(tt.params.uploaded-by)
+      workspaces:
+      - name: shared
+        persistentVolumeClaim:
+          claimName: pd-pipeline-workspace

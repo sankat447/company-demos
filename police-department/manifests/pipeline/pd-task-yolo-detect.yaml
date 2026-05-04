@@ -1,0 +1,74 @@
+# =============================================================================
+#  Task 04 — yolo-detect (CPU-only, parallel with vlm-caption + whisper-asr)
+#  Runs YOLOv8n on the keyframes (or every Nth frame of the clip) and emits
+#  detections.json with bbox + class + confidence.
+#
+#  CPU-only by design. YOLOv8n on c5.2xlarge processes ~40 frames/sec.
+# =============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pd-task-yolo-detect
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-id
+    type: string
+  - name: stride
+    type: string
+    default: "10"
+    description: Run detection on every Nth frame
+  workspaces:
+  - name: shared
+  steps:
+  - name: detect
+    image: docker.io/ultralytics/ultralytics:8.3.0-cpu
+    command: ["/bin/bash", "-c"]
+    args:
+    - |
+      set -euo pipefail
+      cd "$(workspaces.shared.path)/$(params.clip-id)"
+      python3 - <<'PY'
+      import json, cv2
+      from ultralytics import YOLO
+
+      model = YOLO("yolov8n.pt")  # bundled in the ultralytics image
+      cap = cv2.VideoCapture("clip.mp4")
+      fps = cap.get(cv2.CAP_PROP_FPS) or 30
+      stride = int("$(params.stride)")
+      detections = []
+      idx = 0
+      while True:
+          ok, frame = cap.read()
+          if not ok:
+              break
+          if idx % stride == 0:
+              results = model(frame, verbose=False)[0]
+              ts = idx / fps
+              for box, cls, conf in zip(
+                  results.boxes.xyxy.cpu().numpy().tolist(),
+                  results.boxes.cls.cpu().numpy().astype(int).tolist(),
+                  results.boxes.conf.cpu().numpy().tolist(),
+              ):
+                  detections.append({
+                      "frame_idx": idx, "ts_sec": round(ts, 3),
+                      "bbox": [round(c, 1) for c in box],
+                      "class": model.names[cls], "confidence": round(conf, 3),
+                  })
+          idx += 1
+      cap.release()
+      with open("detections.json", "w") as f:
+          json.dump({"frames_total": idx, "stride": stride,
+                     "fps": fps, "detections": detections}, f)
+      print(f"[yolo] wrote detections.json: {len(detections)} boxes over {idx} frames")
+      PY
+    resources:
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+      limits:
+        cpu: "4"
+        memory: "6Gi"

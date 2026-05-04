@@ -1,0 +1,90 @@
+# =============================================================================
+#  RBAC for the perception pipeline
+#    - pd-pipeline-sa: ServiceAccount used by every PipelineRun
+#    - pd-pipeline-role: read pd-aurora-credentials + pd-s3-creds Secrets,
+#      read/list ConfigMaps, write to PVCs in this namespace
+#    - pd-eventlistener-sa: ServiceAccount for the EventListener (Tekton
+#      Triggers requires its own SA with permission to create PipelineRuns)
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pd-pipeline-sa
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pd-pipeline-role
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["pd-aurora-credentials", "pd-s3-creds", "pd-portkey-key"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pd-pipeline-rolebinding
+  namespace: pd-cctv
+subjects:
+- kind: ServiceAccount
+  name: pd-pipeline-sa
+  namespace: pd-cctv
+roleRef:
+  kind: Role
+  name: pd-pipeline-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pd-eventlistener-sa
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pd-eventlistener-role
+  namespace: pd-cctv
+rules:
+- apiGroups: ["triggers.tekton.dev"]
+  resources: ["eventlisteners", "triggerbindings", "triggertemplates", "triggers"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["tekton.dev"]
+  resources: ["pipelineruns", "taskruns"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["serviceaccounts"]
+  verbs: ["impersonate"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pd-eventlistener-rolebinding
+  namespace: pd-cctv
+subjects:
+- kind: ServiceAccount
+  name: pd-eventlistener-sa
+  namespace: pd-cctv
+roleRef:
+  kind: Role
+  name: pd-eventlistener-role
+  apiGroup: rbac.authorization.k8s.io

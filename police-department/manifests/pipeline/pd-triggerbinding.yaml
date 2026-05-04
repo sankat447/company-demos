@@ -1,0 +1,26 @@
+# =============================================================================
+#  pd-perception TriggerBinding
+#  Maps fields from the incoming JSON payload to TriggerTemplate params.
+#  The S3-watcher CronJob (Phase 6) sends:
+#    {
+#      "clip_s3_uri": "s3://ai-demo-data-lake/clips/police-department/<key>",
+#      "clip_id":     "<uuid>",
+#      "uploaded_by": "s3-watcher"
+#    }
+# =============================================================================
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: pd-perception-tb
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-s3-uri
+    value: $(body.clip_s3_uri)
+  - name: clip-id
+    value: $(body.clip_id)
+  - name: uploaded-by
+    value: $(body.uploaded_by)
