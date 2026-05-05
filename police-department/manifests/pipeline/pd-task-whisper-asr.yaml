@@ -32,14 +32,14 @@ spec:
     - |
       set -euo pipefail
       cd "$(workspaces.shared.path)/$(params.clip-id)"
+      # The onerahmet/openai-whisper-asr-webservice:v1.5.0 image ships an
+      # incomplete faster_whisper install (missing transitive deps like
+      # `requests`). Force-reinstall with deps so the import works.
+      pip install --quiet --no-cache-dir --upgrade --force-reinstall \
+        faster-whisper==1.0.3 requests urllib3
       python3 - <<'PY'
       import json, os
-      try:
-          from faster_whisper import WhisperModel
-      except Exception:
-          import subprocess, sys
-          subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "faster-whisper==1.0.3"])
-          from faster_whisper import WhisperModel
+      from faster_whisper import WhisperModel
       model = WhisperModel("$(params.model-size)", device="cpu", compute_type="int8")
       segments, info = model.transcribe("clip.mp4", word_timestamps=True)
       out = {"language": info.language, "duration": info.duration, "segments": []}
