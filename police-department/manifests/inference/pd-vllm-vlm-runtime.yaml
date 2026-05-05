@@ -12,6 +12,12 @@
 #  there is no collision with the platform's runtime in ai-demo. Keeping the
 #  same name means InferenceService manifests can be lifted between namespaces
 #  with zero edits to the `runtime:` field.
+#
+#  Image tag: quay.io/modh/vllm now publishes per-accelerator tags. The bare
+#  rhoai-2.16 tag was retired; pullable tags are rhoai-{2.16,2.25}-{cuda,rocm,
+#  gaudi}. We pin to rhoai-2.25-cuda to match RHOAI 2.25.x on this cluster.
+#  Bump in lockstep with RHOAI operator upgrades; the platform repo's runtime
+#  in ai-demo MUST track the same tag (we do not edit that repo from here).
 # =============================================================================
 ---
 apiVersion: serving.kserve.io/v1alpha1
@@ -39,7 +45,7 @@ spec:
     autoSelect: true
   containers:
   - name: kserve-container
-    image: quay.io/modh/vllm:rhoai-2.16
+    image: quay.io/modh/vllm:rhoai-2.25-cuda
     command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
     args:
     - "--port=8080"
