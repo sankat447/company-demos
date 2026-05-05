@@ -71,10 +71,16 @@ spec:
       # g4dn.xlarge has 16 GiB total; OS+kubelet reserve leaves ~12.2 GiB
       # allocatable per-node. The model weights live in GPU VRAM after load,
       # so vLLM's host RAM footprint is just the brief load-phase peak +
-      # tokenizer + KV cache buffers. 8Gi requests / 11Gi limit fits the
-      # node and leaves headroom for the GPU operator's daemonsets.
+      # tokenizer + KV cache buffers. 8Gi requests / 11Gi limit fits.
+      #
+      # CPU requests are tiny because the GPU operator's daemonsets
+      # (driver, dcgm, device-plugin, container-toolkit, node-status-exporter
+      # plus their istio sidecars) reserve ~3400m of the node's 3500m
+      # allocatable CPU even at near-zero actual use. The predictor's real
+      # CPU work happens on the GPU; host CPU is just request marshalling.
+      # 100m / 4 CPU keeps it schedulable while still allowing burst.
       requests:
-        cpu: "1"
+        cpu: "100m"
         memory: "8Gi"
         nvidia.com/gpu: "1"
       limits:
