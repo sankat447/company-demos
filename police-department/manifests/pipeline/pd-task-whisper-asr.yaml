@@ -38,8 +38,24 @@ spec:
       pip install --quiet --no-cache-dir --upgrade --force-reinstall \
         faster-whisper==1.0.3 requests urllib3
       python3 - <<'PY'
-      import json, os
+      import json, subprocess
       from faster_whisper import WhisperModel
+      # Pre-flight: does this clip even have an audio track? Surveillance
+      # cameras frequently record silent video; faster_whisper's PyAV-based
+      # decoder raises IndexError when there's no audio stream. Write an
+      # empty transcript and exit cleanly in that case so the pipeline
+      # progresses to structure-and-write.
+      probe = subprocess.run(
+          ["ffprobe", "-v", "error", "-select_streams", "a",
+           "-show_entries", "stream=index", "-of", "csv=p=0", "clip.mp4"],
+          capture_output=True, text=True, check=False)
+      if not probe.stdout.strip():
+          out = {"language": "und", "duration": 0.0, "segments": [],
+                 "note": "clip has no audio track; transcription skipped"}
+          with open("transcript.json", "w") as f:
+              json.dump(out, f)
+          print("[whisper] no audio track; wrote empty transcript")
+          raise SystemExit(0)
       model = WhisperModel("$(params.model-size)", device="cpu", compute_type="int8")
       segments, info = model.transcribe("clip.mp4", word_timestamps=True)
       out = {"language": info.language, "duration": info.duration, "segments": []}
