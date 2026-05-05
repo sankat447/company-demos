@@ -80,7 +80,7 @@ spec:
       # CPU work happens on the GPU; host CPU is just request marshalling.
       # 100m / 4 CPU keeps it schedulable while still allowing burst.
       requests:
-        cpu: "100m"
+        cpu: "50m"
         memory: "4Gi"
         nvidia.com/gpu: "1"
       limits:

@@ -61,7 +61,7 @@ spec:
         # after GPU operator daemonsets eat ~3400m of 3500m allocatable).
         # See note in ../pd-vllm-vlm-runtime.yaml.
         requests:
-          cpu: "100m"
+          cpu: "50m"
           memory: "4Gi"
           nvidia.com/gpu: "1"
         limits:
