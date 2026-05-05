@@ -138,7 +138,15 @@ spec:
       }
 
       # 4. Write to Aurora pd_cctv (single transaction)
-      conn_kw = {k: os.environ[f"PG{k.upper()}"] for k in ("host","database","user","password")}
+      # psycopg's connect() uses libpq keywords: dbname (not "database"), user,
+      # password, host. Map PGDATABASE -> dbname explicitly. Earlier code
+      # tried database=... which libpq rejects with ProgrammingError.
+      conn_kw = {
+          "host":     os.environ["PGHOST"],
+          "dbname":   os.environ["PGDATABASE"],
+          "user":     os.environ["PGUSER"],
+          "password": os.environ["PGPASSWORD"],
+      }
       with psycopg.connect(**conn_kw, autocommit=False) as conn:
           with conn.cursor() as cur:
               cur.execute(
