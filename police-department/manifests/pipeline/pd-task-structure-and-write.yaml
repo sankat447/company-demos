@@ -69,6 +69,12 @@ spec:
         secretKeyRef:
           name: pd-s3-creds
           key: secret_access_key
+    - name: AWS_SESSION_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: pd-s3-creds
+          key: session_token
+          optional: true
     - name: MLFLOW_TRACKING_URI
       value: "http://mlflow.rhoai-mlflow.svc:5000"
     script: |

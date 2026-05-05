@@ -45,10 +45,14 @@ for ns in "$PD_NS_CCTV" "$PD_NS_PERSONAS"; do
 done
 
 # 4. S3 creds in pd-cctv (S3 watcher + pull-clip + structure-and-write).
+#    session_token is included so SSO/STS temporary credentials work; keep it
+#    even if your AWS_SESSION_TOKEN is empty (long-lived IAM user) — the
+#    consuming pods read it as optional.
 log_info "writing pd-s3-creds in $PD_NS_CCTV"
 upsert_secret pd-s3-creds "$PD_NS_CCTV" \
   "access_key_id=${AWS_ACCESS_KEY_ID:-}" \
   "secret_access_key=${AWS_SECRET_ACCESS_KEY:-}" \
+  "session_token=${AWS_SESSION_TOKEN:-}" \
   "region=${AWS_REGION:-us-east-1}"
 
 # 5. HF token for model download (Job in 02_fetch_models reads this).

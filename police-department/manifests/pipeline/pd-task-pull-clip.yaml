@@ -42,6 +42,12 @@ spec:
         secretKeyRef:
           name: pd-s3-creds
           key: secret_access_key
+    - name: AWS_SESSION_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: pd-s3-creds
+          key: session_token
+          optional: true
     - name: AWS_REGION
       valueFrom:
         secretKeyRef:
