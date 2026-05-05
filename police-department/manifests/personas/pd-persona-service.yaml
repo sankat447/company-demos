@@ -31,7 +31,11 @@ spec:
       containers:
       - name: pd-persona
         image: image-registry.openshift-image-registry.svc:5000/pd-personas/pd-persona:0.1.0
-        imagePullPolicy: IfNotPresent
+        # Always pull because we re-tag new builds at :0.1.0 in-place (oc tag).
+        # IfNotPresent left the node pinned to the first sha forever, ignoring
+        # subsequent rebuilds. Use sha-pinned image refs if you want the
+        # cheaper IfNotPresent semantics back.
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
           name: http
@@ -73,8 +77,13 @@ spec:
               name: pd-aurora-credentials
               key: password
         readinessProbe:
+          # /healthz is a liveness-style ping that returns 200 even when the
+          # downstream Llama InferenceService is scaled to zero. Using /readyz
+          # here would couple persona pod readiness to KServe cold-start state
+          # and 503 every Route call until first-token. Re-introduce a deeper
+          # /readyz check only after Llama has a steady warm replica.
           httpGet:
-            path: /readyz
+            path: /healthz
             port: 8000
           initialDelaySeconds: 15
           periodSeconds: 15
