@@ -63,7 +63,7 @@ metadata:
   namespace: pd-cctv
 rules:
 - apiGroups: ["triggers.tekton.dev"]
-  resources: ["eventlisteners", "triggerbindings", "triggertemplates", "triggers"]
+  resources: ["eventlisteners", "triggerbindings", "triggertemplates", "triggers", "interceptors"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["tekton.dev"]
   resources: ["pipelineruns", "taskruns"]
@@ -87,4 +87,34 @@ subjects:
 roleRef:
   kind: Role
   name: pd-eventlistener-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# ClusterRole + ClusterRoleBinding to read cluster-scoped ClusterInterceptors.
+# Tekton Triggers EventListener requires both namespace-scoped Interceptors
+# and cluster-scoped ClusterInterceptors at startup; without these the
+# event-listener pod CrashLoopBackOffs with "failed to start informers".
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pd-eventlistener-clusterinterceptors
+  labels:
+    app.kubernetes.io/part-of: police-department
+rules:
+- apiGroups: ["triggers.tekton.dev"]
+  resources: ["clusterinterceptors", "clustertriggerbindings"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pd-eventlistener-clusterinterceptors
+  labels:
+    app.kubernetes.io/part-of: police-department
+subjects:
+- kind: ServiceAccount
+  name: pd-eventlistener-sa
+  namespace: pd-cctv
+roleRef:
+  kind: ClusterRole
+  name: pd-eventlistener-clusterinterceptors
   apiGroup: rbac.authorization.k8s.io

@@ -26,6 +26,14 @@ require_cmd oc
 log_info "deleting ArgoCD bootstrap Application (prune cascades to children)..."
 oc -n openshift-gitops delete application pd-bootstrap --ignore-not-found=true
 
+# Cluster-scoped artefacts created by the demo. ArgoCD prune SHOULD pick these
+# up but we delete defensively so a failed prune doesn't leak demo objects
+# into the cluster scope. Currently only the Tekton Triggers EventListener
+# clusterinterceptors RBAC is at cluster scope.
+log_info "deleting demo's cluster-scoped RBAC..."
+oc delete clusterrolebinding pd-eventlistener-clusterinterceptors --ignore-not-found=true
+oc delete clusterrole        pd-eventlistener-clusterinterceptors --ignore-not-found=true
+
 log_info "waiting up to 5 min for ns pd-cctv / pd-personas to disappear..."
 deadline=$(( $(date +%s) + 300 ))
 while :; do
