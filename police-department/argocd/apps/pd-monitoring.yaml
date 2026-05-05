@@ -10,13 +10,13 @@ spec:
   project: default
   source:
     repoURL: https://github.com/sankat447/company-demos
-    targetRevision: HEAD
+    targetRevision: feature/police-department-v1
     path: police-department/manifests/monitoring
     directory:
       include: "pd-*.yaml"
   destination:
     server: https://kubernetes.default.svc
-    namespace: openshift-monitoring
+    namespace: pd-cctv
   syncPolicy:
     automated:
       prune: true

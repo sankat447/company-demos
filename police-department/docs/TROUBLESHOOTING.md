@@ -105,14 +105,19 @@ oc -n pd-personas rollout restart deploy/pd-persona
 
 **Symptom**: GPU mutex alert never fires even when both services are clearly running.
 
-**Cause**: The metric label structure depends on the kube-state-metrics version. Confirm by adapting the alert expr:
+**Cause**: Either the metric label structure depends on the kube-state-metrics version, or the user-workload Prometheus instance (which evaluates this rule now that it lives in `pd-cctv`) does not have access to the `kube_*` metrics emitted in `openshift-monitoring`. Confirm by querying both Prometheus instances:
 
 ```bash
+# Cluster Prometheus (always has kube-state-metrics)
 oc -n openshift-monitoring exec deploy/prometheus-k8s -- promtool query instant \
+  http://localhost:9090 'kube_deployment_status_replicas_ready{namespace=~"ai-demo|pd-cctv"}'
+
+# User-workload Prometheus (where the rule is actually evaluated)
+oc -n openshift-user-workload-monitoring exec sts/prometheus-user-workload -- promtool query instant \
   http://localhost:9090 'kube_deployment_status_replicas_ready{namespace=~"ai-demo|pd-cctv"}'
 ```
 
-If the `deployment` label is named differently (e.g. `deployment_name`), patch `manifests/monitoring/pd-gpu-mutex-prometheusrule.yaml` accordingly.
+If the user-workload instance returns nothing, the rule expressions need to be rewritten against KServe-native metrics (e.g. `kserve_inferenceservice_*`) or moved back into `openshift-monitoring` (revert the namespace edit in `manifests/monitoring/pd-gpu-mutex-prometheusrule.yaml` and `argocd/apps/pd-monitoring.yaml`).
 
 ## 9. `oc apply` fails with `serverside apply: ... ServerSideApplyMustBeUsed`
 

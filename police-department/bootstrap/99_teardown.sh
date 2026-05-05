@@ -50,11 +50,28 @@ if [ "${ans,,}" = "y" ] || [ "${ans,,}" = "yes" ]; then
   fi
 fi
 
-# Optional sample clip cleanup
-printf "Delete demo clips from s3://%s/clips/police-department/ ? [y/N] " "$PD_BUCKET" >&2
-read -r ans
-if [ "${ans,,}" = "y" ] || [ "${ans,,}" = "yes" ]; then
-  aws s3 rm "s3://$PD_BUCKET/clips/police-department/" --recursive 2>&1 || log_warn "S3 cleanup failed"
-fi
+# Optional S3 cleanup — three demo prefixes need to be cleared for a full
+# rollback to the ai-demo-stack-aws baseline. Each is prompted independently
+# (or auto-confirmed via PD_S3_CLEANUP=yes).
+prompt_or_auto() {
+  local prefix="$1"
+  if [ "${PD_S3_CLEANUP:-}" = "yes" ]; then
+    echo "y"
+    return
+  fi
+  printf "Delete s3://%s/%s ? [y/N] " "$PD_BUCKET" "$prefix" >&2
+  read -r reply
+  echo "$reply"
+}
+
+for prefix in "clips/police-department/" "processed/police-department/" "models/police-department/"; do
+  ans=$(prompt_or_auto "$prefix")
+  if [ "${ans,,}" = "y" ] || [ "${ans,,}" = "yes" ]; then
+    log_info "deleting s3://$PD_BUCKET/$prefix ..."
+    aws s3 rm "s3://$PD_BUCKET/$prefix" --recursive 2>&1 || log_warn "S3 cleanup failed for $prefix"
+  else
+    log_info "skipped s3://$PD_BUCKET/$prefix (still present in bucket)"
+  fi
+done
 
 log_ok "teardown complete; the ai-demo platform is untouched."

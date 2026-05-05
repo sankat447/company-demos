@@ -80,7 +80,7 @@ SELECT actor, action, ts FROM pd_cctv.custody_log ORDER BY ts DESC LIMIT 5;
 > "We have one T4 GPU. The platform's Llama and our Qwen2.5-VL both want it. Knative scale-to-zero choreographs the swap — neither holds the GPU when idle, and a Prometheus alert fires if both ever go Ready."
 
 ```bash
-oc -n openshift-monitoring get prometheusrule pd-gpu-mutex -o yaml | head -30
+oc -n pd-cctv get prometheusrule pd-gpu-mutex -o yaml | head -30
 ```
 
 ### 8. Wrap (30 sec)

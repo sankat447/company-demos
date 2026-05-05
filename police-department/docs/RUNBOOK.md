@@ -25,7 +25,7 @@ Operational reference for the live demo. Owners: demo team.
 | S3 watcher CronJob | `pd-cctv` | `oc -n pd-cctv get cronjob pd-s3-watcher` |
 | Persona FastAPI | `pd-personas` | `oc -n pd-personas get deploy/pd-persona route/pd-persona` |
 | HITL queue UI | `pd-personas` | `oc -n pd-personas get route pd-hitl` (path `/queue`) |
-| GPU mutex alert | `openshift-monitoring` | `oc -n openshift-monitoring get prometheusrule pd-gpu-mutex` |
+| GPU mutex alert | `pd-cctv` | `oc -n pd-cctv get prometheusrule pd-gpu-mutex` |
 
 ## GPU mutex behaviour
 

@@ -10,13 +10,22 @@
 #  Ready simultaneously the GPU is over-committed and inference is degraded
 #  (or a pod is stuck Pending waiting for the GPU). This PrometheusRule
 #  surfaces that condition as a critical alert.
+#
+#  This rule lives in pd-cctv (a demo namespace) and is evaluated by the
+#  user-workload Prometheus instance (openshift-user-workload-monitoring).
+#  The expressions reference kube_deployment_* / kube_pod_* metrics emitted
+#  by kube-state-metrics in openshift-monitoring; user-workload Prometheus
+#  pulls those via the in-cluster federation that OCP enables when
+#  user-workload monitoring is on. If the rule never fires in practice,
+#  re-check `oc -n openshift-user-workload-monitoring exec ... promtool query`
+#  for these metrics and rewrite against KServe/KSVC-native metrics instead.
 # =============================================================================
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: pd-gpu-mutex
-  namespace: openshift-monitoring
+  namespace: pd-cctv
   labels:
     app.kubernetes.io/part-of: police-department
     role: alert-rules
