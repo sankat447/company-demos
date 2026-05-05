@@ -37,13 +37,14 @@ The platform repo (`ai-demo-stack-aws`) is **untouched** as a git tree; we did, 
 | HITL Route | Reachable at `https://pd-hitl-pd-personas.apps.ai-demo.iisdemolab.click/queue` (route healthy; backend service up once readinessProbe converts to `/healthz`) |
 | Worker capacity | 3 worker nodes; `worker-us-east-1c` was scaled 0→1 by us to give KServe controller schedule room. Annotated for teardown reversal. |
 
-### Blocked ❌ (single root cause)
-**Stale `quay.io/modh/vllm:rhoai-2.16` image tag** — both InferenceServices report `RevisionFailed: Unable to fetch image ... 404 Not Found`. This is **not** a demo bug; it's in the platform's `vllm-servingruntime.yaml` and the demo mirrors it. Fixing in two places (platform + demo ServingRuntime) and rolling out unblocks:
-- `llama-3-1-8b` Ready
-- `pd-qwen25-vl-7b` Ready
-- Pipeline task `vlm-caption` (depends on Qwen-VL endpoint)
-- Persona `/chat/{detective|patrol|evidence_clerk}` endpoints (depend on Llama via Portkey)
-- Smoke test `05_smoke.sh` end-to-end
+### Blocked ❌ (single root cause, partially resolved)
+**Stale `quay.io/modh/vllm:rhoai-2.16` image tag.**
+- ✅ **Demo side fixed** in commit `aabbf69` — `pd-qwen25-vl-7b` is now `READY=True`. Pipeline `vlm-caption` reaches the InferenceService URL successfully (next failure is GPU cold-start, not image pull).
+- ⏳ **Platform side still pending** — `llama-3-1-8b` in `ai-demo` is still `Failed (RevisionFailed)` because the platform's `gitops/config/inference/vllm-servingruntime.yaml` still pins `rhoai-2.16`. Demo's CLAUDE.md hard rule prevents us from editing the platform repo. **Handoff artefacts ready** for the platform owner:
+  - **`docs/PLATFORM_PR_PREP_vllm_image.md`** — full apply runbook (gh-CLI PR flow + cluster verification + rollback)
+  - **`docs/platform-vllm-runtime-rhoai-2.25-cuda.patch`** — applies cleanly with `git apply` (verified against the live platform file 2026-05-05)
+
+Until the platform fix lands, persona `/chat/{detective|patrol|evidence_clerk}` endpoints will 503 because they call Llama via Portkey.
 
 ### Partial ⚠
 | Component | Note |
