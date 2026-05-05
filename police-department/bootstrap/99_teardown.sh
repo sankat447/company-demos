@@ -89,33 +89,50 @@ for prefix in "clips/police-department/" "processed/police-department/" "models/
   fi
 done
 
-# Optional: revert worker MachineSet scale-up if we annotated it during deploy.
-# We only touch a MachineSet that carries our ownership annotation; this avoids
-# accidentally scaling down a worker that some other workload now depends on.
-PD_WORKER_MS="${PD_WORKER_MS:-ai-demo-lt9wz-worker-us-east-1c}"
-PD_WORKER_OWNER_KEY="pd-cctv.iisl.com/scaled-up-by"
-PD_WORKER_OWNER_VAL="police-department-demo"
-ms_owner=$(oc -n openshift-machine-api get machineset "$PD_WORKER_MS" \
-  -o jsonpath="{.metadata.annotations.${PD_WORKER_OWNER_KEY//./\\.}}" 2>/dev/null || true)
-if [ "$ms_owner" = "$PD_WORKER_OWNER_VAL" ]; then
+# Helper: scale a MachineSet back to 0 if (and only if) the demo annotated it
+# at deploy time. Symmetric for the worker capacity bump and the GPU bump.
+revert_machineset_if_owned() {
+  local ms="$1" owner_key="pd-cctv.iisl.com/scaled-up-by" owner_val="police-department-demo"
+  local owner ans
+  owner=$(oc -n openshift-machine-api get machineset "$ms" \
+    -o jsonpath="{.metadata.annotations.${owner_key//./\\.}}" 2>/dev/null || true)
+  if [ "$owner" != "$owner_val" ]; then
+    log_info "no demo-owned scale-up to revert on $ms"
+    return 0
+  fi
   if [ "${PD_REVERT_WORKER_SCALEUP:-}" = "yes" ]; then
     ans="y"
   else
-    printf "Scale MachineSet %s back to 0 (we scaled it up at deploy time)? [y/N] " "$PD_WORKER_MS" >&2
+    printf "Scale MachineSet %s back to 0 (we scaled it up at deploy time)? [y/N] " "$ms" >&2
     read -r ans
   fi
   if [ "${ans,,}" = "y" ] || [ "${ans,,}" = "yes" ]; then
-    log_info "scaling $PD_WORKER_MS to 0 ..."
-    oc -n openshift-machine-api scale machineset "$PD_WORKER_MS" --replicas=0 || \
-      log_warn "scale-down failed for $PD_WORKER_MS"
-    oc -n openshift-machine-api annotate machineset "$PD_WORKER_MS" \
-      "${PD_WORKER_OWNER_KEY}-" "pd-cctv.iisl.com/scaled-up-at-" --overwrite 2>/dev/null || true
-    log_ok "$PD_WORKER_MS scale-up reverted"
+    log_info "scaling $ms to 0 ..."
+    oc -n openshift-machine-api scale machineset "$ms" --replicas=0 || \
+      log_warn "scale-down failed for $ms"
+    oc -n openshift-machine-api annotate machineset "$ms" \
+      "${owner_key}-" "pd-cctv.iisl.com/scaled-up-at-" --overwrite 2>/dev/null || true
+    log_ok "$ms scale-up reverted"
   else
-    log_info "skipped: $PD_WORKER_MS left at current replica count"
+    log_info "skipped: $ms left at current replica count"
   fi
-else
-  log_info "no demo-owned worker scale-up to revert (annotation absent on $PD_WORKER_MS)"
-fi
+}
+
+# Worker capacity bump (added to give KServe controller schedule room when
+# the cluster's CPU requests ran tight).
+revert_machineset_if_owned "${PD_WORKER_MS:-ai-demo-lt9wz-worker-us-east-1c}"
+
+# GPU MachineSet bump (added because there's no ClusterAutoscaler controller
+# on this cluster, so Knative scale-from-zero can't pull a GPU node up on
+# demand for the InferenceService). Also delete the demo's pre-warmed
+# pd-qwen25-vl-7b InferenceService first so the predictor pod releases the
+# GPU before the node terminates — otherwise teardown leaves a dangling pod
+# stuck Pending.
+oc -n pd-cctv get isvc pd-qwen25-vl-7b -o jsonpath='{.metadata.annotations.pd-cctv\.iisl\.com/scaled-up-by}' 2>/dev/null \
+  | grep -q "police-department-demo" && {
+    log_info "removing pre-warmed pd-qwen25-vl-7b before GPU node teardown"
+    oc -n pd-cctv delete isvc pd-qwen25-vl-7b --ignore-not-found || true
+}
+revert_machineset_if_owned "${PD_GPU_MS:-ai-demo-lt9wz-gpu-demo-us-east-1a}"
 
 log_ok "teardown complete; the ai-demo platform is untouched."

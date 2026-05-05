@@ -15,6 +15,18 @@
 #    services must NEVER both be Ready simultaneously — this is enforced by
 #    scheduling at the cluster level (only 1 GPU node) and surfaced by the
 #    PrometheusRule pd-gpu-mutex.
+#
+#  WHY minReplicas: 1 (not 0):
+#    The cluster has no ClusterAutoscaler controller deployed (only inert
+#    MachineAutoscaler CRs). Knative's "scale from zero" therefore can't pull
+#    a GPU node up on demand — the predictor pod sits Pending forever and
+#    the caller (vlm-caption Tekton task) gets ECONNRESET from the Knative
+#    activator after ~30s.
+#    Pinning minReplicas: 1 keeps a warm predictor while the demo runs;
+#    99_teardown.sh scales the GPU MachineSet back to 0 (annotation-gated)
+#    so we don't leave a g4dn.xlarge running. If/when ClusterAutoscaler
+#    lands, this can revert to minReplicas: 0 for the proper time-share
+#    behaviour with llama-3-1-8b.
 # =============================================================================
 ---
 apiVersion: serving.kserve.io/v1beta1
@@ -34,7 +46,7 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   predictor:
-    minReplicas: 0
+    minReplicas: 1
     maxReplicas: 1
     scaleTarget: 1
     scaleMetric: concurrency
