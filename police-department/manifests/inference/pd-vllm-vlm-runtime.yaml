@@ -81,7 +81,7 @@ spec:
       # 100m / 4 CPU keeps it schedulable while still allowing burst.
       requests:
         cpu: "100m"
-        memory: "8Gi"
+        memory: "4Gi"
         nvidia.com/gpu: "1"
       limits:
         cpu: "4"
