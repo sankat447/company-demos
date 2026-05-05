@@ -46,6 +46,17 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   predictor:
+    # KServe storage-initializer reads AWS S3 credentials from the
+    # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars injected via
+    # this ServiceAccount's referenced Secret (pd-kserve-s3-creds, with
+    # KServe S3 annotations). The Secret is created out-of-band by
+    # bootstrap/01_secrets.sh because it carries a long-lived IAM user
+    # access key and can't live in git. SA itself is in pd-kserve-sa.yaml
+    # next to this file. Note: KServe storage-initializer does not honor
+    # AWS_SESSION_TOKEN, so SSO/STS temporary credentials don't work for
+    # this code path — a long-lived IAM user with S3 read on
+    # ai-demo-data-lake is required.
+    serviceAccountName: pd-kserve-sa
     minReplicas: 1
     maxReplicas: 1
     scaleTarget: 1

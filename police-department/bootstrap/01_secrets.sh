@@ -55,7 +55,37 @@ upsert_secret pd-s3-creds "$PD_NS_CCTV" \
   "session_token=${AWS_SESSION_TOKEN:-}" \
   "region=${AWS_REGION:-us-east-1}"
 
-# 5. HF token for model download (Job in 02_fetch_models reads this).
+# 5. KServe storage-initializer S3 creds (ONLY for pd-qwen25-vl-7b model
+#    download). KServe storage-initializer does NOT honour AWS_SESSION_TOKEN,
+#    so this MUST be a long-lived IAM user's access key (not SSO/STS).
+#    Recommended: create a dedicated IAM user with S3 read on the data-lake
+#    bucket only:
+#      aws iam create-user --user-name pd-cctv-s3-reader
+#      aws iam attach-user-policy --user-name pd-cctv-s3-reader \
+#        --policy-arn arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+#      aws iam create-access-key --user-name pd-cctv-s3-reader
+#    then export the access key as KSERVE_S3_AKID + KSERVE_S3_SECRET before
+#    running this script. If those vars are empty, pd-qwen25-vl-7b will fail
+#    to pull the model and the predictor pod will CrashLoopBackOff with
+#    NoCredentialsError or InvalidAccessKeyId — see TROUBLESHOOTING.md §23.
+if [ -n "${KSERVE_S3_AKID:-}" ] && [ -n "${KSERVE_S3_SECRET:-}" ]; then
+  log_info "writing pd-kserve-s3-creds in $PD_NS_CCTV (long-lived IAM keys)"
+  oc -n "$PD_NS_CCTV" create secret generic pd-kserve-s3-creds \
+    --from-literal=AWS_ACCESS_KEY_ID="$KSERVE_S3_AKID" \
+    --from-literal=AWS_SECRET_ACCESS_KEY="$KSERVE_S3_SECRET" \
+    --dry-run=client -o yaml | oc apply --server-side --force-conflicts -f -
+  oc -n "$PD_NS_CCTV" annotate secret pd-kserve-s3-creds \
+    serving.kserve.io/s3-endpoint=s3.amazonaws.com \
+    serving.kserve.io/s3-region="${AWS_REGION:-us-east-1}" \
+    serving.kserve.io/s3-usehttps=1 \
+    serving.kserve.io/s3-verifyssl=1 \
+    --overwrite >/dev/null
+else
+  log_warn "KSERVE_S3_AKID / KSERVE_S3_SECRET unset — KServe storage-initializer"
+  log_warn "will fail to pull pd-qwen25-vl-7b. See comment block above."
+fi
+
+# 6. HF token for model download (Job in 02_fetch_models reads this).
 log_info "writing pd-hf-token in $PD_NS_CCTV"
 upsert_secret pd-hf-token "$PD_NS_CCTV" "token=$HF_TOKEN"
 
