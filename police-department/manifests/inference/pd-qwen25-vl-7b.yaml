@@ -57,13 +57,17 @@ spec:
       # Pulled by bootstrap/02_fetch_models.sh from HuggingFace into S3.
       storageUri: s3://ai-demo-data-lake/models/police-department/qwen2.5-vl-7b
       resources:
+        # Right-sized for g4dn.xlarge (~12.2 Gi allocatable). See note in
+        # ../pd-vllm-vlm-runtime.yaml — the predictor pod inherits the
+        # ServingRuntime container's resources, but the InferenceService
+        # spec must agree to avoid KServe webhook conflict.
         requests:
-          cpu: "2"
-          memory: "14Gi"
+          cpu: "1"
+          memory: "8Gi"
           nvidia.com/gpu: "1"
         limits:
           cpu: "4"
-          memory: "15Gi"
+          memory: "11Gi"
           nvidia.com/gpu: "1"
     tolerations:
     - key: nvidia.com/gpu

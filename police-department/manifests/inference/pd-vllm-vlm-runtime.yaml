@@ -68,13 +68,18 @@ spec:
     - name: CUDA_VISIBLE_DEVICES
       value: "0"
     resources:
+      # g4dn.xlarge has 16 GiB total; OS+kubelet reserve leaves ~12.2 GiB
+      # allocatable per-node. The model weights live in GPU VRAM after load,
+      # so vLLM's host RAM footprint is just the brief load-phase peak +
+      # tokenizer + KV cache buffers. 8Gi requests / 11Gi limit fits the
+      # node and leaves headroom for the GPU operator's daemonsets.
       requests:
-        cpu: "2"
-        memory: "14Gi"
+        cpu: "1"
+        memory: "8Gi"
         nvidia.com/gpu: "1"
       limits:
         cpu: "4"
-        memory: "15Gi"
+        memory: "11Gi"
         nvidia.com/gpu: "1"
     volumeMounts:
     - name: shm
