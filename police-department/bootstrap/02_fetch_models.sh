@@ -71,8 +71,10 @@ spec:
           set -euo pipefail
           pip install --quiet --no-cache-dir 'huggingface_hub==0.26.2' boto3==1.35.40
           python3 - <<'PY'
-          import os, subprocess
+          import os, sys, time
+          from pathlib import Path
           from huggingface_hub import snapshot_download
+          import boto3
           local = "/tmp/model"
           path = snapshot_download(
               repo_id=os.environ["MODEL_REPO"],
@@ -81,15 +83,32 @@ spec:
               ignore_patterns=["*.bin", "*.gguf"],  # safetensors + tokenizer only
           )
           print(f"snapshot at {path}")
-          subprocess.check_call([
-              "aws", "s3", "sync", path, os.environ["S3_PREFIX"],
-              "--region", os.environ.get("AWS_REGION", "us-east-1"),
-          ])
-          print("upload done")
+          # Upload via boto3 (no aws CLI in this image). S3_PREFIX is
+          # s3://<bucket>/<prefix> — split it.
+          uri = os.environ["S3_PREFIX"].removeprefix("s3://")
+          bucket, _, key_root = uri.partition("/")
+          key_root = key_root.rstrip("/")
+          s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+          uploaded = 0
+          for fp in Path(path).rglob("*"):
+              if not fp.is_file():
+                  continue
+              rel = fp.relative_to(path).as_posix()
+              key = f"{key_root}/{rel}" if key_root else rel
+              size = fp.stat().st_size
+              t0 = time.time()
+              s3.upload_file(str(fp), bucket, key)
+              dt = time.time() - t0
+              uploaded += size
+              print(f"  -> s3://{bucket}/{key}  ({size/1e6:.1f} MB in {dt:.1f}s)", flush=True)
+          print(f"upload done — {uploaded/1e9:.2f} GB total")
           PY
         resources:
-          requests: { cpu: "1", memory: "4Gi" }
-          limits:   { cpu: "2", memory: "8Gi" }
+          # Fetcher is IO-bound (HF download + S3 sync). Keep requests small
+          # so it lands on a worker even when RHOAI/KServe controllers have
+          # eaten most of the CPU reservation.
+          requests: { cpu: "200m", memory: "2Gi" }
+          limits:   { cpu: "2",    memory: "8Gi" }
 EOF
 
 log_info "waiting for fetcher Job (this typically takes 4-8 min for ~14GB)"
