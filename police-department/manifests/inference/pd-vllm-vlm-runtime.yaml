@@ -55,7 +55,7 @@ spec:
     - "--max-model-len=2048"
     - "--gpu-memory-utilization=0.85"
     - "--enforce-eager"
-    - "--limit-mm-per-prompt=image=8"
+    - "--limit-mm-per-prompt={\"image\":8}"
     - "--trust-remote-code"
     ports:
     - containerPort: 8080
