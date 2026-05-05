@@ -65,7 +65,7 @@ spec:
                      "fps": fps, "detections": detections}, f)
       print(f"[yolo] wrote detections.json: {len(detections)} boxes over {idx} frames")
       PY
-    resources:
+    computeResources:
       requests:
         cpu: "2"
         memory: "4Gi"

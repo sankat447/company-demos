@@ -53,7 +53,7 @@ spec:
           json.dump(out, f)
       print(f"[whisper] wrote transcript.json with {len(out['segments'])} segments")
       PY
-    resources:
+    computeResources:
       requests:
         cpu: "2"
         memory: "4Gi"

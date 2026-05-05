@@ -190,7 +190,7 @@ spec:
       except Exception as e:
           print(f"[structure] WARN: mlflow log failed: {e}", file=sys.stderr)
       PY
-    resources:
+    computeResources:
       requests:
         cpu: "1"
         memory: "3Gi"

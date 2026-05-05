@@ -86,9 +86,11 @@ spec:
           initialDelaySeconds: 30
           periodSeconds: 30
         resources:
+          # Right-sized for an idle FastAPI service on a CPU-tight cluster.
+          # Burst limit gives room for occasional langgraph / retrieval work.
           requests:
-            cpu: "300m"
-            memory: "1Gi"
+            cpu: "100m"
+            memory: "768Mi"
           limits:
             cpu: "1"
             memory: "2Gi"
