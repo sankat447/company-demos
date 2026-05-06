@@ -16,7 +16,7 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
-from app.graphs import detective, evidence_clerk, patrol
+from app.graphs import detective, evidence_clerk, journalist, patrol
 from app.hitl.router import router as hitl_router
 from app.schemas import ChatRequest, PersonaResponse
 from app.tools import chat_history, custody_log, redis_park
@@ -33,6 +33,7 @@ PERSONAS = {
     "detective":      detective.run,
     "patrol":         patrol.run,
     "evidence_clerk": evidence_clerk.run,
+    "journalist":     journalist.run,
 }
 
 

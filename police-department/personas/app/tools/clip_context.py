@@ -32,12 +32,48 @@ def _bbox_iou(a: list[float] | None, b: list[float] | None) -> float:
     return (inter / union) if union > 0 else 0.0
 
 
-# Temporal window (seconds) within which a new face detection can be
-# attached to an existing track. Tuned for stride=30 at ~30 fps (≈1 fps
-# sampling); a slow walker stays in roughly the same spot across 1-3
-# samples.
-_TRACK_GAP_SEC = 4.0
-_TRACK_IOU_THRESHOLD = 0.30
+# Track grouping params. We have no face embeddings, only bbox+ts, so
+# this is a coarse heuristic — bias toward FEWER-but-more-confident
+# tracks rather than splitting on every micro-movement. A 75-sec clip
+# of a busy street should produce ~5–15 unique subjects, not 60+.
+#
+#   _TRACK_GAP_SEC    : how long a track can stay "open" without a new
+#                       sighting before a fresh detection becomes a new
+#                       subject. Long enough to span a wave of turn /
+#                       occlusion, short enough that two unrelated
+#                       people in the same area don't merge.
+#   _TRACK_IOU_THRESH : IoU between the new bbox and the track's last
+#                       bbox required to merge. Lower = more permissive
+#                       merging (good when the camera is fixed and
+#                       people stand roughly still). Higher = stricter.
+#   _TRACK_DIST_REL   : fallback if IoU is 0 (boxes don't overlap) but
+#                       are close in normalised pixel space — common
+#                       when a person takes a step between sampled
+#                       frames. Distance is between bbox centers,
+#                       relative to the larger box's diagonal. <0.6 is
+#                       treated as "still the same person".
+#   _TRACK_MIN_SIGHTINGS : a track must accumulate at least this many
+#                       detections to count. 4 drops single-frame
+#                       blips and rare 2-3-frame false positives.
+_TRACK_GAP_SEC = 8.0
+_TRACK_IOU_THRESHOLD = 0.20
+_TRACK_DIST_REL = 0.6
+_TRACK_MIN_SIGHTINGS = 4
+
+
+def _bbox_center_dist_rel(a: list[float] | None, b: list[float] | None) -> float:
+    """Distance between centers / diagonal of the larger box. 0 = same
+    point. ~1 = boxes one diagonal apart."""
+    if not a or not b or len(a) < 4 or len(b) < 4:
+        return 99.0
+    acx, acy = (a[0] + a[2]) / 2.0, (a[1] + a[3]) / 2.0
+    bcx, bcy = (b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0
+    dx, dy = acx - bcx, acy - bcy
+    dist = (dx * dx + dy * dy) ** 0.5
+    aw, ah = a[2] - a[0], a[3] - a[1]
+    bw, bh = b[2] - b[0], b[3] - b[1]
+    diag = max((aw * aw + ah * ah) ** 0.5, (bw * bw + bh * bh) ** 0.5, 1.0)
+    return dist / diag
 
 
 def _summarise_faces(rows: list) -> dict[str, object]:
@@ -63,14 +99,20 @@ def _summarise_faces(rows: list) -> dict[str, object]:
     for _id, ts, bbox, conf in rows:
         # bbox is JSONB → already a list when read with psycopg
         best_track = None
-        best_iou = 0.0
+        best_score = -1.0
         for t in tracks:
             if ts - t["last_ts"] > _TRACK_GAP_SEC:
                 continue
             iou = _bbox_iou(bbox, t["last_bbox"])
-            if iou > best_iou:
-                best_iou, best_track = iou, t
-        if best_track and best_iou >= _TRACK_IOU_THRESHOLD:
+            if iou >= _TRACK_IOU_THRESHOLD:
+                score = iou  # solid overlap — strong merge candidate
+            elif iou == 0 and _bbox_center_dist_rel(bbox, t["last_bbox"]) < _TRACK_DIST_REL:
+                score = 0.05  # close in pixel space; merge weakly
+            else:
+                continue
+            if score > best_score:
+                best_score, best_track = score, t
+        if best_track:
             best_track["last_bbox"] = bbox
             best_track["last_ts"] = ts
             best_track["count"] += 1
@@ -79,8 +121,10 @@ def _summarise_faces(rows: list) -> dict[str, object]:
                 "last_bbox": bbox, "last_ts": ts, "first_ts": ts, "count": 1,
             })
 
-    # Discard one-off blips (likely false positives from a single noisy frame).
-    real_tracks = [t for t in tracks if t["count"] >= 2]
+    # Drop low-sighting tracks — without face embeddings these are almost
+    # always false positives or one-frame YOLO hallucinations. A real
+    # person on a fixed CCTV will appear in many adjacent samples.
+    real_tracks = [t for t in tracks if t["count"] >= _TRACK_MIN_SIGHTINGS]
 
     # Sort by first appearance for stable subject ordering (subject A is
     # the one who shows up first).
