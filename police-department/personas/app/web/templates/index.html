@@ -145,6 +145,22 @@
   .toast { position: fixed; bottom: 18px; right: 18px; background: var(--err); color: white;
            padding: 10px 16px; border-radius: 4px; font-size: 13px; max-width: 360px; }
   .toast.ok { background: var(--ok); }
+  /* Clip video player */
+  .player-wrap { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .player-wrap.hidden { display: none; }
+  .player-wrap video { width: 100%; max-height: 320px; border-radius: 6px; background: #000;
+                       display: block; }
+  .player-meta { font-size: 11px; color: var(--muted); margin-top: 6px;
+                 display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .player-meta .seek-now { font-family: ui-monospace, monospace; }
+  /* Clickable timestamps inside persona answers */
+  .ts-link {
+    display: inline-block; padding: 0 6px; margin: 0 1px;
+    border-radius: 4px; background: rgba(56, 189, 248, 0.16);
+    color: var(--accent); cursor: pointer; font-family: ui-monospace, monospace;
+    font-size: 0.95em; border: 1px solid transparent; user-select: none;
+  }
+  .ts-link:hover { background: rgba(56, 189, 248, 0.30); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -213,6 +229,12 @@
         <option value="patrol">Patrol</option>
         <option value="evidence_clerk">Evidence Clerk</option>
       </select>
+    </div>
+    <div id="player" class="player-wrap hidden">
+      <video id="clip-video" controls preload="metadata"></video>
+      <div class="player-meta">
+        <span>Click a timestamp in any answer to seek &middot; <span class="seek-now" id="seek-now">0.0s</span></span>
+      </div>
     </div>
     <div class="chat-log" id="chat-log">
       <div class="empty">Upload an mp4 or pick a recent clip on the left, then ask any question.</div>
@@ -289,13 +311,41 @@ async function selectClip(clipId) {
   activeClip = clipId;
   $("#active-clip").textContent = clipId.slice(0, 8);
   $("#q").disabled = false; $("#send").disabled = false;
-  // Load chat history
+  // Load video player (presigned S3 URL) and chat history in parallel
+  loadVideo(clipId);
   const r = await fetch(`/api/chat/history/${clipId}`); const d = await r.json();
   renderChatLog(d.messages || []);
   await loadClips();   // refresh selection highlight
   // Poll pipeline status for this clip
   pollPipeline(clipId);
 }
+
+// ── Video player ────────────────────────────────────────────────
+async function loadVideo(clipId) {
+  const player = $("#player"), video = $("#clip-video");
+  try {
+    const r = await fetch(`/api/clip/${clipId}/video-url`);
+    if (!r.ok) { player.classList.add("hidden"); return; }
+    const d = await r.json();
+    video.src = d.url;
+    video.currentTime = 0;
+    player.classList.remove("hidden");
+  } catch (e) {
+    player.classList.add("hidden");
+  }
+}
+
+function seekTo(seconds) {
+  const video = $("#clip-video");
+  if (!video.src) { toast("Pick a clip first to enable the player."); return; }
+  const t = Math.max(0, Number(seconds) || 0);
+  video.currentTime = t;
+  video.play().catch(() => {});
+  $("#seek-now").textContent = t.toFixed(1) + "s";
+  // Scroll the player into view if user is deep in the chat
+  $("#player").scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+window.seekTo = seekTo;  // referenced from inline onclick
 
 // ── Upload ───────────────────────────────────────────────────────
 const drop = $("#drop"), fileInput = $("#file");
@@ -397,7 +447,7 @@ function renderChatLog(messages) {
       claimsHtml += "</ul></div>";
     }
     div.innerHTML = `<div class="who ${m.who}">${whoLabel}</div>` +
-                    `<div class="body">${escapeHtml(m.text)}</div>${claimsHtml}`;
+                    `<div class="body">${linkifyTimestamps(escapeHtml(m.text))}</div>${claimsHtml}`;
     log.appendChild(div);
   }
   log.scrollTop = log.scrollHeight;
@@ -407,6 +457,44 @@ function escapeHtml(s) {
   return (s || "").replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[c]);
+}
+
+// After escapeHtml, turn timestamp tokens into clickable seek-pills.
+// Matches: 12.5s · 1:01 · 00:01:01 · clip:<id>:00:01:01
+// Avoids false positives by REQUIRING the unit suffix (s) or a colon.
+function linkifyTimestamps(safeHtml) {
+  // Order matters: the longest pattern first so we don't double-match
+  // the inner mm:ss part of an hh:mm:ss inside a clip:<id>:hh:mm:ss.
+  // 1. clip:<uuid8>:hh:mm:ss   (e.g. clip:1dd33c6b:00:00:09)
+  safeHtml = safeHtml.replace(
+    /clip:[0-9a-f]{6,8}:(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?/gi,
+    (m, h, mm, ss) => {
+      const t = (+h) * 3600 + (+mm) * 60 + (+ss);
+      return `<span class="ts-link" onclick="seekTo(${t})">${m}</span>`;
+    }
+  );
+  // 2. hh:mm:ss  (only when standalone — preceded by space, paren, comma, or start)
+  safeHtml = safeHtml.replace(
+    /(^|[\s\(,>])(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?(?=[\s\),.<]|$)/g,
+    (m, lead, h, mm, ss) => {
+      const t = (+h) * 3600 + (+mm) * 60 + (+ss);
+      return `${lead}<span class="ts-link" onclick="seekTo(${t})">${h}:${mm}:${ss}</span>`;
+    }
+  );
+  // 3. m:ss  (e.g. 1:01) — must be standalone
+  safeHtml = safeHtml.replace(
+    /(^|[\s\(,>])(\d{1,2}):(\d{2})(?=[\s\),.<]|$)/g,
+    (m, lead, mm, ss) => {
+      const t = (+mm) * 60 + (+ss);
+      return `${lead}<span class="ts-link" onclick="seekTo(${t})">${mm}:${ss}</span>`;
+    }
+  );
+  // 4. NN.NNNs  decimal-second tokens (8.987s, 0.0s, 70.4s)
+  safeHtml = safeHtml.replace(
+    /(\d+(?:\.\d+)?)s\b/g,
+    (m, n) => `<span class="ts-link" onclick="seekTo(${n})">${m}</span>`
+  );
+  return safeHtml;
 }
 
 $("#send").addEventListener("click", sendMessage);
@@ -457,7 +545,7 @@ async function sendMessage() {
       claimsHtml += "</ul></div>";
     }
     reply.innerHTML = `<div class="who ${persona}">${persona}</div>` +
-                      `<div class="body">${escapeHtml(d.prose)}</div>${claimsHtml}`;
+                      `<div class="body">${linkifyTimestamps(escapeHtml(d.prose))}</div>${claimsHtml}`;
     log.appendChild(reply);
     log.scrollTop = log.scrollHeight;
 

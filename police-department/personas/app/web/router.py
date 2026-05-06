@@ -25,7 +25,7 @@ from fastapi.responses import HTMLResponse, Response
 from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 
-from app.tools import chat_history, clip_context, mode, pipeline_status, thumbnail, upload as s3_upload
+from app.tools import chat_history, clip_context, clip_url, mode, pipeline_status, thumbnail, upload as s3_upload
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -101,6 +101,17 @@ def get_clip(clip_id: str) -> dict:
     if not ctx:
         raise HTTPException(404, f"clip {clip_id!r} not found in Aurora")
     return ctx
+
+
+@router.get("/api/clip/{clip_id}/video-url")
+def get_clip_video_url(clip_id: str) -> dict:
+    """Pre-signed S3 GET URL for the clip mp4. Browser plays it directly
+    in a <video> element so the human reviewer can scrub to the
+    timestamps the persona references."""
+    out = clip_url.presign(clip_id)
+    if not out:
+        raise HTTPException(404, f"clip {clip_id!r} not found or has no S3 URI")
+    return out
 
 
 @router.post("/api/upload")
