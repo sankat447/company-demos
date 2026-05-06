@@ -37,7 +37,11 @@ spec:
   - name: shared
   steps:
   - name: structure-and-write
-    image: registry.access.redhat.com/ubi9/python-311:latest
+    # Custom image with psycopg, pydantic, sentence-transformers, boto3,
+    # mlflow already pre-installed. Saves ~2 min of pip install per run
+    # vs the bare python-311 image. Built from
+    # police-department/runner-images/structure-and-write/.
+    image: image-registry.openshift-image-registry.svc:5000/pd-cctv/pd-structure-runner:0.1.0
     env:
     - name: PGHOST
       valueFrom:
@@ -80,9 +84,7 @@ spec:
     script: |
       #!/usr/bin/env bash
       set -euo pipefail
-      pip install --quiet --no-cache-dir \
-        psycopg[binary]==3.2.3 pydantic==2.9.2 sentence-transformers==3.2.1 \
-        boto3==1.35.40 mlflow==2.17.0
+      # Deps pre-installed in pd-structure-runner image; no pip install here.
       python3 - <<'PY'
       import json, os, uuid, sys
       from pathlib import Path
