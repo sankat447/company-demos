@@ -58,6 +58,16 @@ spec:
               name: pd-portkey-key
               key: api_key
               optional: true
+        # Anthropic Messages API key — only used when pd-llm-mode = "claude".
+        # Stored as a Secret in pd-personas (NOT in git). Set via:
+        #   oc -n pd-personas create secret generic pd-anthropic-key \
+        #     --from-literal=api_key="sk-ant-api03-..."
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pd-anthropic-key
+              key: api_key
+              optional: true
         - name: REDIS_HOST
           value: "redis.ai-demo.svc.cluster.local"
         - name: REDIS_PORT

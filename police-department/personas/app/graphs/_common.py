@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from app.schemas import ChatRequest, Claim, PersonaResponse, Provenance
-from app.tools import clip_context, llm_mock, mode, pgvector_query, portkey_llm
+from app.tools import anthropic_llm, clip_context, llm_mock, mode, pgvector_query, portkey_llm
 
 log = logging.getLogger(__name__)
 
@@ -80,8 +80,13 @@ def render_context(
     return "\n\n".join(blocks) if blocks else "(no narrations indexed yet)"
 
 
-def _real_llm_call(persona: str, req: ChatRequest, model: str) -> PersonaResponse:
-    """Hit Portkey (local Llama or Claude) with the persona system prompt."""
+def _real_llm_call(persona: str, req: ChatRequest, model: str, *,
+                   provider: str = "portkey") -> PersonaResponse:
+    """Hit a real LLM (Llama via Portkey, or Anthropic Claude direct) with the
+    persona system prompt. provider routes the call:
+      portkey   -> http://portkey.ai-demo.svc:8787 (used for local-Llama)
+      anthropic -> https://api.anthropic.com/v1/messages (used for claude mode)
+    """
     hits, expansion = hybrid_retrieve(req)
     # When the operator pinned a specific clip, fetch the full context so
     # the prompt sees license plates / face counts alongside the narration.
@@ -92,7 +97,10 @@ def _real_llm_call(persona: str, req: ChatRequest, model: str) -> PersonaRespons
         f"CONTEXT:\n{render_context(hits, expansion, clip_ctx)}\n\n"
         "Respond as JSON: {prose, claims:[{text,confidence,frame_refs}]}"
     )
-    parsed = portkey_llm.chat_json(system, user, temperature=0.2, model=model)
+    if provider == "anthropic":
+        parsed = anthropic_llm.chat_json(system, user, temperature=0.2, model=model)
+    else:
+        parsed = portkey_llm.chat_json(system, user, temperature=0.2, model=model)
     claims = [Claim(**c) for c in parsed.get("claims", []) if isinstance(c, dict)]
     provenance = Provenance(
         clip_ids=list({h["clip_id"] for h in hits}),
@@ -136,9 +144,11 @@ def call_llm_as_persona(persona: str, req: ChatRequest) -> PersonaResponse:
     if m == "mock":
         return _mock_call(persona, req)
     model = _MODELS.get(m, _MODELS["local"])
+    # claude mode → direct Anthropic Messages API; local mode → Portkey (Llama)
+    provider = "anthropic" if m == "claude" else "portkey"
     try:
-        return _real_llm_call(persona, req, model)
+        return _real_llm_call(persona, req, model, provider=provider)
     except Exception as e:
-        log.warning("real LLM call failed (mode=%s, model=%s): %s — falling back to mock",
-                    m, model, e)
+        log.warning("real LLM call failed (mode=%s, model=%s, provider=%s): %s — falling back to mock",
+                    m, model, provider, e)
         return _mock_call(persona, req)
