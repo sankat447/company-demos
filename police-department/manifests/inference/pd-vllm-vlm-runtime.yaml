@@ -52,10 +52,14 @@ spec:
     - "--model=/mnt/models"
     - "--served-model-name={{.Name}}"
     - "--dtype=float16"
-    # 4096 (was 2048) — required for the rich vlm-caption prompt: ~360
-    # text tokens + 8 keyframe placeholders + max_tokens=2048 completion
-    # = >2048. Bumped to 4096 to give 1.7k headroom over the worst case.
-    - "--max-model-len=4096"
+    # 8192 — Qwen2.5-VL image tokens are ~1000-1280 PER FRAME (visual
+    # encoder tokens from the ViT). With limit-mm-per-prompt=4 frames:
+    #   ~360 text tokens + 4 frames × ~1280 = ~5120 visual + max_tokens
+    #   2048 completion ≈ 7500 tokens worst case.
+    # 4096 was still too small (vLLM warned: worst-case multimodal tokens
+    # = 32768). 8192 fits comfortably; A10G 24GB has plenty of KV cache
+    # headroom.
+    - "--max-model-len=8192"
     - "--gpu-memory-utilization=0.85"
     - "--enforce-eager"
     # 4 (was 8) — A10G 24 GB has the model + KV cache + activations;
