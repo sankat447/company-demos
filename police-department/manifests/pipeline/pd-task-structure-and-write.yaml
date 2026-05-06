@@ -222,8 +222,14 @@ spec:
           print(f"[structure] WARN: mlflow log failed: {e}", file=sys.stderr)
       PY
     computeResources:
+      # The affinity-assistant pins this task to the same node as
+      # vlm-caption / whisper-asr / yolo-detect / faces-and-plates. On
+      # the demo's CPU-tight cluster, that node has ~100-300m of
+      # headroom by the time we run; 200m fails to schedule with
+      # ExceededNodeResources. 25m matches the other tasks; the burst
+      # limit lets us still get the CPU we need at runtime.
       requests:
-        cpu: "200m"
+        cpu: "25m"
         memory: "1Gi"
       limits:
         cpu: "2"
