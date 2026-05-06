@@ -32,7 +32,13 @@ spec:
         name: pd-perception
       serviceAccountName: pd-pipeline-sa
       timeouts:
-        pipeline: "20m"
+        # 20m was too tight for real 10-min CCTV clips: whisper-asr is
+        # roughly real-time on CPU, faces-and-plates downloads ~50 MB of
+        # easyocr models on first run, and structure-and-write embeds the
+        # narration with sentence-transformers. 60m gives comfortable
+        # headroom for the synthetic test clips (~3 min) and for real
+        # 10-15 min uploads.
+        pipeline: "60m"
       params:
       - name: clip-s3-uri
         value: $(tt.params.clip-s3-uri)
