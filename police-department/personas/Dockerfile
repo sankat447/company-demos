@@ -11,14 +11,21 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UVICORN_WORKERS=2
 
-# ffmpeg is needed by app/tools/thumbnail.py to extract a JPEG preview from
-# the uploaded clip on demand. ffmpeg-free is in the UBI 9 AppStream repo.
-RUN dnf install -y --setopt=tsflags=nodocs ffmpeg-free && dnf clean all
-
 COPY pyproject.toml ./
 COPY app ./app
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
+
+# ffmpeg is needed by app/tools/thumbnail.py to extract a JPEG preview from
+# uploaded clips. UBI 9 doesn't ship ffmpeg-free (Fedora-only). The
+# imageio-ffmpeg pip wheel bundles a static binary; symlink it into PATH so
+# our `shutil.which("ffmpeg")` call finds it.
+RUN python -c "import imageio_ffmpeg, shutil, os; \
+    src=imageio_ffmpeg.get_ffmpeg_exe(); \
+    os.makedirs('/usr/local/bin', exist_ok=True); \
+    shutil.copy(src, '/usr/local/bin/ffmpeg'); \
+    os.chmod('/usr/local/bin/ffmpeg', 0o755); \
+    print('ffmpeg installed at:', shutil.which('ffmpeg'))"
 
 EXPOSE 8000
 USER 1001
