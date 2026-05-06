@@ -161,6 +161,29 @@
     font-size: 0.95em; border: 1px solid transparent; user-select: none;
   }
   .ts-link:hover { background: rgba(56, 189, 248, 0.30); border-color: var(--accent); }
+  /* Markdown rendering inside persona answers */
+  .md h1, .md h2, .md h3 { margin: 12px 0 6px; color: var(--text); font-weight: 600; }
+  .md h1 { font-size: 16px; }
+  .md h2 { font-size: 14px; color: var(--accent); }
+  .md h3 { font-size: 13px; color: #cbd5e1; }
+  .md p  { margin: 6px 0; }
+  .md ul, .md ol { margin: 6px 0; padding-left: 22px; }
+  .md li { margin: 2px 0; }
+  .md strong { color: var(--text); font-weight: 600; }
+  .md em { color: #cbd5e1; }
+  .md code {
+    font-family: ui-monospace, monospace; font-size: 0.92em;
+    background: rgba(56, 189, 248, 0.10); padding: 1px 5px; border-radius: 3px;
+    color: var(--accent);
+  }
+  .md pre { background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+            padding: 8px 10px; margin: 6px 0; overflow-x: auto; }
+  .md pre code { background: transparent; padding: 0; color: var(--text); }
+  .md table { border-collapse: collapse; margin: 8px 0; font-size: 12.5px;
+              border: 1px solid var(--line); }
+  .md th, .md td { padding: 5px 9px; border: 1px solid var(--line); text-align: left; }
+  .md th { background: var(--panel-2); color: var(--text); font-weight: 600; }
+  .md tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
 </style>
 </head>
 <body>
@@ -446,8 +469,11 @@ function renderChatLog(messages) {
       }
       claimsHtml += "</ul></div>";
     }
+    const bodyHtml = m.who === "user"
+      ? linkifyTimestamps(escapeHtml(m.text))   // user input: leave plain, just linkify times
+      : renderRichText(m.text);                  // persona output: render markdown
     div.innerHTML = `<div class="who ${m.who}">${whoLabel}</div>` +
-                    `<div class="body">${linkifyTimestamps(escapeHtml(m.text))}</div>${claimsHtml}`;
+                    `<div class="body">${bodyHtml}</div>${claimsHtml}`;
     log.appendChild(div);
   }
   log.scrollTop = log.scrollHeight;
@@ -457,6 +483,107 @@ function escapeHtml(s) {
   return (s || "").replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[c]);
+}
+
+// Render Claude's markdown-formatted prose into HTML, then turn
+// timestamps into clickable seek-pills. Self-contained — no CDN
+// dependency. Handles: # / ## / ### headers, **bold**, *italic*,
+// `inline code`, ```fenced code```, - / 1. lists, | a | b | tables,
+// blank-line paragraphs.
+function renderRichText(raw) {
+  const lines = (raw || "").replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let i = 0;
+
+  // Inline transforms applied AFTER block structure is decided so
+  // we don't accidentally bold a `**` inside a code fence.
+  const inline = (s) => {
+    s = escapeHtml(s);
+    // inline code first so its contents aren't mangled
+    s = s.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+    s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/(^|\W)\*([^*\n]+)\*(?=\W|$)/g, "$1<em>$2</em>");
+    s = linkifyTimestamps(s);
+    return s;
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block
+    if (/^```/.test(line)) {
+      const langMatch = line.match(/^```(\w+)?/);
+      i++;
+      const code = [];
+      while (i < lines.length && !/^```/.test(lines[i])) {
+        code.push(lines[i]); i++;
+      }
+      i++;  // skip closing fence
+      out.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    // Headers
+    const h = line.match(/^(#{1,3})\s+(.*)$/);
+    if (h) {
+      out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`);
+      i++;
+      continue;
+    }
+
+    // Table: line starts with | and the next line is a separator |---|---|
+    if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|?\s*-{3,}/.test(lines[i + 1])) {
+      const splitRow = (r) => r.replace(/^\s*\|/, "").replace(/\|\s*$/, "")
+                              .split("|").map(c => c.trim());
+      const header = splitRow(line);
+      i += 2;  // skip header + separator
+      const rows = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i])) {
+        rows.push(splitRow(lines[i])); i++;
+      }
+      let html = "<table><thead><tr>" +
+                 header.map(c => `<th>${inline(c)}</th>`).join("") +
+                 "</tr></thead><tbody>";
+      for (const r of rows) {
+        html += "<tr>" + r.map(c => `<td>${inline(c)}</td>`).join("") + "</tr>";
+      }
+      html += "</tbody></table>";
+      out.push(html);
+      continue;
+    }
+
+    // Lists (consecutive lines starting with - or *)
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*]\s+/, "")); i++;
+      }
+      out.push("<ul>" + items.map(it => `<li>${inline(it)}</li>`).join("") + "</ul>");
+      continue;
+    }
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+\.\s+/, "")); i++;
+      }
+      out.push("<ol>" + items.map(it => `<li>${inline(it)}</li>`).join("") + "</ol>");
+      continue;
+    }
+
+    // Blank line — paragraph break
+    if (line.trim() === "") { i++; continue; }
+
+    // Paragraph: collect consecutive non-blank, non-block lines
+    const para = [line];
+    i++;
+    while (i < lines.length && lines[i].trim() !== "" &&
+           !/^(#{1,3}\s|```|\s*[-*]\s|\s*\d+\.\s|\s*\|)/.test(lines[i])) {
+      para.push(lines[i]); i++;
+    }
+    out.push(`<p>${inline(para.join(" "))}</p>`);
+  }
+
+  return `<div class="md">${out.join("")}</div>`;
 }
 
 // After escapeHtml, turn timestamp tokens into clickable seek-pills.
@@ -545,7 +672,7 @@ async function sendMessage() {
       claimsHtml += "</ul></div>";
     }
     reply.innerHTML = `<div class="who ${persona}">${persona}</div>` +
-                      `<div class="body">${linkifyTimestamps(escapeHtml(d.prose))}</div>${claimsHtml}`;
+                      `<div class="body">${renderRichText(d.prose)}</div>${claimsHtml}`;
     log.appendChild(reply);
     log.scrollTop = log.scrollHeight;
 
