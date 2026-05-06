@@ -71,15 +71,26 @@ spec:
                          "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
       payload = {
           "model": os.environ["VLM_MODEL"],
-          "max_tokens": 512,
+          # 2048 gives the model room for a detailed multi-paragraph
+          # narrative + populated entities/events. 512 was truncating.
+          "max_tokens": 2048,
           "temperature": 0.2,
           "messages": [
               {"role": "system",
-               "content": "You are a CCTV analyst. Describe what is shown in the keyframes from this clip in chronological order. Be specific about people, vehicles, actions, and timing. Return JSON with fields: prose (string), entities (list of {kind,label}), events (list of {action,t_start_sec,t_end_sec,confidence})."},
+               "content": (
+                   "You are a senior CCTV analyst writing a forensic narration of a clip. "
+                   "You MUST return a JSON object with EXACTLY these fields: "
+                   "prose (string), entities (list of {kind,label}), events (list of {action,t_start_sec,t_end_sec,confidence}). "
+                   "REQUIREMENTS:\n"
+                   "1. `prose` MUST be a detailed paragraph of 4-8 sentences describing every visible person, vehicle, object, action, and environmental detail across the keyframes IN CHRONOLOGICAL ORDER. Mention timing using phrases like 'in the first frame', 'around 0:05', 'as the clip ends'. NEVER return a one-line summary.\n"
+                   "2. `entities` MUST list every distinct subject you see — kind ∈ {person, vehicle, object, place}; label is a short descriptor (e.g. 'grey sedan', 'pedestrian in red jacket', 'overhead light'). Aim for 3-10 entries.\n"
+                   "3. `events` MUST list 2-5 actions with t_start_sec/t_end_sec estimated from frame index (frame_001 = 0s, each subsequent frame = ~1-2s apart). action is a short verb phrase. confidence is 0.0-1.0.\n"
+                   "Return ONLY the JSON object. No prose outside JSON."
+               )},
               {"role": "user",
                "content": [
                    {"type": "text",
-                    "text": f"Clip {clip_id}: {len(images)} keyframes follow."},
+                    "text": f"Clip {clip_id}. {len(images)} keyframes follow in chronological order. Produce the JSON narration per the system instructions. Be detailed and specific."},
                    *images,
                ]}
           ]
