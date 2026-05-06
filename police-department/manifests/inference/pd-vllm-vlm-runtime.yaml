@@ -52,10 +52,16 @@ spec:
     - "--model=/mnt/models"
     - "--served-model-name={{.Name}}"
     - "--dtype=float16"
-    - "--max-model-len=2048"
+    # 4096 (was 2048) — required for the rich vlm-caption prompt: ~360
+    # text tokens + 8 keyframe placeholders + max_tokens=2048 completion
+    # = >2048. Bumped to 4096 to give 1.7k headroom over the worst case.
+    - "--max-model-len=4096"
     - "--gpu-memory-utilization=0.85"
     - "--enforce-eager"
-    - "--limit-mm-per-prompt={\"image\":8}"
+    # 4 (was 8) — A10G 24 GB has the model + KV cache + activations;
+    # cap multi-modal inputs to keep image-token allocation modest.
+    - "--limit-mm-per-prompt={\"image\":4}"
+    - "--max-num-seqs=4"
     - "--trust-remote-code"
     ports:
     - containerPort: 8080
