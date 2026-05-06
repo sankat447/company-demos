@@ -46,3 +46,18 @@ spec:
       namespace: pd-personas
       jsonPointers:
         - /data
+    # The pd-llm-mode ConfigMaps (one per ns) are flipped at runtime by the
+    # chat UI's mode dropdown and by demo operators. Git holds the safe
+    # default "mock"; selfHeal must not revert a /api/mode patch.
+    - group: ""
+      kind: ConfigMap
+      name: pd-llm-mode
+      namespace: pd-cctv
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: ConfigMap
+      name: pd-llm-mode
+      namespace: pd-personas
+      jsonPointers:
+        - /data
