@@ -44,6 +44,9 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ---
 # pd-cctv: read PipelineRuns + TaskRuns (for the chat UI's progress panel)
+# and patch the S3 watcher's cursor ConfigMap so UI uploads register their
+# key as "already seen" — without this, the watcher's next minute tick
+# fires a duplicate PipelineRun for the same clip.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -58,6 +61,10 @@ rules:
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["pd-s3-watcher-cursor"]
+  verbs: ["get", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

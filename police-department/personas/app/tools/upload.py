@@ -4,6 +4,11 @@ Avoids the 60s S3-watcher polling lag for UI uploads. The user drops a
 file, the persona backend streams it to S3 and POSTs the trigger event
 in one request, and the UI starts polling pipeline status immediately.
 
+Dedupe: after firing the EventListener, this also patches the S3
+watcher's cursor ConfigMap to add the just-uploaded key to seen_keys,
+so the watcher's next minute tick won't fire a duplicate PipelineRun
+for the same clip.
+
 Credentials: reads from the `pd-s3-creds` Secret env vars (same Secret
 the watcher CronJob and Tekton tasks use). For SSO/STS sessions, the
 session_token is honoured. For long-lived IAM users, just access_key_id
@@ -20,6 +25,8 @@ from pathlib import Path
 
 import boto3
 import httpx
+from kubernetes import client as k8s_client
+from kubernetes import config as k8s_config
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +37,37 @@ _EL_URL = os.environ.get(
     "PD_EL_URL",
     "http://el-pd-perception.pd-cctv.svc.cluster.local:8080/",
 )
+_WATCHER_NS = os.environ.get("PD_PIPELINE_NAMESPACE", "pd-cctv")
+_WATCHER_CM = "pd-s3-watcher-cursor"
+
+
+def _claim_key_in_watcher_cursor(key: str) -> None:
+    """Best-effort: append `key` to the watcher's seen_keys so it skips on next tick.
+
+    Read-modify-write race with the watcher itself is possible but the
+    window is sub-second; worst case is one duplicate run, which is what
+    we already get without this. Failures here MUST NOT fail the upload.
+    """
+    try:
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            k8s_config.load_kube_config()
+        v1 = k8s_client.CoreV1Api()
+        cm = v1.read_namespaced_config_map(_WATCHER_CM, _WATCHER_NS)
+        existing = set(((cm.data or {}).get("seen_keys") or "").splitlines())
+        if key in existing:
+            return  # nothing to do
+        existing.add(key)
+        v1.patch_namespaced_config_map(
+            name=_WATCHER_CM,
+            namespace=_WATCHER_NS,
+            body={"data": {"seen_keys": "\n".join(sorted(existing))}},
+        )
+        log.info("watcher cursor: added %s to seen_keys", key)
+    except Exception as e:
+        log.warning("watcher cursor patch failed (%s) — duplicate run possible "
+                    "within 60s; harmless, ON CONFLICT (sha256) prevents data dupes", e)
 
 
 def _s3():
@@ -72,6 +110,11 @@ def upload_clip(local_path: str | Path, *, uploaded_by: str = "ui") -> dict:
         resp = cli.post(_EL_URL, json=payload, headers=headers)
         resp.raise_for_status()
         body = resp.json() if "json" in resp.headers.get("content-type", "") else {}
+
+    # Dedup: claim the S3 key in the watcher's cursor so its next minute
+    # tick doesn't fire a duplicate PipelineRun for the same clip.
+    _claim_key_in_watcher_cursor(key)
+
     return {
         "clip_id": clip_id,
         "s3_uri": s3_uri,
