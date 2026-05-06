@@ -127,14 +127,18 @@ spec:
       embedder = SentenceTransformer("BAAI/bge-small-en-v1.5")
       embedding = embedder.encode(narration.prose, normalize_embeddings=True).tolist()
 
-      # 3. Read transcript + detections (best-effort)
+      # 3. Read transcript + detections + faces + plates (best-effort)
       transcript = json.loads((WORK / "transcript.json").read_text()) if (WORK / "transcript.json").exists() else {}
       detections = json.loads((WORK / "detections.json").read_text()) if (WORK / "detections.json").exists() else {}
+      faces      = json.loads((WORK / "faces.json").read_text())      if (WORK / "faces.json").exists()      else {"faces": []}
+      plates     = json.loads((WORK / "plates.json").read_text())     if (WORK / "plates.json").exists()     else {"plates": []}
 
       payload = {
           "narration": narration.model_dump(),
           "transcript": transcript,
           "detections": detections,
+          "faces":  faces,
+          "plates": plates,
       }
 
       # 4. Write to Aurora pd_cctv (single transaction)
@@ -174,8 +178,27 @@ spec:
                       "make_interval(secs => COALESCE(%s, 0)), "
                       "%s, %s)",
                       (clip_id, ev.t_start_sec, ev.t_end_sec, ev.action, ev.confidence))
+              # Plates: bulk-insert; the persona service aggregates per text
+              # at chat time so duplicates across frames are fine.
+              for p in (plates.get("plates") or []):
+                  cur.execute(
+                      "INSERT INTO pd_cctv.plates "
+                      "(clip_id, frame_idx, ts_sec, bbox, text, confidence) "
+                      "VALUES (%s, %s, %s, %s::jsonb, %s, %s)",
+                      (clip_id, p.get("frame_idx"), p.get("ts_sec"),
+                       json.dumps(p.get("bbox")), p.get("text"), p.get("confidence")))
+              for fc in (faces.get("faces") or []):
+                  cur.execute(
+                      "INSERT INTO pd_cctv.faces "
+                      "(clip_id, frame_idx, ts_sec, bbox, confidence, source) "
+                      "VALUES (%s, %s, %s, %s::jsonb, %s, %s)",
+                      (clip_id, fc.get("frame_idx"), fc.get("ts_sec"),
+                       json.dumps(fc.get("bbox")), fc.get("confidence"),
+                       fc.get("source")))
           conn.commit()
-      print(f"[structure] wrote pd_cctv rows for clip {CLIP_ID}")
+      print(f"[structure] wrote pd_cctv rows for clip {CLIP_ID}: "
+            f"plates={len(plates.get('plates') or [])} "
+            f"faces={len(faces.get('faces') or [])}")
 
       # 5. Stage processed bundle to S3
       bundle = WORK / "bundle.json"

@@ -41,11 +41,33 @@ def _format_events(events: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _format_plates(plates: list[dict[str, Any]]) -> str:
+    if not plates:
+        return "no license-plate readings on file"
+    return "\n".join(
+        f"  - {p['text']} ({p.get('sightings', 1)}× between "
+        f"{p.get('first_ts', 0):.1f}s–{p.get('last_ts', 0):.1f}s, "
+        f"OCR conf {p.get('confidence', 0):.2f})"
+        for p in plates[:6]
+    )
+
+
+def _format_faces(faces: dict[str, Any]) -> str:
+    n = (faces or {}).get("count", 0)
+    if not n:
+        return "no faces detected"
+    return (f"{n} face detection{'s' if n != 1 else ''} between "
+            f"{(faces.get('first_seen_sec') or 0):.1f}s and "
+            f"{(faces.get('last_seen_sec') or 0):.1f}s")
+
+
 def _detective(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
     clip = ctx.get("clip_id_short", "—")
     prose = ctx.get("prose") or "no narration on file"
     entities = ctx.get("entities", [])
     events = ctx.get("events", [])
+    plates = ctx.get("plates", [])
+    faces = ctx.get("faces", {}) or {}
     transcript_segs = ctx.get("transcript_segments", [])
 
     body = (
@@ -53,23 +75,37 @@ def _detective(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
         f"**Operator question:** {req.q}\n\n"
         f"**Observed (from VLM caption):** {prose}\n\n"
         f"**Catalogued objects:** {_format_entities(entities)}\n\n"
+        f"**License-plate readings:**\n{_format_plates(plates)}\n\n"
+        f"**Faces on camera:** {_format_faces(faces)}\n\n"
         f"**Temporal events:**\n{_format_events(events)}\n\n"
     )
     if transcript_segs:
         snippet = " ".join(s.get("text", "").strip() for s in transcript_segs[:3])
         body += f"**Audio (transcribed):** \"{snippet[:240]}…\"\n\n"
+
+    plate_phrase = (
+        f"plate {plates[0]['text']} (OCR conf {plates[0].get('confidence', 0):.2f})"
+        if plates else "no plates extractable from frame quality"
+    )
     body += (
-        "**Inference:** Based on the catalogued entities and the temporal "
-        "ordering of events, this clip is *consistent with* a routine "
-        "street-level encounter. No facial-recognition or licence-plate "
-        "extraction has been performed (out of scope for this pipeline). "
-        "Recommend cross-referencing the time window against the dispatch "
-        "log and pulling adjacent CCTV nodes (±60s, ±200m).\n\n"
+        f"**Inference:** Catalogued entities, OCR pass and face detector are "
+        f"*consistent with* a routine street-level encounter; "
+        f"{plate_phrase}. "
+        "Recommend cross-referencing the plate against DVLA/state registry "
+        "and pulling adjacent CCTV nodes (±60s, ±200m) for facial-recognition "
+        "follow-up on the captured face crops.\n\n"
         "*(Mock response — Detective persona, generated from real Aurora rows. "
         "Replace with Llama-70B by switching mode to `local` or `claude`.)*"
     )
 
     claims: list[dict[str, Any]] = []
+    for p in plates[:2]:
+        claims.append({
+            "text": f"License plate {p['text']} observed {p.get('sightings', 1)}× "
+                    f"in clip {clip}",
+            "confidence": float(p.get("confidence", 0.7)),
+            "frame_refs": [f"clip:{clip}:{p.get('first_ts', 0):.1f}s"],
+        })
     for ev in events[:3]:
         claims.append({
             "text": f"{ev.get('action', 'event')} observed between "
@@ -84,15 +120,23 @@ def _patrol(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
     clip = ctx.get("clip_id_short", "—")
     entities = ctx.get("entities", [])
     events = ctx.get("events", [])
+    plates = ctx.get("plates", [])
+    faces = ctx.get("faces", {}) or {}
 
     bullets: list[str] = []
-    # Vehicle BOLOs from entities
+    # Plate BOLOs first — these are the most operationally actionable.
+    for p in plates[:3]:
+        bullets.append(
+            f"BOLO plate {p['text']} — sighted {p.get('sightings', 1)}× in clip "
+            f"{clip} between {p.get('first_ts', 0):.1f}s and "
+            f"{p.get('last_ts', 0):.1f}s (OCR conf {p.get('confidence', 0):.2f})"
+        )
+    # Vehicle BOLOs from entities (if no plate, link to vehicle entry)
     for e in entities:
         if e.get("kind") == "vehicle":
-            bullets.append(
-                f"BOLO vehicle: {e.get('label', '(unspecified)')} — last seen "
-                f"in clip {clip}. No plate captured."
-            )
+            label = e.get("label", "(unspecified)")
+            plate_hint = f", plate {plates[0]['text']}" if plates else ", no plate captured"
+            bullets.append(f"BOLO vehicle: {label}{plate_hint} — last seen in clip {clip}")
     # Person BOLOs
     for e in entities:
         if e.get("kind") == "person":
@@ -100,8 +144,14 @@ def _patrol(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
                 f"BOLO person: {e.get('label', '(unspecified)')} — direction-of-"
                 f"travel unknown; no clothing detail captured."
             )
+    if faces.get("count"):
+        bullets.append(
+            f"{faces['count']} face crop{'s' if faces['count'] != 1 else ''} "
+            f"captured ({(faces.get('first_seen_sec') or 0):.1f}s–"
+            f"{(faces.get('last_seen_sec') or 0):.1f}s); recommend FR cross-check"
+        )
     # Action follow-ups
-    for ev in events[:3]:
+    for ev in events[:2]:
         bullets.append(
             f"Action @ {ev.get('t_start_sec', '?')}s: {ev.get('action', '?')} "
             f"(confidence {float(ev.get('confidence', 0)):.2f})"
@@ -134,6 +184,15 @@ def _evidence_clerk(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
     uploaded_by = ctx.get("uploaded_by", "(unknown)")
     uploaded_at = ctx.get("uploaded_at", "(unknown)")
     custody_count = ctx.get("custody_log_count", 0)
+    plates = ctx.get("plates", [])
+    faces = ctx.get("faces", {}) or {}
+
+    plate_lines = "\n".join(
+        f"  - `{p['text']}` — {p.get('sightings', 1)} sighting"
+        f"{'s' if p.get('sightings', 1) != 1 else ''}, "
+        f"conf max {p.get('confidence', 0):.2f}"
+        for p in plates[:8]
+    ) or "  (none on file)"
 
     prose = (
         f"**Evidence packet — clip {clip}**\n\n"
@@ -141,6 +200,8 @@ def _evidence_clerk(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
         f"the police-department CCTV pipeline and is available for "
         f"subpoena. The chain-of-custody log records {custody_count} "
         f"events for this clip from ingest through narration write-back.\n\n"
+        f"**Plate readings on file:**\n{plate_lines}\n\n"
+        f"**Face detections on file:** {faces.get('count', 0)}\n\n"
         f"Operator question: \"{req.q}\"\n\n"
         "*(Mock response — Evidence Clerk persona)*"
     )

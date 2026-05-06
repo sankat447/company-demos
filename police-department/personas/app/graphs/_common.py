@@ -43,12 +43,35 @@ def hybrid_retrieve(req: ChatRequest) -> tuple[list[dict[str, Any]], dict[str, A
     return hits, expansion
 
 
-def render_context(hits: list[dict[str, Any]], expansion: dict[str, Any] | None) -> str:
+def render_context(
+    hits: list[dict[str, Any]],
+    expansion: dict[str, Any] | None,
+    clip_ctx: dict[str, Any] | None = None,
+) -> str:
     blocks = []
     for i, h in enumerate(hits, 1):
         blocks.append(
             f"[narration #{i}, clip={h['clip_id'][:8]}, score={h['score']:.3f}]\n{h['prose']}"
         )
+    if clip_ctx:
+        # Surface the most actionable per-clip evidence the perception
+        # pipeline produced — license-plate readings and face detections.
+        plates = clip_ctx.get("plates") or []
+        faces = clip_ctx.get("faces") or {}
+        if plates:
+            lines = [
+                f"  - {p['text']} ({p['sightings']}× between "
+                f"{p.get('first_ts', 0):.1f}s and {p.get('last_ts', 0):.1f}s, "
+                f"conf {p.get('confidence', 0):.2f})"
+                for p in plates
+            ]
+            blocks.append("[license-plate OCR readings]\n" + "\n".join(lines))
+        if faces.get("count"):
+            blocks.append(
+                f"[face detections] count={faces['count']} "
+                f"first_seen={faces.get('first_seen_sec')}s "
+                f"last_seen={faces.get('last_seen_sec')}s"
+            )
     if expansion:
         blocks.append(
             "[knowledge-graph expansion]\n"
@@ -60,10 +83,13 @@ def render_context(hits: list[dict[str, Any]], expansion: dict[str, Any] | None)
 def _real_llm_call(persona: str, req: ChatRequest, model: str) -> PersonaResponse:
     """Hit Portkey (local Llama or Claude) with the persona system prompt."""
     hits, expansion = hybrid_retrieve(req)
+    # When the operator pinned a specific clip, fetch the full context so
+    # the prompt sees license plates / face counts alongside the narration.
+    clip_ctx = clip_context.load(req.clip_id) if req.clip_id else None
     system = load_prompt(persona)
     user = (
         f"OPERATOR QUESTION:\n{req.q}\n\n"
-        f"CONTEXT:\n{render_context(hits, expansion)}\n\n"
+        f"CONTEXT:\n{render_context(hits, expansion, clip_ctx)}\n\n"
         "Respond as JSON: {prose, claims:[{text,confidence,frame_refs}]}"
     )
     parsed = portkey_llm.chat_json(system, user, temperature=0.2, model=model)

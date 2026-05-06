@@ -60,14 +60,15 @@ spec:
           set -euo pipefail
           echo "[pd-aurora-init] applying pd_cctv schema to ${PGHOST}/${PGDATABASE}..."
           for f in /sql/01_schema.sql /sql/02_tables.sql /sql/03_indexes.sql \
-                   /sql/04_triggers_custody.sql /sql/05_views.sql /sql/06_seed.sql; do
+                   /sql/04_triggers_custody.sql /sql/05_views.sql /sql/06_seed.sql \
+                   /sql/07_faces_plates.sql; do
             echo "[pd-aurora-init] >> $f"
             psql --single-transaction --set ON_ERROR_STOP=on -f "$f"
           done
           echo "[pd-aurora-init] verifying tables..."
           psql -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='pd_cctv';" \
             | tee /tmp/table_count.txt
-          test "$(cat /tmp/table_count.txt)" -ge 6
+          test "$(cat /tmp/table_count.txt)" -ge 8
           echo "[pd-aurora-init] done."
         volumeMounts:
         - name: sql

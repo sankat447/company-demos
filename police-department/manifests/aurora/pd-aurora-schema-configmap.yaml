@@ -163,3 +163,46 @@ data:
       'pd-aurora-init', 'sentinel', 0
     )
     ON CONFLICT (sha256) DO NOTHING;
+
+  07_faces_plates.sql: |
+    -- Companion tables to detections.json: per-frame faces + license-plate
+    -- OCR results from pd-task-faces-and-plates. Schema is intentionally
+    -- thin — we keep the bbox + raw OCR text and let the persona service
+    -- aggregate ("plate XYZ-1234 seen in 4 frames between 00:12 and 00:14").
+    CREATE TABLE IF NOT EXISTS pd_cctv.plates (
+      id            BIGSERIAL PRIMARY KEY,
+      clip_id       UUID REFERENCES pd_cctv.clips(clip_id) ON DELETE CASCADE,
+      frame_idx     INT,
+      ts_sec        NUMERIC(8,3),
+      bbox          JSONB,
+      text          TEXT NOT NULL,
+      confidence    NUMERIC(4,3)
+    );
+    CREATE TABLE IF NOT EXISTS pd_cctv.faces (
+      id            BIGSERIAL PRIMARY KEY,
+      clip_id       UUID REFERENCES pd_cctv.clips(clip_id) ON DELETE CASCADE,
+      frame_idx     INT,
+      ts_sec        NUMERIC(8,3),
+      bbox          JSONB,
+      confidence    NUMERIC(4,3),
+      source        TEXT
+    );
+    CREATE INDEX IF NOT EXISTS plates_clip_id_idx     ON pd_cctv.plates(clip_id);
+    CREATE INDEX IF NOT EXISTS plates_text_idx        ON pd_cctv.plates(text);
+    CREATE INDEX IF NOT EXISTS faces_clip_id_idx      ON pd_cctv.faces(clip_id);
+
+    -- Append to v_clip_summary so /api/clips can show plate / face counts
+    -- without an extra query.
+    CREATE OR REPLACE VIEW pd_cctv.v_clip_summary AS
+    SELECT c.clip_id, c.s3_uri, c.uploaded_by, c.uploaded_at,
+           c.duration_sec, c.source_label,
+           COUNT(DISTINCT n.narration_id) AS narration_count,
+           COUNT(DISTINCT e.event_id)     AS event_count,
+           COUNT(DISTINCT p.id)           AS plate_count,
+           COUNT(DISTINCT f.id)           AS face_count
+    FROM pd_cctv.clips c
+    LEFT JOIN pd_cctv.narrations n ON n.clip_id = c.clip_id
+    LEFT JOIN pd_cctv.events     e ON e.clip_id = c.clip_id
+    LEFT JOIN pd_cctv.plates     p ON p.clip_id = c.clip_id
+    LEFT JOIN pd_cctv.faces      f ON f.clip_id = c.clip_id
+    GROUP BY c.clip_id;

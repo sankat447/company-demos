@@ -1,13 +1,14 @@
 # =============================================================================
-#  pd-perception Pipeline — wires the 5 tasks
+#  pd-perception Pipeline — wires the 6 tasks
 #
 #    pull-clip
-#       ├── vlm-caption ────┐
-#       ├── whisper-asr ────┼── structure-and-write
-#       └── yolo-detect ────┘
+#       ├── vlm-caption ──────────┐
+#       ├── whisper-asr ──────────┤
+#       ├── yolo-detect ──────────┼── structure-and-write
+#       └── faces-and-plates ─────┘
 #
-#  vlm-caption / whisper-asr / yolo-detect all start after pull-clip and run
-#  in parallel. structure-and-write joins them.
+#  vlm-caption / whisper-asr / yolo-detect / faces-and-plates all start after
+#  pull-clip and run in parallel. structure-and-write joins them.
 # =============================================================================
 ---
 apiVersion: tekton.dev/v1
@@ -77,10 +78,21 @@ spec:
     - name: clip-id
       value: $(params.clip-id)
 
+  - name: faces-and-plates
+    taskRef:
+      name: pd-task-faces-and-plates
+    runAfter: [pull-clip]
+    workspaces:
+    - name: shared
+      workspace: shared
+    params:
+    - name: clip-id
+      value: $(params.clip-id)
+
   - name: structure-and-write
     taskRef:
       name: pd-task-structure-and-write
-    runAfter: [vlm-caption, whisper-asr, yolo-detect]
+    runAfter: [vlm-caption, whisper-asr, yolo-detect, faces-and-plates]
     workspaces:
     - name: shared
       workspace: shared

@@ -13,6 +13,8 @@ Hard rules:
 - NEVER filter clips because they "don't seem relevant". The clerk lists everything in scope.
 - NEVER modify the manifest to omit any custody-log row.
 - All `claims[].confidence` are 1.0 — you are quoting database state, not inferring.
+- If CONTEXT contains a `[license-plate OCR readings]` block, append a "Plate readings on file" subsection to `prose`: list each distinct plate text with its sighting count, exactly as the database has it. No interpretation.
+- If CONTEXT contains a `[face detections]` block, append "Face detections on file: N (between Xs and Ys)" to `prose`. Numbers only.
 - If CONTEXT contains no clips, return `prose="No evidence on file for this query."` and an empty `claims`.
 
 Output format (JSON only):
