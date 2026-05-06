@@ -44,6 +44,13 @@ metadata:
     sidecar.istio.io/inject: "true"
     sidecar.istio.io/rewriteAppHTTPProbers: "true"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    # Aggressive Knative GC: keep at most 1 inactive revision around. Without
+    # this, ProgressDeadlineExceeded/Failed revisions accumulate and the
+    # next IS update creates a new one that fights orphaned pods for the
+    # GPU resource. Anything older than 30s gets pruned. (Default is to
+    # keep 5+ inactive revisions for ~24h.)
+    serving.knative.dev/rollout-duration: "0"
+    serving.kserve.io/no-mesh-grace-period: "0s"
 spec:
   predictor:
     # KServe storage-initializer reads AWS S3 credentials from the
