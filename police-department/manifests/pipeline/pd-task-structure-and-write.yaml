@@ -125,13 +125,29 @@ spec:
       narration = Narration(**parsed) if "prose" in parsed else Narration(prose=str(parsed))
 
       # 2. Embed the prose
-      # Cache the BGE-small model (~133 MB) on the workspace PVC so we don't
-      # re-download from HuggingFace on every PipelineRun. RWX EFS share
-      # means concurrent runs can read the same cache.
-      hf_cache = "$(workspaces.shared.path)/.cache/hf"
-      os.makedirs(hf_cache, exist_ok=True)
-      print(f"[structure] loading BGE-small (cache={hf_cache})...")
-      embedder = SentenceTransformer("BAAI/bge-small-en-v1.5", cache_folder=hf_cache)
+      # We bundle BGE-small in our own S3 bucket (~382 MB) and cache it on
+      # the workspace PVC. The HuggingFace direct download was unreliable
+      # (CDN throttle/idle disconnect mid-pull). Boto3 with our pd-s3-creds
+      # has proven reliable for the demo's other model fetches.
+      bge_local = "$(workspaces.shared.path)/.cache/models/bge-small-en-v1.5"
+      bge_marker = os.path.join(bge_local, "model.safetensors")
+      if not os.path.isfile(bge_marker):
+          print(f"[structure] fetching BGE-small from s3 to {bge_local}...")
+          os.makedirs(bge_local, exist_ok=True)
+          import boto3
+          s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+          paginator = s3.get_paginator("list_objects_v2")
+          prefix = "models/police-department/bge-small-en-v1.5/"
+          for page in paginator.paginate(Bucket="ai-demo-data-lake", Prefix=prefix):
+              for obj in page.get("Contents", []):
+                  rel = obj["Key"][len(prefix):]
+                  if not rel: continue
+                  dst = os.path.join(bge_local, rel)
+                  os.makedirs(os.path.dirname(dst), exist_ok=True)
+                  s3.download_file("ai-demo-data-lake", obj["Key"], dst)
+          print(f"[structure] BGE-small cached: {sum(1 for _ in os.scandir(bge_local))} entries")
+      print(f"[structure] loading BGE-small from {bge_local}...")
+      embedder = SentenceTransformer(bge_local)
       embedding = embedder.encode(narration.prose, normalize_embeddings=True).tolist()
 
       # 3. Read transcript + detections + faces + plates (best-effort)
