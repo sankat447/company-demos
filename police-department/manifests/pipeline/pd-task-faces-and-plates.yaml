@@ -55,17 +55,24 @@ spec:
         SKIP_OCR=1
       }
 
-      # Pull yolov8n-face.pt — the ultralytics image only ships the
-      # generic yolov8n.pt. Without this we fall back to a person-bbox
-      # top-1/3 heuristic that misses any face not attached to a fully
-      # visible body. ~6 MB, cached after first run if the workspace PVC
-      # is preserved.
+      # Pull yolov8n-face.pt — the ultralytics image only ships generic
+      # yolov8n.pt. Without this we fall back to a person-bbox top-1/3
+      # heuristic that misses standalone faces. Try a few mirrors; if all
+      # fail the task still runs in heuristic mode.
       if [ ! -f yolov8n-face.pt ]; then
-        echo "[faces-plates] downloading yolov8n-face.pt..."
-        curl -fsSL -o yolov8n-face.pt \
-          "https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8n-face.pt" || {
-          echo "[faces-plates] yolov8n-face.pt download failed — falling back to heuristic"
-        }
+        echo "[faces-plates] fetching yolov8n-face.pt..."
+        for url in \
+          "https://github.com/derronqi/yolov8-face/raw/main/weights/yolov8n-face.pt" \
+          "https://huggingface.co/arnabdhar/YOLOv8-nano-aadhaar-card/resolve/main/yolov8n.pt"; do
+          if curl -fsSL -o yolov8n-face.pt "$url" 2>/dev/null && [ -s yolov8n-face.pt ]; then
+            echo "[faces-plates] downloaded from $url ($(stat -c%s yolov8n-face.pt) bytes)"
+            break
+          fi
+          rm -f yolov8n-face.pt
+        done
+        if [ ! -s yolov8n-face.pt ]; then
+          echo "[faces-plates] no face model available — heuristic mode"
+        fi
       fi
 
       python3 - <<'PY'
@@ -126,8 +133,8 @@ spec:
                       h = y2 - y1
                       box = [x1, y1, x2, y1 + h / 3.0]
                   faces.append({
-                      "frame_idx": idx, "ts_sec": ts,
-                      "bbox": [round(v, 1) for v in box],
+                      "frame_idx": int(idx), "ts_sec": float(ts),
+                      "bbox": [round(float(v), 1) for v in box],
                       "confidence": round(float(conf), 3),
                       "source": face_mode,
                   })
@@ -156,22 +163,25 @@ spec:
                       if len(norm) < 4 or len(norm) > 10:
                           continue
                       plates.append({
-                          "frame_idx": idx, "ts_sec": ts,
-                          "bbox": [round(x1, 1), round(y1, 1), round(x2, 1), round(y2, 1)],
-                          "text": norm,
+                          "frame_idx": int(idx), "ts_sec": float(ts),
+                          "bbox": [round(float(x1), 1), round(float(y1), 1),
+                                   round(float(x2), 1), round(float(y2), 1)],
+                          "text": str(norm),
                           "confidence": round(float(conf), 3),
                       })
               processed += 1
           idx += 1
       cap.release()
 
+      # Coerce all numeric scalars to native Python — easyocr / cv2.cap.get
+      # return numpy types (int32, float64) that json.dump rejects.
       with open("faces.json", "w") as f:
-          json.dump({"frames_total": idx, "stride": stride,
-                     "fps": fps, "face_mode": face_mode,
+          json.dump({"frames_total": int(idx), "stride": int(stride),
+                     "fps": float(fps), "face_mode": face_mode,
                      "faces": faces}, f)
       with open("plates.json", "w") as f:
-          json.dump({"frames_total": idx, "stride": stride,
-                     "fps": fps, "ocr_enabled": reader is not None,
+          json.dump({"frames_total": int(idx), "stride": int(stride),
+                     "fps": float(fps), "ocr_enabled": reader is not None,
                      "plates": plates}, f)
       print(f"[faces-plates] processed {processed} frames "
             f"(every {stride}, mode={face_mode}); "
