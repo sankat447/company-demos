@@ -26,6 +26,7 @@ TASK_DISPLAY_ORDER = [
     ("vlm-caption",          "Captioning frames (VLM)"),
     ("whisper-asr",          "Transcribing audio (Whisper)"),
     ("yolo-detect",          "Detecting objects (YOLO)"),
+    ("faces-and-plates",     "Faces & license plates"),
     ("structure-and-write",  "Indexing in Aurora"),
 ]
 

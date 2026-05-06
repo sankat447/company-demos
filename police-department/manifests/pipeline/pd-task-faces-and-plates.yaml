@@ -55,6 +55,19 @@ spec:
         SKIP_OCR=1
       }
 
+      # Pull yolov8n-face.pt — the ultralytics image only ships the
+      # generic yolov8n.pt. Without this we fall back to a person-bbox
+      # top-1/3 heuristic that misses any face not attached to a fully
+      # visible body. ~6 MB, cached after first run if the workspace PVC
+      # is preserved.
+      if [ ! -f yolov8n-face.pt ]; then
+        echo "[faces-plates] downloading yolov8n-face.pt..."
+        curl -fsSL -o yolov8n-face.pt \
+          "https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8n-face.pt" || {
+          echo "[faces-plates] yolov8n-face.pt download failed — falling back to heuristic"
+        }
+      fi
+
       python3 - <<'PY'
       import json, os, math
       import cv2
