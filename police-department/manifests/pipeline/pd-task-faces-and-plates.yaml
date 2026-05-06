@@ -77,8 +77,9 @@ spec:
       }
 
       # yolov8n-face.pt — bundled in our own S3 bucket. Cache to the RWX
-      # workspace volume so subsequent runs hit local disk.
-      FACE_MODEL="$WS_CACHE/models/yolov8n-face.pt"
+      # workspace volume so subsequent runs hit local disk. Export so the
+      # python subprocess below can read it via os.environ.
+      export FACE_MODEL="$WS_CACHE/models/yolov8n-face.pt"
       if [ ! -s "$FACE_MODEL" ]; then
         echo "[faces-plates] fetching yolov8n-face.pt from s3..."
         pip install --quiet --no-input "boto3" 2>/dev/null || true
