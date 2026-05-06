@@ -48,8 +48,12 @@ spec:
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
+    # Public Route via OpenShift Router → Knative ingress → activator →
+    # vLLM. The cluster-internal Knative-local-gateway path is finicky
+    # for non-mesh callers (Tekton task pods have no istio sidecar) so we
+    # use the well-known public Route for reliability.
     - name: VLM_ENDPOINT
-      value: "http://pd-qwen25-vl-7b-predictor.pd-cctv.svc.cluster.local/v1/chat/completions"
+      value: "https://pd-qwen25-vl-7b-predictor-pd-cctv.apps.ai-demo.iisdemolab.click/v1/chat/completions"
     - name: VLM_MODEL
       value: "pd-qwen25-vl-7b"
     script: |
@@ -86,8 +90,16 @@ spec:
           data=data,
           headers={"Content-Type": "application/json"},
           method="POST")
+      # Public Route uses cluster-CA-signed cert; urllib in this UBI image
+      # may not have it in the default trust store. Skip verify for the
+      # in-cluster API call — we're already inside the cluster network and
+      # the demo doesn't transmit secrets here.
+      import ssl
+      _ctx = ssl.create_default_context()
+      _ctx.check_hostname = False
+      _ctx.verify_mode = ssl.CERT_NONE
       try:
-          with urllib.request.urlopen(req, timeout=300) as resp:
+          with urllib.request.urlopen(req, timeout=300, context=_ctx) as resp:
               body = resp.read().decode("utf-8")
       except urllib.error.HTTPError as e:
           print(f"[vlm-caption] HTTP {e.code}: {e.read().decode('utf-8', 'replace')}", file=sys.stderr)
