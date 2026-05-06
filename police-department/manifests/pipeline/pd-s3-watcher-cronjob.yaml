@@ -88,6 +88,10 @@ spec:
               core = client.CoreV1Api()
               ns  = os.environ["NAMESPACE"]
               cm  = core.read_namespaced_config_map("pd-s3-watcher-cursor", ns)
+              # cm.data is None when the ConfigMap has never been written
+              # (manifest carries no `data:` so ArgoCD doesn't claim the
+              # field). Tolerate that on first run.
+              cm.data = cm.data or {}
               seen = set((cm.data.get("seen_keys") or "").splitlines())
               s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
               bucket = os.environ["BUCKET"]

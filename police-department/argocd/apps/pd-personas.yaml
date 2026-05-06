@@ -24,3 +24,25 @@ spec:
     syncOptions:
     - CreateNamespace=false
     - ServerSideApply=true
+  # Secrets in git are stubs (empty strings); real values are written by
+  # bootstrap/01_secrets.sh from AWS SSM. Without these exclusions, selfHeal
+  # blanks them on every reconcile.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: pd-aurora-credentials
+      namespace: pd-personas
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: Secret
+      name: pd-portkey-key
+      namespace: pd-personas
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: Secret
+      name: pd-s3-creds
+      namespace: pd-personas
+      jsonPointers:
+        - /data

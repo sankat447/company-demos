@@ -47,9 +47,12 @@ metadata:
   namespace: pd-cctv
   labels:
     app.kubernetes.io/part-of: police-department
-data:
-  # The watcher dedupes by `seen_keys` (newline-separated). Initial state:
-  # empty list. The CronJob will patch this ConfigMap to append new keys
-  # after each successful EventListener POST.
-  seen_keys: ""
-  last_run_iso: ""
+  annotations:
+    # The watcher CronJob owns the `data` field at runtime (writes seen_keys
+    # and last_run_iso after every successful S3 list). We deliberately do
+    # NOT declare `data:` in this manifest: with ServerSideApply, declaring
+    # empty strings would let ArgoCD claim those fields and selfHeal would
+    # then revert the watcher's writes on every reconcile, retriggering all
+    # past clips. Letting the manifest carry no `data` means ArgoCD never
+    # lays claim to it and the cluster-side state survives sync cycles.
+    argocd.argoproj.io/sync-options: ServerSideApply=true
