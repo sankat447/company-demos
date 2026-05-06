@@ -28,6 +28,11 @@ _DEFAULT_MODEL = os.environ.get(
 )
 _TIMEOUT = float(os.environ.get("ANTHROPIC_TIMEOUT_SEC", "60"))
 _API_VERSION = "2023-06-01"
+# Big enough that a Detective-style multi-section response with claims
+# and frame_refs doesn't truncate mid-JSON. 1024 was clipping the model
+# at the closing brace, which made chat_json fall back and dump the
+# whole raw JSON into the chat as text.
+_DEFAULT_MAX_TOKENS = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "4096"))
 
 
 def _model_alias(model: str) -> str:
@@ -41,14 +46,14 @@ def _model_alias(model: str) -> str:
     return aliases.get(model, model)
 
 
-def chat(system: str, user: str, *, max_tokens: int = 1024,
+def chat(system: str, user: str, *, max_tokens: int | None = None,
          temperature: float = 0.3, model: str | None = None) -> str:
     """Single-turn chat against Anthropic. Returns the text content."""
     if not _API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY not set; cannot call Claude")
     payload = {
         "model": _model_alias(model or _DEFAULT_MODEL),
-        "max_tokens": max_tokens,
+        "max_tokens": int(max_tokens) if max_tokens else _DEFAULT_MAX_TOKENS,
         "temperature": temperature,
         "system": system,
         "messages": [{"role": "user", "content": user}],
@@ -67,7 +72,10 @@ def chat(system: str, user: str, *, max_tokens: int = 1024,
 
 
 def chat_json(system: str, user: str, **kw: Any) -> dict[str, Any]:
-    """Chat that expects a JSON object back. Tolerates fenced code blocks."""
+    """Chat that expects a JSON object back. Tolerates fenced code blocks
+    and stray preamble/postscript by extracting the outermost {...} body.
+    On any parse failure, falls back to {prose: <model's text>, claims: []}
+    so the UI still gets a readable answer (rendered as markdown)."""
     text = chat(system, user, **kw)
     txt = text.strip()
     # Strip optional ```json ... ``` fence
@@ -81,5 +89,15 @@ def chat_json(system: str, user: str, **kw: Any) -> dict[str, Any]:
     try:
         return json.loads(txt)
     except json.JSONDecodeError:
-        log.warning("Claude returned non-JSON; falling back to {prose: <text>}")
+        # Try to slice out the outermost JSON object and retry; the model
+        # sometimes prepends a sentence like "Here is the JSON:".
+        first = txt.find("{")
+        last = txt.rfind("}")
+        if first != -1 and last > first:
+            try:
+                return json.loads(txt[first:last + 1])
+            except json.JSONDecodeError:
+                pass
+        log.warning("Claude returned non-JSON (len=%d); falling back to "
+                    "{prose: <text>}", len(text))
         return {"prose": text, "claims": []}
