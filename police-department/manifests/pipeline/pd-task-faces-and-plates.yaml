@@ -41,11 +41,32 @@ spec:
   steps:
   - name: extract
     image: docker.io/ultralytics/ultralytics:8.3.0-cpu
+    env:
+    # Reach our own S3 bucket for the bundled face model — same creds the
+    # other Tekton tasks use (refreshed every ~12h with SSO STS).
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom:
+        secretKeyRef: { name: pd-s3-creds, key: access_key_id }
+    - name: AWS_SECRET_ACCESS_KEY
+      valueFrom:
+        secretKeyRef: { name: pd-s3-creds, key: secret_access_key }
+    - name: AWS_SESSION_TOKEN
+      valueFrom:
+        secretKeyRef: { name: pd-s3-creds, key: session_token, optional: true }
+    - name: AWS_REGION
+      valueFrom:
+        secretKeyRef: { name: pd-s3-creds, key: region, optional: true }
     command: ["/bin/bash", "-c"]
     args:
     - |
       set -euo pipefail
       cd "$(workspaces.shared.path)/$(params.clip-id)"
+
+      # Workspace-wide cache (RWX EFS PVC) — populated once, reused by
+      # every PipelineRun. Saves ~60 s of easyocr model download per run
+      # plus avoids re-fetching yolov8n-face.pt.
+      WS_CACHE="$(workspaces.shared.path)/.cache"
+      mkdir -p "$WS_CACHE/models" "$WS_CACHE/easyocr"
 
       # Install easyocr lazily (~50 MB wheel + model on first run). The
       # ultralytics image already has cv2, numpy, torch.
@@ -55,25 +76,37 @@ spec:
         SKIP_OCR=1
       }
 
-      # Pull yolov8n-face.pt — the ultralytics image only ships generic
-      # yolov8n.pt. Without this we fall back to a person-bbox top-1/3
-      # heuristic that misses standalone faces. Try a few mirrors; if all
-      # fail the task still runs in heuristic mode.
-      if [ ! -f yolov8n-face.pt ]; then
-        echo "[faces-plates] fetching yolov8n-face.pt..."
-        for url in \
-          "https://github.com/derronqi/yolov8-face/raw/main/weights/yolov8n-face.pt" \
-          "https://huggingface.co/arnabdhar/YOLOv8-nano-aadhaar-card/resolve/main/yolov8n.pt"; do
-          if curl -fsSL -o yolov8n-face.pt "$url" 2>/dev/null && [ -s yolov8n-face.pt ]; then
-            echo "[faces-plates] downloaded from $url ($(stat -c%s yolov8n-face.pt) bytes)"
-            break
-          fi
-          rm -f yolov8n-face.pt
-        done
-        if [ ! -s yolov8n-face.pt ]; then
-          echo "[faces-plates] no face model available — heuristic mode"
-        fi
+      # yolov8n-face.pt — bundled in our own S3 bucket. Cache to the RWX
+      # workspace volume so subsequent runs hit local disk.
+      FACE_MODEL="$WS_CACHE/models/yolov8n-face.pt"
+      if [ ! -s "$FACE_MODEL" ]; then
+        echo "[faces-plates] fetching yolov8n-face.pt from s3..."
+        pip install --quiet --no-input "boto3" 2>/dev/null || true
+        python3 - <<'PY'
+      import os, boto3
+      from botocore.exceptions import BotoCoreError, ClientError
+      s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+      try:
+          s3.download_file(
+              "ai-demo-data-lake",
+              "models/police-department/yolov8n-face.pt",
+              os.environ["FACE_MODEL"],
+          )
+          size = os.path.getsize(os.environ["FACE_MODEL"])
+          print(f"[faces-plates] cached yolov8n-face.pt ({size} bytes)")
+      except (BotoCoreError, ClientError) as e:
+          print(f"[faces-plates] face model fetch failed: {e} — heuristic mode")
+      PY
       fi
+      # Symlink the cached file into the working dir so the python loader
+      # below picks it up at the expected name.
+      if [ -s "$FACE_MODEL" ]; then
+        ln -sf "$FACE_MODEL" yolov8n-face.pt
+      fi
+
+      # Pass the workspace cache dir into the python script so easyocr
+      # writes its model weights there instead of the per-clip dir.
+      export EASYOCR_CACHE="$WS_CACHE/easyocr"
 
       python3 - <<'PY'
       import json, os, math
@@ -99,8 +132,12 @@ spec:
       if not skip_ocr:
           try:
               import easyocr
+              # Cache models on the workspace PVC (RWX EFS) so subsequent
+              # runs reuse the ~50 MB detection + recognition weights.
+              easyocr_cache = os.environ.get("EASYOCR_CACHE", "./easyocr-cache")
+              os.makedirs(easyocr_cache, exist_ok=True)
               reader = easyocr.Reader(["en"], gpu=False, verbose=False,
-                                      model_storage_directory="./easyocr-cache",
+                                      model_storage_directory=easyocr_cache,
                                       download_enabled=True)
           except Exception as e:
               print(f"[faces-plates] easyocr init failed: {e}")
