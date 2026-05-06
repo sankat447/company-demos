@@ -25,17 +25,22 @@ spec:
   - name: shared
   steps:
   - name: detect
-    image: docker.io/ultralytics/ultralytics:8.3.0-cpu
+    # GPU image (no -cpu suffix). Carries CUDA + torch with GPU support.
+    image: docker.io/ultralytics/ultralytics:8.3.0
     command: ["/bin/bash", "-c"]
     args:
     - |
       set -euo pipefail
       cd "$(workspaces.shared.path)/$(params.clip-id)"
       python3 - <<'PY'
-      import json, cv2
+      import json, cv2, torch
       from ultralytics import YOLO
 
-      model = YOLO("yolov8n.pt")  # bundled in the ultralytics image
+      # Run on the time-sliced GPU (4 logical from 1 physical A10G).
+      device = "cuda" if torch.cuda.is_available() else "cpu"
+      print(f"[yolo] device={device} torch.cuda.device_count={torch.cuda.device_count()}")
+      model = YOLO("yolov8n.pt")
+      model.to(device)
       cap = cv2.VideoCapture("clip.mp4")
       fps = cap.get(cv2.CAP_PROP_FPS) or 30
       stride = int("$(params.stride)")
@@ -46,7 +51,7 @@ spec:
           if not ok:
               break
           if idx % stride == 0:
-              results = model(frame, verbose=False)[0]
+              results = model(frame, verbose=False, device=device)[0]
               ts = idx / fps
               for box, cls, conf in zip(
                   results.boxes.xyxy.cpu().numpy().tolist(),
@@ -62,13 +67,15 @@ spec:
       cap.release()
       with open("detections.json", "w") as f:
           json.dump({"frames_total": idx, "stride": stride,
-                     "fps": fps, "detections": detections}, f)
-      print(f"[yolo] wrote detections.json: {len(detections)} boxes over {idx} frames")
+                     "fps": fps, "device": device, "detections": detections}, f)
+      print(f"[yolo] wrote detections.json: {len(detections)} boxes over {idx} frames on {device}")
       PY
     computeResources:
       requests:
         cpu: "25m"
         memory: "1Gi"
+        nvidia.com/gpu: "1"
       limits:
         cpu: "4"
         memory: "6Gi"
+        nvidia.com/gpu: "1"

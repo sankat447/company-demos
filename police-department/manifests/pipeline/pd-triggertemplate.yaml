@@ -27,10 +27,28 @@ spec:
       labels:
         app.kubernetes.io/part-of: police-department
         pd.cctv/clip-id: $(tt.params.clip-id)
+      # Disable Tekton's affinity-assistant. The shared workspace PVC is
+      # ReadWriteMany (EFS), so tasks don't need to co-locate on a single
+      # node. Letting them spread across nodes lets GPU-tagged tasks
+      # (yolo-detect, faces-and-plates) land on the GPU node while CPU
+      # tasks (pull-clip, whisper-asr, structure-and-write) take any
+      # worker — true parallelism.
+      annotations:
+        pipeline.tekton.dev/affinity-assistant: "disabled"
     spec:
       pipelineRef:
         name: pd-perception
       serviceAccountName: pd-pipeline-sa
+      # Toleration for the GPU node taint nvidia.com/gpu=present:NoSchedule.
+      # Applies to ALL task pods; only those requesting nvidia.com/gpu will
+      # actually schedule on the GPU node — tasks without the request still
+      # get placed on CPU workers by the scheduler.
+      taskRunTemplate:
+        podTemplate:
+          tolerations:
+          - key: nvidia.com/gpu
+            operator: Exists
+            effect: NoSchedule
       timeouts:
         # 20m was too tight for real 10-min CCTV clips: whisper-asr is
         # roughly real-time on CPU, faces-and-plates downloads ~50 MB of

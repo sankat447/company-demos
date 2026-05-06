@@ -40,7 +40,9 @@ spec:
   - name: shared
   steps:
   - name: extract
-    image: docker.io/ultralytics/ultralytics:8.3.0-cpu
+    # GPU image: same ultralytics + carries CUDA stack. easyocr inside picks
+    # up CUDA when gpu=True is passed to Reader().
+    image: docker.io/ultralytics/ultralytics:8.3.0
     env:
     # Reach our own S3 bucket for the bundled face model — same creds the
     # other Tekton tasks use (refreshed every ~12h with SSO STS).
@@ -113,20 +115,25 @@ spec:
       import json, os, math
       import cv2
       import numpy as np
+      import torch
       from ultralytics import YOLO
 
       stride = int(os.environ.get("STRIDE", "30"))
       skip_ocr = bool(os.environ.get("SKIP_OCR"))
+      device = "cuda" if torch.cuda.is_available() else "cpu"
+      print(f"[faces-plates] device={device} torch.cuda.device_count={torch.cuda.device_count()}")
 
       # Face detector. yolov8n-face is a community-trained head; we fall
       # back to the generic yolov8n + person class top-1/3 heuristic if
       # the face model isn't reachable.
       try:
           face_model = YOLO("yolov8n-face.pt")
+          face_model.to(device)
           face_mode = "yolov8n-face"
       except Exception as e:
           print(f"[faces-plates] yolov8n-face unavailable ({e}); falling back to person-bbox heuristic")
           face_model = YOLO("yolov8n.pt")
+          face_model.to(device)
           face_mode = "person-heuristic"
 
       reader = None
@@ -137,7 +144,7 @@ spec:
               # runs reuse the ~50 MB detection + recognition weights.
               easyocr_cache = os.environ.get("EASYOCR_CACHE", "./easyocr-cache")
               os.makedirs(easyocr_cache, exist_ok=True)
-              reader = easyocr.Reader(["en"], gpu=False, verbose=False,
+              reader = easyocr.Reader(["en"], gpu=(device=="cuda"), verbose=False,
                                       model_storage_directory=easyocr_cache,
                                       download_enabled=True)
           except Exception as e:
@@ -232,6 +239,8 @@ spec:
       requests:
         cpu: "25m"
         memory: "1Gi"
+        nvidia.com/gpu: "1"
       limits:
         cpu: "4"
         memory: "6Gi"
+        nvidia.com/gpu: "1"
