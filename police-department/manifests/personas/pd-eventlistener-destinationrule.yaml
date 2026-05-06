@@ -1,0 +1,31 @@
+# =============================================================================
+#  DestinationRule — let the persona service reach the Tekton EventListener
+#  in plain HTTP.
+#
+#  The persona pod (pd-personas namespace) is a mesh member with the istio
+#  sidecar enabled. The Tekton EventListener (el-pd-perception in pd-cctv)
+#  is NOT a mesh member; it speaks plain HTTP on :8080.
+#
+#  Without this DestinationRule, the persona's istio sidecar wraps the
+#  outbound call to el-pd-perception in mTLS, the EventListener replies
+#  in plain HTTP, and the handshake fails with:
+#    "TLS_error:|...:SSL routines:OPENSSL_internal:wrong version number"
+#  Symptom: chat-UI upload returns HTTP 500 / "Server error '503' for url
+#  http://el-pd-perception.pd-cctv.svc.cluster.local:8080/".
+#
+#  trafficPolicy.tls.mode=DISABLE flips the outbound side to plain HTTP
+#  for this exact host only. In-mesh callers still get mTLS by default.
+# =============================================================================
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: pd-eventlistener-plaintext
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  host: el-pd-perception.pd-cctv.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: DISABLE
