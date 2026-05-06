@@ -25,9 +25,46 @@ _DSN = (
 )
 
 
+_BGE_LOCAL = os.environ.get(
+    "PD_BGE_LOCAL_DIR",
+    "/opt/app-root/src/.cache/pd-models/bge-small-en-v1.5",
+)
+_BGE_S3_BUCKET = os.environ.get("PD_S3_BUCKET", "ai-demo-data-lake")
+_BGE_S3_PREFIX = "models/police-department/bge-small-en-v1.5/"
+
+
+def _ensure_bge_local() -> str:
+    """Stage BGE-small from S3 to local disk if not already present.
+
+    HuggingFace direct download is unreliable from this cluster (CDN
+    throttling stalled the demo at 78%). We stage the model in our own
+    S3 bucket and fetch with boto3 + pd-s3-creds, same pattern used by
+    the structure-and-write Tekton task.
+    """
+    marker = os.path.join(_BGE_LOCAL, "model.safetensors")
+    if os.path.isfile(marker) and os.path.getsize(marker) > 1_000_000:
+        return _BGE_LOCAL
+    log.info("staging BGE-small from s3://%s/%s -> %s",
+             _BGE_S3_BUCKET, _BGE_S3_PREFIX, _BGE_LOCAL)
+    os.makedirs(_BGE_LOCAL, exist_ok=True)
+    import boto3
+    s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=_BGE_S3_BUCKET, Prefix=_BGE_S3_PREFIX):
+        for obj in page.get("Contents", []):
+            rel = obj["Key"][len(_BGE_S3_PREFIX):]
+            if not rel:
+                continue
+            dst = os.path.join(_BGE_LOCAL, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            s3.download_file(_BGE_S3_BUCKET, obj["Key"], dst)
+    log.info("BGE-small staged: %d entries", sum(1 for _ in os.scandir(_BGE_LOCAL)))
+    return _BGE_LOCAL
+
+
 @lru_cache(maxsize=1)
 def _embedder() -> SentenceTransformer:
-    return SentenceTransformer("BAAI/bge-small-en-v1.5")
+    return SentenceTransformer(_ensure_bge_local())
 
 
 def healthcheck() -> None:

@@ -33,13 +33,18 @@ def load_prompt(persona: str) -> str:
 
 
 def hybrid_retrieve(req: ChatRequest) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    hits = pgvector_query.search(req.q, k=req.k)
+    # When a clip is pinned, skip vector retrieval entirely. The clip's own
+    # context is enough; we save the BGE-small embed call and avoid loading
+    # the model on the hot path. Vector search remains for "find a clip
+    # like this query" usage with no clip_id.
+    hits: list[dict[str, Any]] = []
     expansion: dict[str, Any] | None = None
     if req.clip_id:
         expansion = pgvector_query.expand(req.clip_id)
-    elif hits:
-        # Default: walk the top hit's clip
-        expansion = pgvector_query.expand(hits[0]["clip_id"])
+    else:
+        hits = pgvector_query.search(req.q, k=req.k)
+        if hits:
+            expansion = pgvector_query.expand(hits[0]["clip_id"])
     return hits, expansion
 
 
