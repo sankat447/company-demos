@@ -24,16 +24,20 @@ _DSN = (
 
 def insert(actor: str, action: str, *, clip_id: str | None = None,
            context: dict[str, Any] | None = None) -> int:
-    with psycopg.connect(_DSN, connect_timeout=5) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO pd_cctv.custody_log (clip_id, actor, action, context) "
-                "VALUES (%s, %s, %s, %s) RETURNING id",
-                (clip_id, actor, action, json.dumps(context or {})),
-            )
-            new_id: int = cur.fetchone()[0]
-        conn.commit()
-    return new_id
+    try:
+        with psycopg.connect(_DSN, connect_timeout=5) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO pd_cctv.custody_log (clip_id, actor, action, context) "
+                    "VALUES (%s, %s, %s, %s) RETURNING id",
+                    (clip_id, actor, action, json.dumps(context or {})),
+                )
+                new_id: int = cur.fetchone()[0]
+            conn.commit()
+        return new_id
+    except Exception as e:
+        log.warning("custody_log insert failed (%s) — actor=%s action=%s", e, actor, action)
+        return -1
 
 
 def log_pending_hitl(persona: str, pending_id: str, q: str,

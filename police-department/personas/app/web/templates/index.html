@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Police Department — CCTV Video Intelligence</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #273449;
+    --line: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --ok: #22c55e;
+    --err: #ef4444;
+    --warn: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--line);
+           background: linear-gradient(90deg, #0b1220, #0f172a); }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--panel-2);
+                  color: var(--muted); margin-left: 10px; }
+  header .spacer { flex: 1; }
+  header label { font-size: 12px; color: var(--muted); margin-right: 8px; }
+  header select { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+                  border-radius: 4px; padding: 5px 8px; font-size: 13px; }
+  main { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; height: calc(100vh - 50px); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px;
+          overflow: auto; }
+  .card h2 { margin: 0 0 12px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  /* Upload */
+  .drop { border: 2px dashed var(--line); border-radius: 8px; padding: 28px; text-align: center;
+          cursor: pointer; transition: 0.15s; }
+  .drop:hover, .drop.over { border-color: var(--accent); background: rgba(56, 189, 248, 0.05); }
+  .drop p { margin: 0; color: var(--muted); }
+  .drop strong { color: var(--text); }
+  .drop input { display: none; }
+  /* Pipeline progress */
+  .stages { list-style: none; padding: 0; margin: 12px 0 0; font-family: ui-monospace, monospace; font-size: 13px; }
+  .stages li { padding: 6px 0; border-bottom: 1px dashed var(--line); display: flex; align-items: center; }
+  .stages li:last-child { border-bottom: none; }
+  .stages .icon { width: 18px; display: inline-block; }
+  .stages li.ok .icon { color: var(--ok); }
+  .stages li.run .icon { color: var(--accent); }
+  .stages li.err .icon { color: var(--err); }
+  .stages li.pending { color: var(--muted); }
+  .stages .dur { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .runref { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  /* Clip list */
+  .clip { padding: 10px 8px; border-radius: 4px; cursor: pointer; border: 1px solid transparent; }
+  .clip:hover { background: var(--panel-2); }
+  .clip.selected { border-color: var(--accent); }
+  .clip code { font-size: 11px; color: var(--accent); }
+  .clip .preview { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  /* Chat */
+  .chat-wrap { display: flex; flex-direction: column; height: 100%; }
+  .chat-header { display: flex; align-items: center; gap: 10px; padding-bottom: 10px;
+                 border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+  .chat-log { flex: 1; overflow-y: auto; padding: 4px 6px; }
+  .msg { margin-bottom: 14px; }
+  .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .05em; }
+  .msg .who.detective { color: #fbbf24; }
+  .msg .who.patrol { color: #60a5fa; }
+  .msg .who.evidence_clerk { color: #c084fc; }
+  .msg .body { padding: 10px 14px; border-radius: 6px; background: var(--panel-2); white-space: pre-wrap; }
+  .msg.user .body { background: var(--accent); color: #0f172a; }
+  .msg .claims { margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .msg .claims code { color: var(--accent); font-size: 11px; }
+  .input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .input-row input { flex: 1; background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+                     border-radius: 4px; padding: 9px 12px; font-size: 14px; }
+  .input-row button { background: var(--accent); color: #0f172a; border: none; border-radius: 4px;
+                       padding: 9px 16px; font-weight: 600; cursor: pointer; }
+  .input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+  .toast { position: fixed; bottom: 18px; right: 18px; background: var(--err); color: white;
+           padding: 10px 16px; border-radius: 4px; font-size: 13px; max-width: 360px; }
+  .toast.ok { background: var(--ok); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎥 Police Department — CCTV Video Intelligence</h1>
+  <span class="badge" id="ns-badge">pd-cctv</span>
+  <div class="spacer"></div>
+  <label for="mode">LLM mode</label>
+  <select id="mode">
+    <option value="mock">mock (fast, no GPU)</option>
+    <option value="local">local (Llama on GPU)</option>
+    <option value="claude">claude (Anthropic via Portkey)</option>
+  </select>
+</header>
+
+<main>
+  <!-- Left column: upload, processing, recent clips -->
+  <section style="display: flex; flex-direction: column; gap: 14px;">
+
+    <div class="card">
+      <h2>Upload CCTV clip</h2>
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="video/mp4,video/*">
+        <p><strong>Drop an .mp4</strong> here, or click to choose</p>
+        <p style="font-size: 12px; margin-top: 8px;">Up to 300 MB. We push to S3 and trigger the perception pipeline.</p>
+      </label>
+      <div id="upload-info" style="margin-top: 10px; font-size: 12px; color: var(--muted);"></div>
+    </div>
+
+    <div class="card" id="pipeline-card" style="display: none;">
+      <h2>Processing</h2>
+      <ul class="stages" id="stages"></ul>
+      <div class="runref" id="runref"></div>
+    </div>
+
+    <div class="card" style="flex: 1; min-height: 0;">
+      <h2>Recent clips</h2>
+      <div id="clips"></div>
+    </div>
+  </section>
+
+  <!-- Right column: chat -->
+  <section class="card chat-wrap">
+    <div class="chat-header">
+      <h2 style="margin: 0; flex: 1;">Chat about clip <code id="active-clip" style="color: var(--accent);">— pick a clip —</code></h2>
+      <label for="persona" style="font-size: 12px; color: var(--muted);">Persona</label>
+      <select id="persona">
+        <option value="detective">Detective</option>
+        <option value="patrol">Patrol</option>
+        <option value="evidence_clerk">Evidence Clerk</option>
+      </select>
+    </div>
+    <div class="chat-log" id="chat-log">
+      <div class="empty">Upload an mp4 or pick a recent clip on the left, then ask any question.</div>
+    </div>
+    <div class="input-row">
+      <input id="q" type="text" placeholder="What happened in this clip? (Try: 'Anything actionable?', 'Chain of custody', 'Identify suspects')" disabled>
+      <button id="send" disabled>Send</button>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" style="display: none;"></div>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+let activeClip = null;
+let pollTimer = null;
+
+function toast(msg, ok = false) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "toast" + (ok ? " ok" : "");
+  t.style.display = "block";
+  setTimeout(() => t.style.display = "none", 4000);
+}
+
+// ── Mode ─────────────────────────────────────────────────────────
+async function loadMode() {
+  const r = await fetch("/api/mode"); const d = await r.json();
+  $("#mode").value = d.mode;
+}
+$("#mode").addEventListener("change", async (e) => {
+  const r = await fetch("/api/mode", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({mode: e.target.value}),
+  });
+  const d = await r.json();
+  if (r.ok) toast(`Mode set to ${d.mode}. ${d.note || ""}`, true);
+  else toast(`Mode change failed: ${d.detail || "?"}`);
+});
+
+// ── Recent clips ──────────────────────────────────────────────────
+async function loadClips() {
+  const r = await fetch("/api/clips"); const d = await r.json();
+  const wrap = $("#clips"); wrap.innerHTML = "";
+  if (!d.clips.length) {
+    wrap.innerHTML = '<div class="empty">No clips ingested yet.</div>'; return;
+  }
+  for (const c of d.clips) {
+    const el = document.createElement("div");
+    el.className = "clip" + (c.clip_id === activeClip ? " selected" : "");
+    el.innerHTML = `<code>${c.clip_id_short}</code> ${c.uploaded_at || ""}<div class="preview">${c.prose_preview || "(no narration yet)"}</div>`;
+    el.onclick = () => selectClip(c.clip_id);
+    wrap.appendChild(el);
+  }
+}
+
+async function selectClip(clipId) {
+  activeClip = clipId;
+  $("#active-clip").textContent = clipId.slice(0, 8);
+  $("#q").disabled = false; $("#send").disabled = false;
+  // Load chat history
+  const r = await fetch(`/api/chat/history/${clipId}`); const d = await r.json();
+  renderChatLog(d.messages || []);
+  await loadClips();   // refresh selection highlight
+  // Poll pipeline status for this clip
+  pollPipeline(clipId);
+}
+
+// ── Upload ───────────────────────────────────────────────────────
+const drop = $("#drop"), fileInput = $("#file");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add("over");
+}));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.remove("over");
+}));
+drop.addEventListener("drop", e => {
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", e => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+async function handleFile(file) {
+  const info = $("#upload-info");
+  info.textContent = `Uploading ${file.name} (${(file.size/1e6).toFixed(1)} MB)…`;
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("uploaded_by", "ui");
+  try {
+    const r = await fetch("/api/upload", {method: "POST", body: fd});
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      info.textContent = `Upload failed: ${e.detail || r.status}`;
+      return;
+    }
+    const d = await r.json();
+    info.textContent = `Uploaded ✓ — clip ${d.clip_id.slice(0, 8)} → ${d.s3_uri}`;
+    selectClip(d.clip_id);
+    pollPipeline(d.clip_id);
+  } catch (err) {
+    info.textContent = `Upload error: ${err}`;
+  }
+}
+
+// ── Pipeline progress ────────────────────────────────────────────
+function pollPipeline(clipId) {
+  $("#pipeline-card").style.display = "block";
+  if (pollTimer) clearInterval(pollTimer);
+  const tick = async () => {
+    try {
+      const r = await fetch(`/api/pipeline/by-clip/${clipId}`);
+      const d = await r.json();
+      renderStages(d);
+      if (d.overall === "succeeded" || d.overall === "failed") {
+        clearInterval(pollTimer); pollTimer = null;
+        // Refresh recent clips so the picker shows the new one with narration preview
+        if (d.overall === "succeeded") setTimeout(loadClips, 1500);
+      }
+    } catch (e) { /* network blip */ }
+  };
+  tick(); pollTimer = setInterval(tick, 4000);
+}
+
+function renderStages(snap) {
+  const ul = $("#stages"); ul.innerHTML = "";
+  for (const t of snap.tasks || []) {
+    const li = document.createElement("li");
+    let cls = t.status, icon = "·";
+    if (t.status === "succeeded") { cls = "ok";  icon = "✓"; }
+    else if (t.status === "running") { cls = "run"; icon = "◷"; }
+    else if (t.status === "failed") { cls = "err"; icon = "✗"; }
+    else { cls = "pending"; icon = "·"; }
+    li.className = cls;
+    let dur = "";
+    if (t.duration_sec != null) dur = `<span class="dur">${t.duration_sec.toFixed(1)}s</span>`;
+    li.innerHTML = `<span class="icon">${icon}</span> ${t.display}${dur}`;
+    ul.appendChild(li);
+  }
+  $("#runref").textContent = snap.run ? `PipelineRun: ${snap.run} • overall: ${snap.overall}` : "(waiting for trigger…)";
+}
+
+// ── Chat ─────────────────────────────────────────────────────────
+function renderChatLog(messages) {
+  const log = $("#chat-log");
+  if (!messages.length) {
+    log.innerHTML = '<div class="empty">Ask the persona about this clip.</div>';
+    return;
+  }
+  log.innerHTML = "";
+  for (const m of messages) {
+    const div = document.createElement("div");
+    div.className = "msg " + (m.who === "user" ? "user" : "");
+    const whoLabel = m.who === "user" ? "You" :
+      ({"detective": "Detective", "patrol": "Patrol", "evidence_clerk": "Evidence Clerk"})[m.who] || m.who;
+    let claimsHtml = "";
+    if (m.claims && m.claims.length) {
+      claimsHtml = '<div class="claims"><strong>Claims:</strong><ul>';
+      for (const c of m.claims) {
+        claimsHtml += `<li>${escapeHtml(c.text)} <code>${(c.frame_refs || []).join(" ")}</code></li>`;
+      }
+      claimsHtml += "</ul></div>";
+    }
+    div.innerHTML = `<div class="who ${m.who}">${whoLabel}</div>` +
+                    `<div class="body">${escapeHtml(m.text)}</div>${claimsHtml}`;
+    log.appendChild(div);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return (s || "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[c]);
+}
+
+$("#send").addEventListener("click", sendMessage);
+$("#q").addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
+
+async function sendMessage() {
+  if (!activeClip) { toast("Pick or upload a clip first."); return; }
+  const q = $("#q").value.trim();
+  if (!q) return;
+  const persona = $("#persona").value;
+  $("#q").value = ""; $("#send").disabled = true;
+
+  // Optimistic user message
+  const log = $("#chat-log");
+  // wipe empty placeholder if present
+  if (log.querySelector(".empty")) log.innerHTML = "";
+  const userDiv = document.createElement("div");
+  userDiv.className = "msg user";
+  userDiv.innerHTML = `<div class="who">You</div><div class="body">${escapeHtml(q)}</div>`;
+  log.appendChild(userDiv);
+  const thinking = document.createElement("div");
+  thinking.className = "msg";
+  thinking.innerHTML = `<div class="who ${persona}">${persona}</div><div class="body" style="color: var(--muted);">…thinking</div>`;
+  log.appendChild(thinking);
+  log.scrollTop = log.scrollHeight;
+
+  try {
+    const r = await fetch(`/chat/${persona}`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({q: q, clip_id: activeClip, k: 6}),
+    });
+    if (!r.ok) {
+      const e = await r.text();
+      thinking.querySelector(".body").textContent = `error: ${r.status} ${e.slice(0, 200)}`;
+      return;
+    }
+    const d = await r.json();
+    thinking.remove();
+    // Append the persona response to local history (also persisted by API)
+    const reply = document.createElement("div");
+    reply.className = "msg";
+    let claimsHtml = "";
+    if (d.claims && d.claims.length) {
+      claimsHtml = '<div class="claims"><strong>Claims:</strong><ul>';
+      for (const c of d.claims) {
+        claimsHtml += `<li>${escapeHtml(c.text)} <code>${(c.frame_refs || []).join(" ")}</code></li>`;
+      }
+      claimsHtml += "</ul></div>";
+    }
+    reply.innerHTML = `<div class="who ${persona}">${persona}</div>` +
+                      `<div class="body">${escapeHtml(d.prose)}</div>${claimsHtml}`;
+    log.appendChild(reply);
+    log.scrollTop = log.scrollHeight;
+
+    // Persist to server-side history (best effort)
+    fetch(`/api/chat/history/${activeClip}`, {  // GET refreshes from server
+      method: "GET",
+    }).catch(() => {});
+  } catch (err) {
+    thinking.querySelector(".body").textContent = `error: ${err}`;
+  } finally {
+    $("#send").disabled = false; $("#q").focus();
+  }
+}
+
+// ── Bootstrap ────────────────────────────────────────────────────
+loadMode(); loadClips();
+setInterval(loadClips, 30_000);   // light periodic refresh
+</script>
+</body>
+</html>

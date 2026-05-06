@@ -28,10 +28,11 @@ spec:
       annotations:
         sidecar.istio.io/inject: "true"
     spec:
+      serviceAccountName: pd-persona-sa
       containers:
       - name: pd-persona
-        image: image-registry.openshift-image-registry.svc:5000/pd-personas/pd-persona:0.1.0
-        # Always pull because we re-tag new builds at :0.1.0 in-place (oc tag).
+        image: image-registry.openshift-image-registry.svc:5000/pd-personas/pd-persona:0.2.0
+        # Always pull because we re-tag new builds at :0.2.0 in-place (oc tag).
         # IfNotPresent left the node pinned to the first sha forever, ignoring
         # subsequent rebuilds. Use sha-pinned image refs if you want the
         # cheaper IfNotPresent semantics back.
@@ -76,6 +77,35 @@ spec:
             secretKeyRef:
               name: pd-aurora-credentials
               key: password
+        # AWS credentials for the chat UI's S3 upload endpoint. Uses the same
+        # pd-s3-creds Secret as the Tekton tasks; supports SSO/STS session
+        # tokens (optional: true keeps the manifest valid when the key is
+        # absent).
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: { name: pd-s3-creds, key: access_key_id, optional: true }
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: { name: pd-s3-creds, key: secret_access_key, optional: true }
+        - name: AWS_SESSION_TOKEN
+          valueFrom:
+            secretKeyRef: { name: pd-s3-creds, key: session_token, optional: true }
+        - name: AWS_REGION
+          valueFrom:
+            secretKeyRef: { name: pd-s3-creds, key: region, optional: true }
+        - name: PD_S3_BUCKET
+          value: "ai-demo-data-lake"
+        - name: PD_EL_URL
+          value: "http://el-pd-perception.pd-cctv.svc.cluster.local:8080/"
+        # Mode selector — read on every chat request from the mounted ConfigMap.
+        - name: PD_LLM_MODE_FILE
+          value: "/etc/pd-llm-mode/mode"
+        - name: PD_LLM_MODE_DEFAULT
+          value: "mock"
+        volumeMounts:
+        - name: llm-mode
+          mountPath: /etc/pd-llm-mode
+          readOnly: true
         readinessProbe:
           # /healthz is a liveness-style ping that returns 200 even when the
           # downstream Llama InferenceService is scaled to zero. Using /readyz
@@ -103,6 +133,10 @@ spec:
           limits:
             cpu: "1"
             memory: "2Gi"
+      volumes:
+      - name: llm-mode
+        configMap:
+          name: pd-llm-mode
 ---
 apiVersion: v1
 kind: Service

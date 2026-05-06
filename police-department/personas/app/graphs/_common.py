@@ -1,17 +1,31 @@
-"""Shared helpers for the three persona graphs."""
+"""Shared helpers for the three persona graphs.
+
+Mode-aware: reads the `pd-llm-mode` ConfigMap (via app.tools.mode) and
+dispatches the chat call accordingly:
+  mock   -> app.tools.llm_mock returns canned-but-grounded responses
+  local  -> app.tools.portkey_llm hits Portkey with model=PORTKEY_MODEL_LOCAL
+  claude -> app.tools.portkey_llm hits Portkey with model=PORTKEY_MODEL_CLAUDE
+"""
 from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 from app.schemas import ChatRequest, Claim, PersonaResponse, Provenance
-from app.tools import pgvector_query, portkey_llm
+from app.tools import clip_context, llm_mock, mode, pgvector_query, portkey_llm
 
 log = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+
+# Per-mode model identifiers (Portkey routes by model name).
+_MODELS = {
+    "local":  os.environ.get("PORTKEY_MODEL_LOCAL",  "llama-3-1-8b"),
+    "claude": os.environ.get("PORTKEY_MODEL_CLAUDE", "claude-sonnet-4"),
+}
 
 
 def load_prompt(persona: str) -> str:
@@ -43,8 +57,8 @@ def render_context(hits: list[dict[str, Any]], expansion: dict[str, Any] | None)
     return "\n\n".join(blocks) if blocks else "(no narrations indexed yet)"
 
 
-def call_llm_as_persona(persona: str, req: ChatRequest) -> PersonaResponse:
-    """Single-step graph: retrieve → format context → call LLM → parse."""
+def _real_llm_call(persona: str, req: ChatRequest, model: str) -> PersonaResponse:
+    """Hit Portkey (local Llama or Claude) with the persona system prompt."""
     hits, expansion = hybrid_retrieve(req)
     system = load_prompt(persona)
     user = (
@@ -52,16 +66,14 @@ def call_llm_as_persona(persona: str, req: ChatRequest) -> PersonaResponse:
         f"CONTEXT:\n{render_context(hits, expansion)}\n\n"
         "Respond as JSON: {prose, claims:[{text,confidence,frame_refs}]}"
     )
-    parsed = portkey_llm.chat_json(system, user, temperature=0.2)
+    parsed = portkey_llm.chat_json(system, user, temperature=0.2, model=model)
     claims = [Claim(**c) for c in parsed.get("claims", []) if isinstance(c, dict)]
-
     provenance = Provenance(
         clip_ids=list({h["clip_id"] for h in hits}),
         narration_ids=[h["narration_id"] for h in hits],
     )
     evidence_clip = (req.clip_id or
                      (hits[0]["clip_id"] if hits else None))
-
     return PersonaResponse(
         persona=persona,
         prose=parsed.get("prose", "").strip()
@@ -71,3 +83,36 @@ def call_llm_as_persona(persona: str, req: ChatRequest) -> PersonaResponse:
         evidence_clip_id=evidence_clip,
         raw=parsed,
     )
+
+
+def _mock_call(persona: str, req: ChatRequest) -> PersonaResponse:
+    """Mock LLM grounded in real Aurora context for the given clip_id."""
+    ctx: dict[str, Any] = {}
+    if req.clip_id:
+        loaded = clip_context.load(req.clip_id)
+        if loaded:
+            ctx = loaded
+    if not ctx:
+        # No specific clip — fall back to top retrieval hit.
+        hits, _ = hybrid_retrieve(req)
+        if hits:
+            top = hits[0]
+            loaded = clip_context.load(top["clip_id"])
+            if loaded:
+                ctx = loaded
+    return llm_mock.respond(persona, req, ctx)
+
+
+def call_llm_as_persona(persona: str, req: ChatRequest) -> PersonaResponse:
+    """Mode-aware persona dispatch."""
+    m = mode.current()
+    log.info("persona=%s mode=%s clip_id=%s", persona, m, req.clip_id)
+    if m == "mock":
+        return _mock_call(persona, req)
+    model = _MODELS.get(m, _MODELS["local"])
+    try:
+        return _real_llm_call(persona, req, model)
+    except Exception as e:
+        log.warning("real LLM call failed (mode=%s, model=%s): %s — falling back to mock",
+                    m, model, e)
+        return _mock_call(persona, req)

@@ -26,9 +26,9 @@ _TIMEOUT = float(os.environ.get("PORTKEY_TIMEOUT_SEC", "120"))
 
 
 def chat(system: str, user: str, *, max_tokens: int = 768,
-         temperature: float = 0.3) -> str:
+         temperature: float = 0.3, model: str | None = None) -> str:
     payload = {
-        "model": _MODEL,
+        "model": model or _MODEL,
         "max_tokens": max_tokens,
         "temperature": temperature,
         "messages": [

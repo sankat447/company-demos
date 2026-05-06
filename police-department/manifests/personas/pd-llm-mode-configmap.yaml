@@ -1,0 +1,64 @@
+# =============================================================================
+#  pd-llm-mode — single-source-of-truth switch for the demo's LLM/VLM backend.
+#
+#  Read by:
+#    - persona service (pd-personas ns) — mounted at /etc/pd-llm-mode/
+#    - vlm-caption Tekton task (pd-cctv ns) — also mounts this ConfigMap
+#
+#  mode values:
+#    mock    -> in-process canned responses (no GPU, no external calls).
+#               Default; safe to leave on while iterating UX.
+#    local   -> route VLM + persona LLM through the cluster Portkey gateway,
+#               which forwards to the on-cluster Qwen-VL + Llama InferenceServices.
+#    claude  -> route VLM + persona LLM through Portkey to Anthropic Claude
+#               (requires Portkey to have a configured Anthropic virtual key).
+#
+#  How to flip from the cluster CLI:
+#    oc -n pd-personas patch configmap pd-llm-mode --type=merge \
+#      -p '{"data":{"mode":"local"}}'
+#
+#  The persona pod re-reads /etc/pd-llm-mode/mode on every chat request so
+#  the change takes effect within seconds (kubelet ConfigMap propagation
+#  ~60s for the vlm-caption tasks). The /api/mode endpoint in the chat UI
+#  patches this ConfigMap directly.
+#
+#  Editing this file in git: ArgoCD will sync changes back to the cluster.
+#  selfHeal is on for pd-personas; if you want short-term in-cluster
+#  experimentation (oc patch) without ArgoCD reverting, either:
+#    1. push the change to git first, OR
+#    2. temporarily disable selfHeal on the pd-personas Application.
+# =============================================================================
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-llm-mode
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+    app.kubernetes.io/component: llm-routing
+data:
+  # The active mode. Default is mock so dev runs cost nothing.
+  mode: "mock"
+  # Per-mode model identifiers (used by the persona service when calling Portkey).
+  # local routes through the on-cluster llama InferenceService; claude routes to
+  # Anthropic via Portkey's anthropic provider key.
+  model_local: "llama-3-1-8b"
+  model_claude: "claude-sonnet-4"
+---
+# Tekton tasks live in pd-cctv. ArgoCD's pd-pipeline Application syncs from
+# manifests/pipeline/ — but the ConfigMap belongs conceptually to "llm
+# routing" so we keep its source-of-truth in this directory and replicate
+# a copy into pd-cctv via this entry.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-llm-mode
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+    app.kubernetes.io/component: llm-routing
+data:
+  mode: "mock"
+  model_local: "pd-qwen25-vl-7b"
+  model_claude: "claude-sonnet-4"

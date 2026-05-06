@@ -1,0 +1,76 @@
+# =============================================================================
+#  Persona service ServiceAccount + RBAC.
+#
+#  The persona pod's chat UI reads PipelineRun / TaskRun status from the
+#  Tekton API (pd-cctv namespace) for the live progress panel, and patches
+#  the pd-llm-mode ConfigMap (pd-personas namespace) for the mode toggle.
+#  Both are read-mostly with one targeted patch verb on the ConfigMap.
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pd-persona-sa
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+---
+# pd-personas: patch the mode ConfigMap
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pd-persona-mode-role
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["pd-llm-mode"]
+  verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pd-persona-mode-rolebinding
+  namespace: pd-personas
+subjects:
+- kind: ServiceAccount
+  name: pd-persona-sa
+  namespace: pd-personas
+roleRef:
+  kind: Role
+  name: pd-persona-mode-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# pd-cctv: read PipelineRuns + TaskRuns (for the chat UI's progress panel)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pd-persona-tekton-reader
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+rules:
+- apiGroups: ["tekton.dev"]
+  resources: ["pipelineruns", "taskruns"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pd-persona-tekton-reader-binding
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+subjects:
+- kind: ServiceAccount
+  name: pd-persona-sa
+  namespace: pd-personas
+roleRef:
+  kind: Role
+  name: pd-persona-tekton-reader
+  apiGroup: rbac.authorization.k8s.io
