@@ -51,32 +51,30 @@
   .card h2 { margin: 0 0 12px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
   /* Upload drop-zone */
   .drop {
-    position: relative;
+    display: block;
+    border: 2px dashed var(--line);
     border-radius: 10px;
-    padding: 26px 22px;
+    padding: 28px 22px 22px;
     text-align: center;
     cursor: pointer;
-    background:
-      linear-gradient(var(--panel), var(--panel)) padding-box,
-      repeating-linear-gradient(135deg,
-        var(--line) 0 8px, transparent 8px 16px) border-box;
-    border: 2px dashed transparent;
-    transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    background: var(--panel);
+    transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
   }
   .drop:hover, .drop.over {
-    background:
-      linear-gradient(rgba(56,189,248,0.06), rgba(99,102,241,0.06)) padding-box,
-      linear-gradient(135deg, var(--accent), #6366f1) border-box;
+    border-color: var(--accent);
+    background: rgba(56, 189, 248, 0.04);
     transform: translateY(-1px);
-    box-shadow: 0 6px 18px rgba(56, 189, 248, 0.10);
   }
   .drop .icon-cloud {
-    width: 38px; height: 38px; margin: 0 auto 10px; display: block;
-    color: var(--accent); opacity: 0.85;
+    width: 36px; height: 36px;
+    margin: 0 auto 10px;
+    display: block;
+    color: var(--accent);
+    opacity: 0.9;
   }
-  .drop p { margin: 0; color: var(--muted); font-size: 13px; }
-  .drop strong { color: var(--text); font-size: 14px; }
-  .drop .hint { display: block; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+  .drop p { margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+  .drop p strong { color: var(--text); font-size: 14px; font-weight: 600; }
+  .drop .hint { display: block; font-size: 11px; color: var(--muted); margin-top: 8px; }
   .drop input { display: none; }
   .drop.over .icon-cloud { opacity: 1; }
   .upload-info { margin-top: 10px; font-size: 12px; color: var(--muted);
