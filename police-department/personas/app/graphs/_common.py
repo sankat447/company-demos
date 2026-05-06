@@ -72,11 +72,27 @@ def render_context(
             ]
             blocks.append("[license-plate OCR readings]\n" + "\n".join(lines))
         if faces.get("count"):
-            blocks.append(
-                f"[face detections] count={faces['count']} "
-                f"first_seen={faces.get('first_seen_sec')}s "
-                f"last_seen={faces.get('last_seen_sec')}s"
+            # Raw detection count is misleading (one face -> many boxes
+            # across sampled frames). Surface the bbox-track grouping
+            # so the model says "5 unique subjects" not "300 detections".
+            tracks = faces.get("tracks") or []
+            n_subjects = faces.get("unique_subjects", len(tracks))
+            head = (
+                f"[face detections] {n_subjects} unique subject"
+                f"{'s' if n_subjects != 1 else ''} "
+                f"({faces['count']} raw detections, "
+                f"first_seen={faces.get('first_seen_sec')}s, "
+                f"last_seen={faces.get('last_seen_sec')}s)"
             )
+            if tracks:
+                rows = [
+                    f"  - subject {t['track_id']}: "
+                    f"{t['sightings']} sighting{'s' if t['sightings'] != 1 else ''}, "
+                    f"first {t['first_ts']:.1f}s, last {t['last_ts']:.1f}s"
+                    for t in tracks
+                ]
+                head += "\n" + "\n".join(rows)
+            blocks.append(head)
     if expansion:
         blocks.append(
             "[knowledge-graph expansion]\n"
