@@ -21,11 +21,11 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 
-from app.tools import chat_history, clip_context, mode, pipeline_status, upload as s3_upload
+from app.tools import chat_history, clip_context, mode, pipeline_status, thumbnail, upload as s3_upload
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -75,7 +75,24 @@ def set_mode(payload: dict) -> dict:
 
 @router.get("/api/clips")
 def list_clips() -> dict:
-    return {"clips": clip_context.list_recent(limit=20)}
+    clips = clip_context.list_recent(limit=20)
+    for c in clips:
+        cid = c.get("clip_id")
+        if cid:
+            c["thumb_url"] = f"/api/thumb/{cid}"
+    return {"clips": clips}
+
+
+@router.get("/api/thumb/{clip_id}")
+def thumb(clip_id: str) -> Response:
+    data = thumbnail.get_jpeg(clip_id)
+    if not data:
+        raise HTTPException(404, f"no thumbnail available for clip {clip_id!r}")
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.get("/api/clip/{clip_id}")

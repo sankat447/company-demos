@@ -11,6 +11,10 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UVICORN_WORKERS=2
 
+# ffmpeg is needed by app/tools/thumbnail.py to extract a JPEG preview from
+# the uploaded clip on demand. ffmpeg-free is in the UBI 9 AppStream repo.
+RUN dnf install -y --setopt=tsflags=nodocs ffmpeg-free && dnf clean all
+
 COPY pyproject.toml ./
 COPY app ./app
 RUN pip install --no-cache-dir --upgrade pip && \
