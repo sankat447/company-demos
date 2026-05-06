@@ -25,6 +25,11 @@ spec:
       labels:
         app.kubernetes.io/name: pd-persona
         app.kubernetes.io/part-of: police-department
+        # Required by the OSSM-managed NetworkPolicy
+        # `istio-expose-route-data-science-smcp` so the OpenShift router
+        # (in openshift-ingress) is allowed to reach this pod. Without it,
+        # the Route returns HAProxy 503.
+        maistra.io/expose-route: "true"
       annotations:
         sidecar.istio.io/inject: "true"
     spec:

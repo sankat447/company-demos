@@ -30,3 +30,14 @@ spec:
         duration: 30s
         factor: 2
         maxDuration: 5m
+  # The watcher's cursor ConfigMap is mutated by the cluster (CronJob writes
+  # seen_keys + last_run_iso back). Without this, selfHeal reverts the cursor
+  # to git's empty values every reconcile and the watcher re-fires every clip
+  # in S3, producing duplicate PipelineRuns.
+  ignoreDifferences:
+    - group: ""
+      kind: ConfigMap
+      name: pd-s3-watcher-cursor
+      namespace: pd-cctv
+      jsonPointers:
+        - /data

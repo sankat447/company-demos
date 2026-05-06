@@ -1,0 +1,32 @@
+# =============================================================================
+#  PeerAuthentication for the persona service.
+#
+#  The cluster's istio-system control plane sets the mesh-default
+#  PeerAuthentication to STRICT mTLS. The OpenShift Router (HAProxy in
+#  openshift-ingress) is NOT a mesh member and cannot speak mTLS, so without
+#  this exception the externally-facing Route returns HTTP 502 — the istio
+#  sidecar refuses the router's plaintext request.
+#
+#  PERMISSIVE here means the sidecar accepts EITHER mTLS or plaintext on the
+#  inbound port. In-mesh callers (other workloads with sidecars) still get
+#  mTLS by default; the OCP router gets plaintext and the Route works.
+#
+#  Companion piece: the pod template carries
+#  `maistra.io/expose-route: "true"` so the OSSM-managed NetworkPolicy
+#  `istio-expose-route-data-science-smcp` lets the router reach the pod at
+#  the network level. Both are needed.
+# =============================================================================
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: pd-persona-permissive
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pd-persona
+  mtls:
+    mode: PERMISSIVE
