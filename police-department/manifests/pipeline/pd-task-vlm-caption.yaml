@@ -23,8 +23,13 @@ spec:
     type: string
   - name: frames
     type: string
-    default: "8"
-    description: Number of keyframes to sample
+    # Must be ≤ vLLM's --limit-mm-per-prompt={"image":N} (currently 4 in
+    # pd-vllm-vlm-runtime.yaml). Bumping the runtime to 8 would push the
+    # worst-case prompt past max-model-len=8192 (8 frames × ~1280 visual
+    # tokens + 2048 completion = 12288). Keep 4 in lockstep with the
+    # runtime.
+    default: "4"
+    description: Number of keyframes to sample (must be ≤ runtime image limit)
   workspaces:
   - name: shared
   steps:
@@ -34,6 +39,12 @@ spec:
       #!/bin/sh
       set -eu
       cd "$(workspaces.shared.path)/$(params.clip-id)"
+      # Clear stale keyframes — the shared workspace is RWX EFS and
+      # persists across PipelineRuns. If a previous run extracted N=8
+      # frames and we now extract N=4, the old frame_005..008.jpg would
+      # remain and the caption step's glob picks up all 8, busting
+      # vLLM's --limit-mm-per-prompt cap.
+      rm -rf frames
       mkdir -p frames
       duration=$(ffprobe -v error -show_entries format=duration \
                   -of default=noprint_wrappers=1:nokey=1 clip.mp4 | awk '{printf "%d", $1}')

@@ -51,8 +51,22 @@ metadata:
     # keep 5+ inactive revisions for ~24h.)
     serving.knative.dev/rollout-duration: "0"
     serving.kserve.io/no-mesh-grace-period: "0s"
+    # vLLM cold-start on a fresh GPU node: ~6GB image pull (3-5 min) +
+    # storage-initializer pulls 14GB model from S3 (3-4 min) + first
+    # vLLM init may CUDA-OOM if a terminating sibling still holds VRAM,
+    # back-off restart, then ~2:30 shard load. Default 10min deadline
+    # marks the revision Failed before the second attempt can finish.
+    # 30m gives enough margin without hiding a real failure.
+    serving.knative.dev/progress-deadline: "30m"
 spec:
   predictor:
+    # GPU mutex hygiene: when this revision rolls (e.g. ServingRuntime arg
+    # change), the old vLLM pod must release VRAM BEFORE the new pod tries
+    # to allocate, or CUDA-OOM (4.89/22 GiB free) will kill the first init.
+    # vLLM's default SIGTERM handling exits cleanly and frees VRAM well
+    # under 10s; only the istio-proxy sidecar's draining stretches the
+    # default 30s grace. Cap at 15s so reschedules don't sit on the GPU.
+    terminationGracePeriodSeconds: 15
     # KServe storage-initializer reads AWS S3 credentials from the
     # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars injected via
     # this ServiceAccount's referenced Secret (pd-kserve-s3-creds, with
