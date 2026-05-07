@@ -215,10 +215,53 @@ def _evidence_clerk(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
     return {"prose": prose, "claims": claims}
 
 
+def _journalist(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
+    """Narrative-mode mock — short, plain English, with a Timeline."""
+    clip = ctx.get("clip_id_short", "—")
+    prose_text = (ctx.get("prose") or "").strip() or "(no narration on file)"
+    faces = ctx.get("faces", {}) or {}
+    n_subjects = faces.get("unique_subjects", 0)
+    plates = ctx.get("plates", []) or []
+    real_plates = [p for p in plates if p["text"].upper() not in
+                   {"CAMERA", "CAMERAL", "EXIT", "STOP", "OPEN", "CLOSED"}]
+
+    paras = [
+        f"From the available clip footage, here is what unfolded "
+        f"(clip `{clip}`).",
+        prose_text[:600] + ("…" if len(prose_text) > 600 else ""),
+    ]
+    if n_subjects:
+        paras.append(
+            f"In total, **{n_subjects} distinct subject"
+            f"{'s' if n_subjects != 1 else ''}** can be tracked across the "
+            f"frames. No real license plates were captured — the OCR "
+            f"system flagged " + ("none." if not real_plates else
+            f"only generic strings (likely camera signage).")
+        )
+
+    timeline = []
+    for t in (ctx.get("faces", {}) or {}).get("tracks", [])[:6]:
+        timeline.append(f"- Subject {t['track_id']} first appears at {t['first_ts']:.1f}s "
+                        f"and stays in frame until {t['last_ts']:.1f}s.")
+    if not timeline:
+        timeline = ["- (no track-level timeline available; rerun the pipeline "
+                    "to populate face tracks)"]
+
+    prose = (
+        "\n\n".join(paras)
+        + "\n\n**Timeline**\n" + "\n".join(timeline)
+        + "\n\n*(Mock response — Journalist persona)*"
+    )
+    claims = [{"text": p, "confidence": 0.5, "frame_refs": [f"clip:{clip}"]}
+              for p in paras[:4]]
+    return {"prose": prose, "claims": claims}
+
+
 _MOCKS = {
     "detective": _detective,
     "patrol": _patrol,
     "evidence_clerk": _evidence_clerk,
+    "journalist": _journalist,
 }
 
 
