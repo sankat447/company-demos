@@ -777,20 +777,23 @@ function linkifyTimestamps(safeHtml) {
 // Parse "/plate ABC1234 @0:42" → {kind:"plate", text:"ABC1234", ts_sec: 42}
 // Returns null if not a slash command, or {kind, text, ts_sec} on success,
 // or {error} on bad syntax.
-const SLASH_HELP = `**Slash commands** (operator corrections — authoritative, override auto-detected data)
-
-  /plate &lt;text&gt; [@&lt;time&gt;]      authoritative plate reading
-  /people &lt;N&gt;                  override unique-subject count
-  /vehicle &lt;text&gt;              vehicle make/model/color
-  /event &lt;text&gt; [@&lt;time&gt;]      add an action / event with optional timestamp
-  /suspect &lt;#&gt;: &lt;description&gt;  describe one suspect (e.g. "/suspect 1: red hoodie, ringleader")
-  /note &lt;text&gt;                 generic free-text correction or annotation
-
-  /list      show all corrections on file for this clip
-  /undo      remove the most recent correction
-  /help      show this list
-
-Time formats accepted: 0:42, 1:23, 8.5s, 12s. The persona will treat these as the source of truth on the next chat reply.`;
+const SLASH_HELP =
+  "**Slash commands** — operator corrections that override auto-detected data\n\n" +
+  "```\n" +
+  "/plate <text> [@<time>]      authoritative plate reading\n" +
+  "/people <N>                  override unique-subject count\n" +
+  "/vehicle <text>              vehicle make/model/color\n" +
+  "/event <text> [@<time>]      add an action / event with optional timestamp\n" +
+  "/suspect <#>: <description>  describe one suspect\n" +
+  "                              e.g. /suspect 1: red hoodie, ringleader\n" +
+  "/note <text>                 generic free-text correction or annotation\n" +
+  "\n" +
+  "/list                        show all corrections on file for this clip\n" +
+  "/undo                        remove the most recent correction\n" +
+  "/help                        show this list\n" +
+  "```\n\n" +
+  "Time formats accepted: `0:42`, `1:23`, `8.5s`, `12s`. " +
+  "The persona will treat these as the source of truth on the next chat reply.";
 
 function parseTimestamp(s) {
   if (!s) return null;
