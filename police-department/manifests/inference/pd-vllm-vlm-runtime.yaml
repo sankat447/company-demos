@@ -31,6 +31,15 @@ metadata:
   annotations:
     openshift.io/display-name: "vLLM Runtime — Multimodal (Qwen2.5-VL on T4)"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    # Tag this ServingRuntime as derived from RHOAI's pre-installed
+    # vllm-cuda-runtime-template so the Dashboard's metrics integration
+    # treats it as a known runtime (not "custom") and surfaces vLLM
+    # metrics on the model card. See:
+    # https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/...
+    opendatahub.io/template-name: vllm-cuda-runtime-template
+    opendatahub.io/template-display-name: "vLLM NVIDIA GPU ServingRuntime for KServe"
+    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+    opendatahub.io/runtime-version: v0.10.1.1
 spec:
   annotations:
     prometheus.io/port: "8080"
