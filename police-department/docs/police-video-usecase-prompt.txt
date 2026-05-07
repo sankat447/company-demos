@@ -1,0 +1,520 @@
+================================================================================
+  PROMPT — Police-Department CCTV Video Intelligence demo presentation
+  Paste this entire file into Claude (or any frontier LLM) to generate a
+  client-ready slide deck.
+
+  Two diagram assets are referenced as filenames; their full SVG markup is
+  embedded inline below the prompt body so the model can copy them
+  verbatim into the deck without you having to attach the files.
+================================================================================
+
+ROLE
+You are a senior solutions architect at IIS Technology
+(https://www.iistech.com — "IT Solutions for Business Results"). You are
+preparing an executive-ready presentation for a prospective police-department
+client who is evaluating an AI-powered CCTV-intelligence platform we built on
+Red Hat OpenShift AI. The audience is a mix of: a Chief / Deputy Chief
+(non-technical, ~3-min attention span per slide), a CIO/CTO (technical, wants
+architecture), and a budget owner (wants real cost numbers).
+
+OUTPUT REQUIREMENTS
+- Format: HTML slides using **reveal.js** (CDN-loaded, single self-contained
+  .html file). Each <section> = one slide. The deck must look professional;
+  no clip-art, no stock-photo placeholders.
+- Length: 14–18 slides. Aim for clarity over volume.
+- Brand: IIS Technology, www.iistech.com.
+    Primary colour:  #256092 (deep blue)
+    Dark slate:      #3d4759
+    Accent red:      #e32726
+    Background:      #f7f9fc on slides, white panels
+    Heading font:    Helvetica Neue / Arial sans-serif, weight 700
+    Body font:       same family, weight 400, 1.45 line-height
+    Logo wordmark in the upper-right of every slide: "IIS Technology"
+      with a 4-px underline in #256092.
+    Footer line on every slide: "www.iistech.com  ·  IT Solutions for
+    Business Results" in 11px #3d4759.
+- Two architecture diagrams are provided inline below as full SVG markup.
+  Embed them directly (do not link out). They are sized for 16:9.
+- Cost numbers must be presented as a TABLE per tier (Demo / POC / Production)
+  with line-items. Add a clear disclaimer slide that all cost numbers are
+  illustrative and not a quote.
+- Speaker notes go in <aside class="notes">…</aside> per reveal.js
+  convention so the presenter can pop them up with `S`.
+
+============================================================
+  DECK CONTENT — slide by slide
+============================================================
+
+SLIDE 1 · TITLE
+  Title:    "Police Department · CCTV Video Intelligence"
+  Subtitle: "Turn hours of footage into investigative answers in seconds"
+  Footer:   IIS Technology  ·  Built on Red Hat OpenShift AI
+  Speaker note: 60-second hook — "every department has a footage backlog;
+  ours is the platform that makes it searchable in plain English."
+
+SLIDE 2 · THE PROBLEM
+  Three stats stacked, each with one-line caption:
+    ▸ 90% of CCTV footage is never reviewed
+    ▸ A 10-min clip takes 30+ min of operator attention to triage
+    ▸ Operators are drowning while crime patterns repeat across clips
+  Bottom line: "We are not making more cameras useful — we are making the
+  ones we have searchable."
+  Speaker note: relatable pain — 24/7 cameras, finite officers, missed
+  patterns, manual logbooks.
+
+SLIDE 3 · THE SOLUTION (one paragraph, no jargon)
+  "Operator drops a CCTV clip. Within ~3 minutes the platform extracts
+   what's visible (vehicle make/model, persons, faces, license plates),
+   transcribes any audio, indexes everything in a searchable knowledge
+   base, and lets investigators ask plain-English questions across one
+   clip or thousands. Every answer comes with clickable timestamps that
+   jump straight to the moment in the video, and a chain-of-custody log
+   that satisfies evidence-handling requirements."
+  Below: a single-line CTA — "All on-prem. All auditable. Optional
+  cloud-AI for the toughest cases, on the operator's say-so."
+
+SLIDE 4 · WHAT THE OPERATOR SEES (3 screenshots in a row)
+  - Drop-zone with "Deep analysis" checkbox
+  - Chat with cyan timestamp pills
+  - Video player jumping to a clicked timestamp
+  Caption: "Two clicks: drop → ask."
+
+SLIDE 5 · FUNCTIONAL ARCHITECTURE
+  Embed the SVG titled "functional-architecture.svg" provided below.
+  Tagline under it: "Drop · Process · Index · Ask · Approve. Five stages,
+  one human in the loop."
+
+SLIDE 6 · TECHNICAL ARCHITECTURE
+  Embed the SVG titled "technical-architecture.svg" provided below.
+  Tagline: "Air-gap-friendly by default. Optional Anthropic Claude egress
+  only when the operator ticks 'Deep analysis' on a clip — frames never
+  leave the cluster on chat."
+
+SLIDE 7 · USE CASE 1 — Smash-and-grab investigation
+  Mini case-study layout:
+    • Scenario: Storefront break-in caught on parking-lot CCTV
+    • Without the platform: 4–6 hours of operator time to identify vehicle,
+      crew size, sequence of events, and salvageable evidence
+    • With the platform: 3 minutes ingest, then plain-English Q&A:
+        "What vehicle? Make, model, plate?"
+        "How many suspects? What were they wearing?"
+        "What evidence did they leave?"
+    • Outcome: Detective walks into the briefing with a typed timeline
+      and clickable timestamps, not a stack of footage.
+
+SLIDE 8 · USE CASE 2 — Missing-person canvas
+  • Scenario: Eight cameras around a transit hub, eight hours of footage
+  • Persona search: "Show me anyone matching this description in
+    the last 4 hours" — semantic search across all clips at once
+  • Output: Ranked list of clips with face/clothing matches and seekable
+    timestamps; investigator confirms which leads to pursue
+  • Time-to-lead: hours → minutes
+
+SLIDE 9 · USE CASE 3 — Pattern-of-life / repeat offender
+  • Scenario: Same suspect believed to be casing multiple locations
+  • Index every clip from a week of patrols → query "loitering near
+    storefront after hours"
+  • Output: Cross-clip cluster with timestamps, confidence scores,
+    chain-of-custody trail for every read
+
+SLIDE 10 · USE CASE 4 — Public-records request / press response
+  • Scenario: News organization requests a narrative of a public incident
+  • Journalist persona produces a plain-English account from indexed data
+    with timestamps for verification
+  • Cuts response time from days (manual review by PIO) to hours
+
+SLIDE 11 · BENEFITS (three columns)
+  Operational
+    ▸ ~10× faster triage — minutes per clip vs. hours
+    ▸ Plain-English search across full archive
+    ▸ Clickable timestamps eliminate scrubbing
+  Compliance / Trust
+    ▸ Chain-of-custody log auto-emitted on every read & approval
+    ▸ Human-in-the-loop required before any answer is "final"
+    ▸ Local model option keeps frames on-prem; Claude is opt-in per clip
+  Cost / Operations
+    ▸ Runs on the OpenShift you already own
+    ▸ GPU on-demand, scales to zero between clips
+    ▸ No per-camera licence fees
+
+SLIDE 12 · COST — DEMO TIER (1–2 day pilot)
+  Heading: "Demo · running on AWS for 1–2 days"
+  Table:
+    | Item                                    | Approx. cost (USD)        |
+    |-----------------------------------------|---------------------------|
+    | g5.xlarge GPU MachineSet (A10G 24 GB)   | $1.00 / hour              |
+    | 3× m5.xlarge worker nodes (existing)    | $0.20 / hour              |
+    | Aurora pgvector instance (db.r6g.large) | $0.30 / hour              |
+    | S3 storage (under 200 GB)               | <$5 total                 |
+    | Anthropic Claude (multimodal, optional) | ~$0.10–0.20 / clip        |
+    | Engineer time (1 SA, half-time)         | per IIS Tech rate card    |
+    | **Day-rate envelope**                   | **~$50–80/day in cloud**  |
+  Bullet under: "Cluster scales to zero between sessions; only pay when
+  the demo is running. Anthropic Claude is a per-clip line-item, only
+  charged when the operator opts in."
+
+SLIDE 13 · COST — POC TIER (4–8 weeks, ~10 users, ~50 clips/day)
+  Table:
+    | Item                                          | Approx. monthly cost  |
+    |-----------------------------------------------|-----------------------|
+    | OpenShift workers (3 × m5.xlarge, on-prem)    | hardware capex        |
+    | GPU node (1 × A10G or equivalent on-prem)     | ~$2,000 hardware      |
+    | Storage (NVMe + EFS-equivalent for workspace) | ~$1,500 hardware      |
+    | RHOAI / OpenShift AI subscription             | per Red Hat agreement |
+    | Anthropic Claude budget @ ~50 clips/day       | ~$200–400/month       |
+    | Engineering oversight (0.25 FTE)              | per IIS Tech rate     |
+    | **Monthly run rate (cloud-equivalent)**       | **~$1,500–2,500/mo**  |
+  Bullet: "Clip volume of 50/day with full Claude multimodal at $0.20/clip
+  ≈ $300/month. Local-only mode is $0 incremental compute."
+
+SLIDE 14 · COST — PRODUCTION TIER (Department-wide, 24/7)
+  Table:
+    | Item                                                  | Approx. annual    |
+    |-------------------------------------------------------|-------------------|
+    | OpenShift nodes (6 worker, 2 GPU — A10G or L40S)      | $50–80k capex     |
+    | Aurora HA / equivalent on-prem PostgreSQL with pgvector| $20–35k capex     |
+    | High-bandwidth storage tier (≥10 TB usable)            | $15–25k capex     |
+    | RHOAI / RHEL subscriptions                             | per agreement     |
+    | Anthropic Claude budget (~500 clips/day, mixed mode)   | ~$30–50k/yr       |
+    | IIS Tech managed-service (24/7 oncall + tuning)        | per IIS Tech rate |
+    | **Year-1 envelope (incl. capex amortisation)**         | **~$150–250k/yr** |
+  Bullet: "Numbers above assume air-gap-friendly default with selective
+  Claude multimodal on flagged clips. Pure-local deployment removes the
+  Anthropic line-item entirely."
+
+SLIDE 15 · COST DISCLAIMER
+  Heading: "About these numbers"
+  Body (2 short paragraphs):
+    "All figures on the previous three slides are illustrative ranges
+    based on AWS list prices (Demo) and typical on-prem hardware (POC /
+    Production). They are not a binding quote. Actual cost depends on
+    department-specific workload (clips per day, retention horizon,
+    redundancy / HA tier, integration scope with existing CAD / RMS /
+    evidence-management systems), hardware procurement vendor, and
+    Red Hat / Anthropic enterprise discount levels.
+    For a tailored estimate including hardware sourcing, integration
+    services, and managed-operations, contact IIS Technology at
+    www.iistech.com."
+
+SLIDE 16 · WHAT WE'D NEED FROM YOU
+  Three columns:
+    Demo
+      ▸ A handful of representative .mp4 clips (10–60 s each)
+      ▸ A 90-min screen-share window
+    POC
+      ▸ Sample data set (50–500 clips) and 2 stakeholder interviews
+      ▸ OpenShift cluster access OR willingness to run on our shared lab
+      ▸ Decision criteria written down up-front
+    Production
+      ▸ Procurement + RHOAI subscription path
+      ▸ Integration scope (CAD/RMS/evidence locker?)
+      ▸ Compliance review of optional Anthropic egress
+
+SLIDE 17 · NEXT STEPS / CTA
+  Heading: "Three ways to start"
+  1. **30-min live demo** on our environment with one of your clips —
+     this week.
+  2. **Two-week scoping** to size your real workload and produce a
+     fixed POC quote.
+  3. **Embed with us** — joint POC where we deploy on your cluster and
+     measure your operators' time-saved.
+  Footer: "Sanjeev Kumar · IIS Technology · www.iistech.com"
+
+SLIDE 18 (optional) · APPENDIX — TECHNICAL DETAIL
+  • OpenShift AI 2.25 · Tekton · KServe · Knative
+  • VLM: Qwen2.5-VL 7B (local) or Claude Sonnet 4.5 (multimodal, opt-in)
+  • Embeddings: BGE-small (384 dim, pgvector index)
+  • Storage: Aurora pgvector + S3 data lake + EFS RWX workspace
+  • Dual-mode toggle: pd-vlm-mode (ingest) and pd-llm-mode (chat)
+  • Privacy: video frames touch external API only on operator opt-in,
+    only at ingest time, never on chat queries.
+
+============================================================
+  STYLE NOTES (please follow strictly)
+============================================================
+- Use the IIS Tech colour palette throughout. Headings #256092, body
+  #3d4759, accent (highlights, callouts, optional-egress arrows) #e32726.
+- Slide background: #f7f9fc. Card backgrounds: white with subtle
+  box-shadow.
+- Reveal.js theme: start from the "white" theme and override with the
+  IIS palette in a <style> block in the same .html file.
+- Tables: alternating row backgrounds (white / #eef3fa). Header row
+  background #256092, white text, bold.
+- Architecture-diagram slides: SVG should fill ~75% of the slide width,
+  centred; brief one-line caption below the SVG, no other body content.
+- Embed both SVGs INLINE (no <img src=…/> with file:// paths). The full
+  SVG markup for both diagrams is provided below — copy verbatim.
+- Always include speaker notes (`<aside class="notes">`).
+- Final HTML must be a SINGLE self-contained file that opens in any
+  modern browser without internet access EXCEPT for the reveal.js CDN
+  bundle. Pin a known-good reveal.js version (e.g. 4.6.x).
+
+============================================================
+  ASSET 1 — functional-architecture.svg
+  (copy this entire <svg>…</svg> block verbatim into Slide 5)
+============================================================
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="hdrG" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#256092"/>
+      <stop offset="100%" stop-color="#3d4759"/>
+    </linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3d4759"/>
+    </marker>
+    <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#e32726"/>
+    </marker>
+    <filter id="sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="720" fill="#f7f9fc"/>
+  <rect x="0" y="0" width="1280" height="78" fill="url(#hdrG)"/>
+  <text x="40" y="44" fill="#ffffff" font-size="24" font-weight="700">Police Department · CCTV Video Intelligence</text>
+  <text x="40" y="68" fill="#cbd5e1" font-size="14">Functional architecture — how an operator turns a clip into actionable answers</text>
+  <text x="1240" y="50" fill="#ffffff" font-size="16" font-weight="700" text-anchor="end">IIS Technology</text>
+  <g filter="url(#sh)">
+    <rect x="40" y="160" width="200" height="140" rx="10" fill="#ffffff" stroke="#256092" stroke-width="2"/>
+    <text x="140" y="195" text-anchor="middle" fill="#256092" font-size="14" font-weight="700">1 · OPERATOR</text>
+    <text x="140" y="225" text-anchor="middle" fill="#3d4759" font-size="13">Drag &amp; drop CCTV clip</text>
+    <text x="140" y="245" text-anchor="middle" fill="#3d4759" font-size="13">(.mp4, up to 300 MB)</text>
+    <text x="140" y="278" text-anchor="middle" fill="#94a3b8" font-size="11">No training required</text>
+  </g>
+  <g transform="translate(110,108)">
+    <rect x="0" y="0" width="60" height="36" rx="4" fill="#256092"/>
+    <circle cx="42" cy="18" r="10" fill="#ffffff"/>
+    <circle cx="42" cy="18" r="5" fill="#256092"/>
+    <rect x="-8" y="6" width="8" height="24" fill="#256092"/>
+  </g>
+  <line x1="240" y1="230" x2="290" y2="230" stroke="#3d4759" stroke-width="2.5" marker-end="url(#arr)"/>
+  <g filter="url(#sh)">
+    <rect x="290" y="120" width="280" height="220" rx="10" fill="#ffffff" stroke="#256092" stroke-width="2"/>
+    <text x="430" y="150" text-anchor="middle" fill="#256092" font-size="14" font-weight="700">2 · PERCEPTION PIPELINE</text>
+    <text x="430" y="170" text-anchor="middle" fill="#94a3b8" font-size="11">runs in parallel ~2–3 minutes</text>
+    <g font-size="12" fill="#3d4759">
+      <rect x="306" y="186" width="248" height="22" rx="4" fill="#eef3fa"/>
+      <text x="316" y="201">▸ vlm-caption  · scene narrative (vehicle, suspects, actions)</text>
+      <rect x="306" y="212" width="248" height="22" rx="4" fill="#eef3fa"/>
+      <text x="316" y="227">▸ whisper-asr  · audio transcript</text>
+      <rect x="306" y="238" width="248" height="22" rx="4" fill="#eef3fa"/>
+      <text x="316" y="253">▸ yolo-detect  · objects &amp; persons</text>
+      <rect x="306" y="264" width="248" height="22" rx="4" fill="#eef3fa"/>
+      <text x="316" y="279">▸ faces-and-plates  · biometric &amp; OCR</text>
+      <rect x="306" y="290" width="248" height="22" rx="4" fill="#eef3fa"/>
+      <text x="316" y="305">▸ structure-and-write  · embed &amp; index</text>
+    </g>
+  </g>
+  <g>
+    <line x1="555" y1="197" x2="640" y2="155" stroke="#e32726" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <rect x="640" y="100" width="220" height="100" rx="8" fill="#fff5f5" stroke="#e32726" stroke-width="1.5"/>
+    <text x="750" y="125" text-anchor="middle" fill="#e32726" font-size="12" font-weight="700">VLM mode (toggle)</text>
+    <text x="750" y="148" text-anchor="middle" fill="#3d4759" font-size="11">local Qwen-VL — no egress</text>
+    <text x="750" y="166" text-anchor="middle" fill="#3d4759" font-size="11">claude-multimodal — frames</text>
+    <text x="750" y="180" text-anchor="middle" fill="#3d4759" font-size="11">leave once at ingest only</text>
+  </g>
+  <line x1="570" y1="230" x2="640" y2="230" stroke="#3d4759" stroke-width="2.5" marker-end="url(#arr)"/>
+  <g filter="url(#sh)">
+    <rect x="640" y="220" width="220" height="120" rx="10" fill="#ffffff" stroke="#256092" stroke-width="2"/>
+    <text x="750" y="252" text-anchor="middle" fill="#256092" font-size="14" font-weight="700">3 · KNOWLEDGE BASE</text>
+    <text x="750" y="275" text-anchor="middle" fill="#3d4759" font-size="12">Aurora pgvector</text>
+    <text x="750" y="293" text-anchor="middle" fill="#3d4759" font-size="12">narrations · entities · events</text>
+    <text x="750" y="311" text-anchor="middle" fill="#3d4759" font-size="12">faces · plates · custody log</text>
+  </g>
+  <g transform="translate(720,162)">
+    <ellipse cx="30" cy="8" rx="30" ry="8" fill="#256092"/>
+    <rect x="0" y="8" width="60" height="34" fill="#256092"/>
+    <ellipse cx="30" cy="42" rx="30" ry="8" fill="#1e4d77"/>
+  </g>
+  <line x1="860" y1="280" x2="920" y2="280" stroke="#3d4759" stroke-width="2.5" marker-end="url(#arr)"/>
+  <g filter="url(#sh)">
+    <rect x="920" y="180" width="320" height="200" rx="10" fill="#ffffff" stroke="#256092" stroke-width="2"/>
+    <text x="1080" y="210" text-anchor="middle" fill="#256092" font-size="14" font-weight="700">4 · ASK IN PLAIN ENGLISH</text>
+    <text x="1080" y="230" text-anchor="middle" fill="#94a3b8" font-size="11">four personas, one Aurora index</text>
+    <g font-size="12" fill="#3d4759">
+      <rect x="936" y="246" width="290" height="22" rx="4" fill="#eef3fa"/>
+      <text x="946" y="261">▸ Journalist — narrative for the public</text>
+      <rect x="936" y="272" width="290" height="22" rx="4" fill="#eef3fa"/>
+      <text x="946" y="287">▸ Detective — investigative read</text>
+      <rect x="936" y="298" width="290" height="22" rx="4" fill="#eef3fa"/>
+      <text x="946" y="313">▸ Patrol — tactical situation report</text>
+      <rect x="936" y="324" width="290" height="22" rx="4" fill="#eef3fa"/>
+      <text x="946" y="339">▸ Evidence Clerk — chain-of-custody</text>
+    </g>
+    <text x="1080" y="368" text-anchor="middle" fill="#94a3b8" font-size="11">click any timestamp · video seeks instantly</text>
+  </g>
+  <g filter="url(#sh)">
+    <rect x="40" y="430" width="1200" height="160" rx="10" fill="#ffffff" stroke="#3d4759" stroke-width="2"/>
+    <text x="640" y="465" text-anchor="middle" fill="#3d4759" font-size="14" font-weight="700">5 · HUMAN-IN-THE-LOOP REVIEW</text>
+    <line x1="60" y1="478" x2="1220" y2="478" stroke="#cbd5e1" stroke-width="1"/>
+    <g font-size="13" fill="#3d4759">
+      <text x="80" y="505" font-weight="700">Investigator sees</text>
+      <text x="80" y="525">▸ video player loaded above the chat (presigned S3 URL, 5-min TTL)</text>
+      <text x="80" y="545">▸ Markdown answers with vehicle make, suspect descriptions, action timeline</text>
+      <text x="80" y="565">▸ Cyan timestamp pills — click `0:09` or `8.5s` and the video seeks &amp; plays</text>
+      <text x="640" y="505" font-weight="700">Approve or escalate</text>
+      <text x="640" y="525">▸ Every persona answer is "Pending" until a human approves it (HITL queue)</text>
+      <text x="640" y="545">▸ Approved findings flow back to Aurora as `claims` with confidence scores</text>
+      <text x="640" y="565">▸ Chain-of-custody log records every read, write, and approval automatically</text>
+    </g>
+  </g>
+  <rect x="0" y="650" width="1280" height="70" fill="#3d4759"/>
+  <text x="40" y="685" fill="#ffffff" font-size="13" font-weight="700">Drop a clip · ask in plain English · click any timestamp to jump in the video</text>
+  <text x="40" y="705" fill="#cbd5e1" font-size="11">Built on Red Hat OpenShift AI · Tekton · KServe (Qwen-VL) · Anthropic Claude (optional) · Aurora pgvector</text>
+  <text x="1240" y="695" fill="#ffffff" font-size="12" font-weight="700" text-anchor="end">www.iistech.com</text>
+</svg>
+
+============================================================
+  ASSET 2 — technical-architecture.svg
+  (copy this entire <svg>…</svg> block verbatim into Slide 6)
+============================================================
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="hdrG2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#256092"/>
+      <stop offset="100%" stop-color="#3d4759"/>
+    </linearGradient>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#256092"/>
+    </marker>
+    <marker id="arr2R" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#e32726"/>
+    </marker>
+    <marker id="arr2S" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3d4759"/>
+    </marker>
+    <filter id="sh2" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="720" fill="#f7f9fc"/>
+  <rect x="0" y="0" width="1280" height="78" fill="url(#hdrG2)"/>
+  <text x="40" y="44" fill="#ffffff" font-size="24" font-weight="700">Police Department · CCTV Video Intelligence</text>
+  <text x="40" y="68" fill="#cbd5e1" font-size="14">Technical architecture — components, data flow, and the privacy-aware optional egress</text>
+  <text x="1240" y="50" fill="#ffffff" font-size="16" font-weight="700" text-anchor="end">IIS Technology</text>
+  <rect x="60" y="120" width="1010" height="525" rx="14" fill="#ffffff" stroke="#256092" stroke-width="2.5" stroke-dasharray="6 4"/>
+  <text x="80" y="146" fill="#256092" font-size="13" font-weight="700">OpenShift AI Cluster</text>
+  <text x="220" y="146" fill="#94a3b8" font-size="12">(KServe · Tekton · Knative · Istio mesh · pgvector)</text>
+  <g filter="url(#sh2)">
+    <rect x="90" y="170" width="170" height="80" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="175" y="195" text-anchor="middle" fill="#3d4759" font-size="12" font-weight="700">OpenShift Route</text>
+    <text x="175" y="213" text-anchor="middle" fill="#94a3b8" font-size="10">edge TLS · Istio sidecar</text>
+    <text x="175" y="232" text-anchor="middle" fill="#94a3b8" font-size="10">https://pd-persona-…</text>
+  </g>
+  <g filter="url(#sh2)">
+    <rect x="290" y="170" width="200" height="80" rx="8" fill="#eef3fa" stroke="#256092" stroke-width="1.5"/>
+    <text x="390" y="194" text-anchor="middle" fill="#256092" font-size="13" font-weight="700">Persona Service</text>
+    <text x="390" y="212" text-anchor="middle" fill="#3d4759" font-size="11">FastAPI · 4 personas</text>
+    <text x="390" y="228" text-anchor="middle" fill="#3d4759" font-size="11">renders chat UI · serves /api/*</text>
+    <text x="390" y="244" text-anchor="middle" fill="#94a3b8" font-size="10">pd-personas namespace</text>
+  </g>
+  <g filter="url(#sh2)">
+    <rect x="90" y="285" width="900" height="200" rx="10" fill="#ffffff" stroke="#256092" stroke-width="1.5"/>
+    <text x="105" y="307" fill="#256092" font-size="13" font-weight="700">Tekton perception pipeline · pd-cctv namespace · ~2–3 min/clip warm</text>
+    <text x="640" y="307" fill="#94a3b8" font-size="11">EFS RWX workspace · 6 GPUs time-sliced from 1 A10G</text>
+    <rect x="105" y="325" width="120" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="165" y="346" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">pull-clip</text>
+    <text x="165" y="362" text-anchor="middle" fill="#94a3b8" font-size="10">S3 → EFS</text>
+    <text x="165" y="375" text-anchor="middle" fill="#94a3b8" font-size="10">~15s</text>
+    <rect x="245" y="325" width="150" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="320" y="343" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">vlm-caption</text>
+    <text x="320" y="358" text-anchor="middle" fill="#94a3b8" font-size="10">scene narrative</text>
+    <text x="320" y="372" text-anchor="middle" fill="#94a3b8" font-size="10">~30–90s</text>
+    <rect x="245" y="385" width="150" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="320" y="403" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">whisper-asr</text>
+    <text x="320" y="418" text-anchor="middle" fill="#94a3b8" font-size="10">transcript</text>
+    <text x="320" y="432" text-anchor="middle" fill="#94a3b8" font-size="10">~30s · CPU</text>
+    <rect x="415" y="325" width="150" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="490" y="343" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">yolo-detect</text>
+    <text x="490" y="358" text-anchor="middle" fill="#94a3b8" font-size="10">objects</text>
+    <text x="490" y="372" text-anchor="middle" fill="#94a3b8" font-size="10">~30–60s · GPU</text>
+    <rect x="415" y="385" width="150" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="490" y="403" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">faces-and-plates</text>
+    <text x="490" y="418" text-anchor="middle" fill="#94a3b8" font-size="10">YOLOv8-face · easyOCR</text>
+    <text x="490" y="432" text-anchor="middle" fill="#94a3b8" font-size="10">~30–120s · GPU</text>
+    <rect x="595" y="355" width="180" height="60" rx="6" fill="#eef3fa" stroke="#256092"/>
+    <text x="685" y="375" text-anchor="middle" fill="#256092" font-size="11" font-weight="700">structure-and-write</text>
+    <text x="685" y="391" text-anchor="middle" fill="#94a3b8" font-size="10">BGE-small embed · pgvector insert</text>
+    <text x="685" y="404" text-anchor="middle" fill="#94a3b8" font-size="10">~25s</text>
+    <line x1="225" y1="352" x2="245" y2="352" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <line x1="225" y1="352" x2="245" y2="412" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <line x1="225" y1="352" x2="415" y2="352" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <line x1="225" y1="352" x2="415" y2="412" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <line x1="565" y1="385" x2="595" y2="385" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <rect x="800" y="325" width="180" height="60" rx="6" fill="#ffffff" stroke="#256092" stroke-dasharray="3 2"/>
+    <text x="890" y="345" text-anchor="middle" fill="#256092" font-size="11" font-weight="700">KServe · vLLM</text>
+    <text x="890" y="361" text-anchor="middle" fill="#94a3b8" font-size="10">Qwen-VL 7B on GPU</text>
+    <text x="890" y="375" text-anchor="middle" fill="#94a3b8" font-size="10">scale-to-zero</text>
+    <line x1="395" y1="343" x2="800" y2="343" stroke="#3d4759" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <text x="600" y="335" font-size="9" fill="#94a3b8">vlm-mode=local: in-cluster call</text>
+    <rect x="800" y="395" width="180" height="55" rx="6" fill="#ffffff" stroke="#3d4759" stroke-dasharray="2 2"/>
+    <text x="890" y="415" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">MLflow</text>
+    <text x="890" y="430" text-anchor="middle" fill="#94a3b8" font-size="10">per-clip bundle.json</text>
+    <text x="890" y="443" text-anchor="middle" fill="#94a3b8" font-size="10">experiment tracking</text>
+    <line x1="775" y1="395" x2="800" y2="420" stroke="#3d4759" stroke-width="1" stroke-dasharray="2 2" marker-end="url(#arr2S)"/>
+  </g>
+  <g filter="url(#sh2)">
+    <rect x="595" y="510" width="180" height="100" rx="8" fill="#eef3fa" stroke="#256092" stroke-width="1.5"/>
+    <text x="685" y="535" text-anchor="middle" fill="#256092" font-size="13" font-weight="700">Aurora · pgvector</text>
+    <text x="685" y="555" text-anchor="middle" fill="#3d4759" font-size="10">narrations · entities · events</text>
+    <text x="685" y="570" text-anchor="middle" fill="#3d4759" font-size="10">faces · plates · custody_log</text>
+    <text x="685" y="588" text-anchor="middle" fill="#94a3b8" font-size="10">RDS · 384-dim BGE embeddings</text>
+    <text x="685" y="602" text-anchor="middle" fill="#94a3b8" font-size="10">browse via CloudBeaver</text>
+  </g>
+  <line x1="685" y1="415" x2="685" y2="510" stroke="#3d4759" stroke-width="1.8" marker-end="url(#arr2S)"/>
+  <g filter="url(#sh2)">
+    <rect x="90" y="510" width="180" height="100" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="180" y="535" text-anchor="middle" fill="#3d4759" font-size="13" font-weight="700">S3 (data lake)</text>
+    <text x="180" y="555" text-anchor="middle" fill="#3d4759" font-size="10">clips/police-department/</text>
+    <text x="180" y="570" text-anchor="middle" fill="#3d4759" font-size="10">processed/police-department/</text>
+    <text x="180" y="585" text-anchor="middle" fill="#3d4759" font-size="10">models/police-department/</text>
+    <text x="180" y="602" text-anchor="middle" fill="#94a3b8" font-size="10">long-lived IAM, bucket-scoped</text>
+  </g>
+  <line x1="180" y1="510" x2="180" y2="380" stroke="#3d4759" stroke-width="1.5" stroke-dasharray="3 2" marker-end="url(#arr2S)"/>
+  <text x="195" y="445" font-size="10" fill="#94a3b8">presigned GET</text>
+  <text x="195" y="458" font-size="10" fill="#94a3b8">video player</text>
+  <g filter="url(#sh2)">
+    <rect x="800" y="510" width="180" height="100" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="890" y="535" text-anchor="middle" fill="#3d4759" font-size="13" font-weight="700">HITL Queue</text>
+    <text x="890" y="555" text-anchor="middle" fill="#3d4759" font-size="10">Redis-parked answers</text>
+    <text x="890" y="570" text-anchor="middle" fill="#3d4759" font-size="10">human approve / escalate</text>
+    <text x="890" y="588" text-anchor="middle" fill="#94a3b8" font-size="10">AFTER INSERT triggers</text>
+    <text x="890" y="602" text-anchor="middle" fill="#94a3b8" font-size="10">→ custody_log</text>
+  </g>
+  <line x1="775" y1="560" x2="800" y2="560" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+  <g filter="url(#sh2)">
+    <rect x="1100" y="285" width="160" height="170" rx="10" fill="#fff5f5" stroke="#e32726" stroke-width="2"/>
+    <text x="1180" y="312" text-anchor="middle" fill="#e32726" font-size="13" font-weight="700">Anthropic API</text>
+    <text x="1180" y="332" text-anchor="middle" fill="#3d4759" font-size="11">Claude Sonnet 4.5</text>
+    <text x="1180" y="354" text-anchor="middle" fill="#94a3b8" font-size="10">vlm-caption</text>
+    <text x="1180" y="368" text-anchor="middle" fill="#94a3b8" font-size="10">(claude-multimodal)</text>
+    <text x="1180" y="386" text-anchor="middle" fill="#94a3b8" font-size="10">Persona /chat</text>
+    <text x="1180" y="400" text-anchor="middle" fill="#94a3b8" font-size="10">(text-only)</text>
+    <line x1="1110" y1="420" x2="1250" y2="420" stroke="#cbd5e1" stroke-width="1"/>
+    <text x="1180" y="438" text-anchor="middle" fill="#e32726" font-size="10">OPTIONAL · operator opt-in</text>
+  </g>
+  <line x1="395" y1="350" x2="1100" y2="345" stroke="#e32726" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arr2R)"/>
+  <text x="700" y="338" font-size="10" fill="#e32726" font-weight="700">vlm-mode=claude-multimodal · 16 frames once at ingest</text>
+  <line x1="490" y1="220" x2="1100" y2="380" stroke="#e32726" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arr2R)"/>
+  <text x="800" y="240" font-size="10" fill="#e32726" font-weight="700">pd-llm-mode=claude · text-only chat reasoning</text>
+  <g filter="url(#sh2)">
+    <rect x="1100" y="170" width="160" height="80" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="1180" y="195" text-anchor="middle" fill="#3d4759" font-size="13" font-weight="700">Investigator</text>
+    <text x="1180" y="213" text-anchor="middle" fill="#3d4759" font-size="11">browser · video player</text>
+    <text x="1180" y="231" text-anchor="middle" fill="#94a3b8" font-size="10">click timestamp → seek</text>
+    <text x="1180" y="244" text-anchor="middle" fill="#94a3b8" font-size="10">approve / escalate</text>
+  </g>
+  <line x1="260" y1="210" x2="290" y2="210" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+  <line x1="1100" y1="210" x2="490" y2="210" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+  <rect x="0" y="660" width="1280" height="60" fill="#3d4759"/>
+  <text x="40" y="685" fill="#ffffff" font-size="12" font-weight="700">Air-gap-friendly default · Anthropic egress only when operator ticks "Deep analysis" on a clip · Frames never re-leave the cluster on chat</text>
+  <text x="40" y="705" fill="#cbd5e1" font-size="11">All persistent state in Aurora · S3 · MLflow · long-lived bucket-scoped IAM credentials · GitOps-managed via ArgoCD</text>
+  <text x="1240" y="700" fill="#ffffff" font-size="12" font-weight="700" text-anchor="end">www.iistech.com</text>
+</svg>
+
+============================================================
+  END — when you generate the deck, output ONLY the final .html file.
+  No commentary, no markdown wrapper. Open with <!DOCTYPE html>.
+============================================================
