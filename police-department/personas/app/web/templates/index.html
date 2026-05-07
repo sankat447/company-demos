@@ -140,7 +140,8 @@
   .msg .who.evidence_clerk { color: #c084fc; }
   .msg .who.journalist { color: #34d399; }
   .msg .who.quick { color: #f472b6; }
-  .msg .body { padding: 10px 14px; border-radius: 6px; background: var(--panel-2); white-space: pre-wrap; }
+  .msg .body { padding: 10px 44px 10px 14px; border-radius: 6px; background: var(--panel-2); white-space: pre-wrap; }
+  .msg.user .body { padding: 10px 14px; }
   .msg.user .body { background: var(--accent); color: #0f172a; }
   .msg .claims { margin-top: 8px; font-size: 12px; color: var(--muted); }
   .msg .claims code { color: var(--accent); font-size: 11px; }
@@ -154,6 +155,18 @@
                border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer;
                transition: color 0.12s, border-color 0.12s; }
   .clear-btn:hover { color: var(--err); border-color: var(--err); }
+  /* Per-message download button (only on persona replies, not user msgs) */
+  .msg .body { position: relative; }
+  .dl-btn {
+    position: absolute; top: 6px; right: 8px;
+    width: 24px; height: 24px;
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 4px; cursor: pointer; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    opacity: 0.6; transition: opacity 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .dl-btn:hover { opacity: 1; color: var(--accent); border-color: var(--accent); }
+  .dl-btn svg { width: 14px; height: 14px; pointer-events: none; }
   .empty { color: var(--muted); padding: 30px; text-align: center; }
   .toast { position: fixed; bottom: 18px; right: 18px; background: var(--err); color: white;
            padding: 10px 16px; border-radius: 4px; font-size: 13px; max-width: 360px; }
@@ -534,8 +547,17 @@ function renderChatLog(messages) {
     const bodyHtml = m.who === "user"
       ? linkifyTimestamps(escapeHtml(m.text))   // user input: leave plain, just linkify times
       : renderRichText(m.text);                  // persona output: render markdown
+    // Download button only on persona replies (not user msgs)
+    let dlBtn = "";
+    if (m.who !== "user") {
+      const safeProse = (m.text || "").replace(/"/g, "&quot;").replace(/\n/g, "\\n");
+      const claimsJson = JSON.stringify(m.claims || []).replace(/"/g, "&quot;");
+      dlBtn = `<button class="dl-btn" title="Download as plain text"
+                       onclick='downloadResponse(${JSON.stringify(m.who)}, ${JSON.stringify(activeClip || "")}, ${JSON.stringify(m.text || "")}, ${JSON.stringify(m.claims || [])})'
+              >${DL_ICON}</button>`;
+    }
     div.innerHTML = `<div class="who ${m.who}">${whoLabel}</div>` +
-                    `<div class="body">${bodyHtml}</div>${claimsHtml}`;
+                    `<div class="body">${dlBtn}${bodyHtml}</div>${claimsHtml}`;
     log.appendChild(div);
   }
   log.scrollTop = log.scrollHeight;
@@ -546,6 +568,81 @@ function escapeHtml(s) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[c]);
 }
+
+// Strip markdown decoration to plain text suitable for printing
+// or filing. Keep headers, bullets, and table structure but lose
+// the markup characters.
+function markdownToPlainText(md) {
+  if (!md) return "";
+  let s = md.replace(/\r\n/g, "\n");
+  // headings: '## Vehicle' -> 'VEHICLE'
+  s = s.replace(/^(#{1,3})\s+(.+)$/gm, (_, h, t) => {
+    const txt = t.trim().toUpperCase();
+    if (h.length === 1) return `\n${txt}\n${"=".repeat(txt.length)}\n`;
+    if (h.length === 2) return `\n${txt}\n${"-".repeat(txt.length)}\n`;
+    return `\n${txt}\n`;
+  });
+  // tables: pipe rows -> tab-padded
+  s = s.replace(/^\s*\|(.+)\|\s*$/gm, (line) => {
+    if (/^\s*\|?\s*-{3,}/.test(line)) return "  --";
+    return "  " + line.replace(/^\s*\|/, "").replace(/\|\s*$/, "")
+                       .split("|").map(c => c.trim()).join(" | ");
+  });
+  // bold / italic / inline code -> drop the markers
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+  s = s.replace(/`([^`]+)`/g, "$1");
+  s = s.replace(/(^|\W)\*([^*\n]+)\*(?=\W|$)/g, "$1$2");
+  // bullets: keep "- " prefix as-is
+  // collapse 3+ blank lines to 2
+  s = s.replace(/\n{3,}/g, "\n\n").trim();
+  return s;
+}
+
+function downloadResponse(persona, clipId, proseMd, claims) {
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const personaLabel = ({"detective": "Detective", "patrol": "Patrol",
+                         "evidence_clerk": "Evidence Clerk",
+                         "journalist": "Journalist",
+                         "quick": "Quick"})[persona] || persona;
+  const lines = [];
+  lines.push("Police Department · CCTV Video Intelligence");
+  lines.push("==========================================");
+  lines.push(`Persona:    ${personaLabel}`);
+  lines.push(`Clip:       ${clipId || "(no clip pinned)"}`);
+  lines.push(`Generated:  ${now.toString()}`);
+  lines.push("");
+  lines.push("Response");
+  lines.push("--------");
+  lines.push(markdownToPlainText(proseMd || ""));
+  if (claims && claims.length) {
+    lines.push("");
+    lines.push("Claims");
+    lines.push("------");
+    claims.forEach((c, i) => {
+      lines.push(`  ${i + 1}. ${c.text || ""}`);
+      if (c.confidence != null) lines.push(`       confidence: ${Number(c.confidence).toFixed(2)}`);
+      if (c.frame_refs && c.frame_refs.length)
+        lines.push(`       frame_refs: ${c.frame_refs.join(", ")}`);
+    });
+  }
+  lines.push("");
+  lines.push("--");
+  lines.push("Generated by IIS Technology · www.iistech.com");
+  const blob = new Blob([lines.join("\n")], {type: "text/plain;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `pd-clip-${(clipId || "unknown").slice(0,8)}-${persona}-${stamp}.txt`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+window.downloadResponse = downloadResponse;
+
+// SVG markup for the download icon (plain HTML escapes are safe in attributes too)
+const DL_ICON = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M8 2v9"/><polyline points="4 7 8 11 12 7"/><line x1="3" y1="14" x2="13" y2="14"/></svg>`;
 
 // Render Claude's markdown-formatted prose into HTML, then turn
 // timestamps into clickable seek-pills. Self-contained — no CDN
@@ -734,8 +831,11 @@ async function sendMessage() {
       }
       claimsHtml += "</ul></div>";
     }
+    const dlBtn = `<button class="dl-btn" title="Download as plain text"
+                       onclick='downloadResponse(${JSON.stringify(persona)}, ${JSON.stringify(activeClip || "")}, ${JSON.stringify(d.prose || "")}, ${JSON.stringify(d.claims || [])})'
+                  >${DL_ICON}</button>`;
     reply.innerHTML = `<div class="who ${persona}">${persona}</div>` +
-                      `<div class="body">${renderRichText(d.prose)}</div>${claimsHtml}`;
+                      `<div class="body">${dlBtn}${renderRichText(d.prose)}</div>${claimsHtml}`;
     log.appendChild(reply);
     log.scrollTop = log.scrollHeight;
 
