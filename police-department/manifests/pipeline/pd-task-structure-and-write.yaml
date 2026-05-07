@@ -115,13 +115,34 @@ spec:
           entities: list[Entity] = Field(default_factory=list)
           events: list[Event] = Field(default_factory=list)
 
-      # 1. Load VLM caption
+      # 1. Load VLM caption. Both Qwen-VL (vLLM OpenAI server) and the
+      # claude-multimodal branch in vlm-caption produce
+      # {choices:[{message:{content: "<json string>"}}]}. The "<json
+      # string>" itself sometimes arrives wrapped in a ```json ... ```
+      # markdown fence (Claude does this routinely). Strip the fence,
+      # then parse — without this, prose ends up as the JSON-as-text
+      # blob and the persona /chat gives generic "people arriving in
+      # waves" answers because it can't extract the inner narrative.
+      import re
       caption_raw = json.loads((WORK / "caption.json").read_text())
       try:
-          msg = caption_raw["choices"][0]["message"]["content"]
-          parsed = json.loads(msg) if msg.strip().startswith("{") else {"prose": msg}
-      except (KeyError, json.JSONDecodeError):
-          parsed = {"prose": json.dumps(caption_raw)[:2000]}
+          msg = caption_raw["choices"][0]["message"]["content"].strip()
+      except (KeyError, IndexError):
+          msg = ""
+      stripped = re.sub(r"^```(?:json)?\s*", "", msg)
+      stripped = re.sub(r"\s*```\s*$", "", stripped).strip()
+      try:
+          parsed = json.loads(stripped) if stripped.startswith("{") else {"prose": msg}
+      except json.JSONDecodeError:
+          # Last resort — try to grab the outermost {...} body.
+          first, last = stripped.find("{"), stripped.rfind("}")
+          if first != -1 and last > first:
+              try:
+                  parsed = json.loads(stripped[first:last+1])
+              except json.JSONDecodeError:
+                  parsed = {"prose": msg}
+          else:
+              parsed = {"prose": msg}
       narration = Narration(**parsed) if "prose" in parsed else Narration(prose=str(parsed))
 
       # 2. Embed the prose
