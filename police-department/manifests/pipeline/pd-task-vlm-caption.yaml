@@ -177,6 +177,7 @@ spec:
           "Produce a STRICT JSON object with EXACTLY these keys, no preamble, no "
           "code fence, no extra text:\n"
           "  {\n"
+          "    \"summary\": \"<one short sentence, ≤20 words, describing the most distinctive observation in this clip — used as the clip-card preview in the UI. Lead with WHAT happens, not what's missing. Examples: 'Three masked subjects load a burgundy Jeep Grand Cherokee at a parking-lot loading dock.' / 'Routine pedestrian traffic through a transit station stairwell over ~8 minutes.' / 'Person walks across an empty lot; no other activity.'>\",\n"
           "    \"prose\": \"<markdown narrative — see structure below>\",\n"
           "    \"entities\": [{\"kind\": \"vehicle|person|object\", \"label\": \"<descriptor>\"}, ...],\n"
           "    \"events\": [{\"action\": \"<verb phrase>\", \"t_start_sec\": <float>, \"t_end_sec\": <float>, \"confidence\": <0..1>}, ...]\n"

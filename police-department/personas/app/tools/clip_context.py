@@ -284,6 +284,30 @@ def load(clip_id: str) -> dict[str, Any] | None:
         return None
 
 
+def _first_descriptive_line(prose: str) -> str:
+    """Backfill summary for rows that don't have json_payload.summary.
+
+    Skip markdown headers, 'Not visible' fillers, and structural noise;
+    return the first sentence of real content."""
+    if not prose:
+        return ""
+    skip_prefixes = ("##", "**", "- **", "Not visible", "(no", "—", "")
+    for line in prose.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith(skip_prefixes):
+            continue
+        # Trim to ~one sentence (first .!?, or 160 chars)
+        cut = len(s)
+        for p in (". ", "! ", "? "):
+            i = s.find(p)
+            if i > 0:
+                cut = min(cut, i + 1)
+        return s[:cut][:200]
+    return prose[:200]
+
+
 def list_recent(limit: int = 20) -> list[dict[str, Any]]:
     """Recent clips for the UI's clip picker."""
     try:
@@ -293,11 +317,12 @@ def list_recent(limit: int = 20) -> list[dict[str, Any]]:
                     """
                     SELECT c.clip_id::text, c.s3_uri, c.uploaded_at::text,
                            COALESCE(n.prose, '') AS prose,
+                           n.json_payload AS jp,
                            COALESCE(pc.plate_count, 0)::int AS plate_count,
                            COALESCE(fc.face_count, 0)::int  AS face_count
                     FROM pd_cctv.clips c
                     LEFT JOIN LATERAL (
-                        SELECT prose FROM pd_cctv.narrations n
+                        SELECT prose, json_payload FROM pd_cctv.narrations n
                         WHERE n.clip_id = c.clip_id
                         ORDER BY n.created_at DESC LIMIT 1
                     ) n ON true
@@ -315,18 +340,27 @@ def list_recent(limit: int = 20) -> list[dict[str, Any]]:
                     (limit,),
                 )
                 rows = cur.fetchall()
-        return [
-            {
+        out = []
+        for r in rows:
+            prose = r[3] or ""
+            jp = r[4] or {}
+            # Prefer the model-emitted summary, fall back to first
+            # descriptive sentence so older rows still get a useful preview.
+            summary = ""
+            if isinstance(jp, dict):
+                summary = (jp.get("summary") or "").strip()
+            if not summary:
+                summary = _first_descriptive_line(prose)
+            out.append({
                 "clip_id": r[0],
                 "clip_id_short": r[0][:8],
                 "s3_uri": r[1],
                 "uploaded_at": r[2],
-                "prose_preview": (r[3] or "")[:160],
-                "plate_count": r[4],
-                "face_count":  r[5],
-            }
-            for r in rows
-        ]
+                "prose_preview": summary[:200],
+                "plate_count": r[5],
+                "face_count":  r[6],
+            })
+        return out
     except Exception as e:
         log.warning("clip_context.list_recent() failed: %s", e)
         return []
