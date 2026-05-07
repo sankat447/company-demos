@@ -411,11 +411,15 @@ async function loadVideo(clipId) {
 function seekTo(seconds) {
   const video = $("#clip-video");
   if (!video.src) { toast("Pick a clip first to enable the player."); return; }
-  const t = Math.max(0, Number(seconds) || 0);
+  const dur = (isFinite(video.duration) && video.duration > 0) ? video.duration : null;
+  let t = Math.max(0, Number(seconds) || 0);
+  if (dur != null && t > dur) {
+    toast(`Timestamp ${t.toFixed(1)}s is past the clip end (${dur.toFixed(1)}s) — likely a wall-clock time from a camera overlay, not a clip offset.`);
+    t = dur;
+  }
   video.currentTime = t;
   video.play().catch(() => {});
   $("#seek-now").textContent = t.toFixed(1) + "s";
-  // Scroll the player into view if user is deep in the chat
   $("#player").scrollIntoView({behavior: "smooth", block: "nearest"});
 }
 window.seekTo = seekTo;  // referenced from inline onclick
@@ -642,12 +646,17 @@ function renderRichText(raw) {
 }
 
 // After escapeHtml, turn timestamp tokens into clickable seek-pills.
-// Matches: 12.5s · 1:01 · 00:01:01 · clip:<id>:00:01:01
-// Avoids false positives by REQUIRING the unit suffix (s) or a colon.
+// Strict policy: ONLY clip-relative timestamps become clickable. Bare
+// hh:mm:ss / m:ss are deliberately NOT linkified because clips often
+// have a camera-overlay wall-clock (e.g. "10:40:40 AM") that Claude
+// references in prose; those are not clip offsets and clicking them
+// would try to seek 38000s into a 90-second video.
+//
+// Matches:
+//   clip:<id>:hh:mm:ss     -> compute & seek (anchor format we own)
+//   12.5s, 0.0s, 70s       -> 's' suffix is the clip-relative marker
 function linkifyTimestamps(safeHtml) {
-  // Order matters: the longest pattern first so we don't double-match
-  // the inner mm:ss part of an hh:mm:ss inside a clip:<id>:hh:mm:ss.
-  // 1. clip:<uuid8>:hh:mm:ss   (e.g. clip:1dd33c6b:00:00:09)
+  // 1. clip:<uuid8>:hh:mm:ss   (anchor-format we explicitly request from the model)
   safeHtml = safeHtml.replace(
     /clip:[0-9a-f]{6,8}:(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?/gi,
     (m, h, mm, ss) => {
@@ -655,23 +664,8 @@ function linkifyTimestamps(safeHtml) {
       return `<span class="ts-link" onclick="seekTo(${t})">${m}</span>`;
     }
   );
-  // 2. hh:mm:ss  (only when standalone — preceded by space, paren, comma, or start)
-  safeHtml = safeHtml.replace(
-    /(^|[\s\(,>])(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?(?=[\s\),.<]|$)/g,
-    (m, lead, h, mm, ss) => {
-      const t = (+h) * 3600 + (+mm) * 60 + (+ss);
-      return `${lead}<span class="ts-link" onclick="seekTo(${t})">${h}:${mm}:${ss}</span>`;
-    }
-  );
-  // 3. m:ss  (e.g. 1:01) — must be standalone
-  safeHtml = safeHtml.replace(
-    /(^|[\s\(,>])(\d{1,2}):(\d{2})(?=[\s\),.<]|$)/g,
-    (m, lead, mm, ss) => {
-      const t = (+mm) * 60 + (+ss);
-      return `${lead}<span class="ts-link" onclick="seekTo(${t})">${mm}:${ss}</span>`;
-    }
-  );
-  // 4. NN.NNNs  decimal-second tokens (8.987s, 0.0s, 70.4s)
+  // 2. NN.NNNs decimal-seconds (8.987s, 0.0s, 70.4s) — the unit suffix
+  //    means it's clip-relative by convention.
   safeHtml = safeHtml.replace(
     /(\d+(?:\.\d+)?)s\b/g,
     (m, n) => `<span class="ts-link" onclick="seekTo(${n})">${m}</span>`
