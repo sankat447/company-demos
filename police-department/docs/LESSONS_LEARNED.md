@@ -2,6 +2,17 @@
 
 Written 2026-05-07 after a multi-day demo iteration cycle. Distils the operational pain points hit during real demo runs and the remediation that worked. **Read this before scaling up tomorrow** — every item here was paid for with downtime.
 
+> ### Overnight state (2026-05-07 → 2026-05-08)
+> Scaled to **bare minimum** to save cost — the cluster does no work until the next demo. Tomorrow's bring-up has to scale all this back up first.
+>
+> - **3 worker nodes baseline** (us-east-1a:1, us-east-1b:1, us-east-1c:1) — the OCP defaults
+> - **Both bad nodes still cordoned**: `ip-10-0-36-27` (sick kubelet) and `ip-10-0-7-84` (chronic over-loader). With them cordoned and only 1 worker per AZ, the cluster has very tight capacity until step 1 of the runbook scales workers back to 2 per AZ.
+> - **GPU MachineSet at 0**
+> - **Aurora + S3 + EFS workspace clean** (only sentinel clip)
+> - **Persona pod (build 33, sha `d19a5dc`) already running** — Quick persona, download button, slash commands, RHOAI metrics-friendly runtime tags, corrected `/help` rendering, programmatically-bound download button click handler
+>
+> The pre-flight below is the FULL bring-up. Plan ~15-20 min from `oc whoami` to demo-ready.
+
 ---
 
 ## TL;DR — Tomorrow's Pre-flight (in this exact order)
@@ -10,10 +21,14 @@ Written 2026-05-07 after a multi-day demo iteration cycle. Distils the operation
 export KUBECONFIG=/Users/sanjeevkumar/GitHub/ai-demo-stack-aws/environments/demo/ocp-install-dir/ai-demo/auth/kubeconfig
 oc whoami    # must return system:admin
 
-# 1. Worker headroom (parallel to GPU bring-up — overlap these two steps).
-oc -n openshift-machine-api annotate machineset ai-demo-lt9wz-worker-us-east-1c \
-   pd-cctv.iisl.com/scaled-up-by=demo-session --overwrite
-oc -n openshift-machine-api scale machineset ai-demo-lt9wz-worker-us-east-1c --replicas=2
+# 1. Verify worker baseline is still 2 per AZ (intended overnight state).
+#    If any AZ is at 1, scale it back to 2 — we learnt today that 1
+#    schedulable worker per AZ is not enough to absorb pod restarts.
+for az in 1a 1b 1c; do
+  oc -n openshift-machine-api annotate machineset ai-demo-lt9wz-worker-us-east-$az \
+     pd-cctv.iisl.com/scaled-up-by=demo-session --overwrite
+  oc -n openshift-machine-api scale machineset ai-demo-lt9wz-worker-us-east-$az --replicas=2
+done
 
 # 2. GPU.
 oc -n openshift-machine-api scale machineset ai-demo-lt9wz-gpu-demo-us-east-1a --replicas=1
@@ -23,56 +38,78 @@ oc -n openshift-machine-api scale machineset ai-demo-lt9wz-gpu-demo-us-east-1a -
 until [ "$(oc get node -l nvidia.com/gpu.present=true \
             -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null)" = "4" ]; do sleep 15; done
 
-# 4. Wait for the worker scale-up.
-until [ "$(oc -n openshift-machine-api get machineset ai-demo-lt9wz-worker-us-east-1c \
-            -o jsonpath='{.status.readyReplicas}')" = "2" ]; do sleep 15; done
+# 4. Wait for all worker MachineSets to be 2/2.
+until [ "$(oc -n openshift-machine-api get machineset \
+            -o jsonpath='{range .items[?(@.metadata.name=~"^ai-demo-lt9wz-worker-")]}{.status.readyReplicas}{"\n"}{end}' \
+            | grep -cv ^2$)" = "0" ]; do sleep 15; done
 
-# 5. CRITICAL: drain the sick node so its pods reschedule to healthy ones BEFORE
-#    you do any pipeline work. Otherwise Tekton's operator-proxy-webhook will
-#    time out and every task pod will fail to admit. (See Lesson #1.)
-oc adm drain ip-10-0-36-27.ec2.internal \
-  --delete-emptydir-data --ignore-daemonsets --force --grace-period=30 --timeout=180s
+# 5. CRITICAL: drain BOTH unhealthy nodes so their pods reschedule to healthy
+#    ones BEFORE you do any pipeline work. Otherwise admission webhooks and
+#    operators that keep landing there will crashloop, and every task pod
+#    will fail to admit. (See Lesson #1 + #16.) Both have been cordoned
+#    overnight; this just evicts any pod still on them.
+for n in ip-10-0-36-27.ec2.internal ip-10-0-7-84.ec2.internal; do
+  oc adm drain "$n" --delete-emptydir-data --ignore-daemonsets --force \
+    --grace-period=30 --timeout=180s 2>&1 | tail -3
+done
 # Some non-DS pods (StatefulSets, ingress) may stick — force delete them:
-for p in $(oc get pods -A --field-selector=spec.nodeName=ip-10-0-36-27.ec2.internal -o json \
-           | jq -r '.items[] | select(.metadata.ownerReferences[]?.kind != "DaemonSet")
-                              | "\(.metadata.namespace) \(.metadata.name)"'); do
-  ns=$(echo $p | awk '{print $1}'); pod=$(echo $p | awk '{print $2}')
-  [ -n "$pod" ] && oc -n "$ns" delete pod "$pod" --grace-period=0 --force --wait=false
+for n in ip-10-0-36-27.ec2.internal ip-10-0-7-84.ec2.internal; do
+  for p in $(oc get pods -A --field-selector=spec.nodeName=$n -o json \
+             | jq -r '.items[] | select(.metadata.ownerReferences[]?.kind != "DaemonSet")
+                                | "\(.metadata.namespace) \(.metadata.name)"'); do
+    ns=$(echo $p | awk '{print $1}'); pod=$(echo $p | awk '{print $2}')
+    [ -n "$pod" ] && oc -n "$ns" delete pod "$pod" --grace-period=0 --force --wait=false
+  done
 done
 
 # 6. Verify Tekton webhooks are healthy on healthy nodes.
 oc -n openshift-pipelines get pods -o wide | grep webhook | grep -v 36-27
 # All must be Running on a node OTHER than ip-10-0-36-27.
 
-# 6b. ALSO verify rhods-operator and odh-model-controller are healthy —
-#     KServe applies a Pod via these admission webhooks; if either has
-#     no endpoints, predictor pod creation fails with "no endpoints
-#     available for service" or "context deadline exceeded".
-#     These pods often crashloop on ip-10-0-7-84 (always-loaded worker)
-#     even after the cordoned-node drain. Symptom: "oc apply -f
-#     pd-qwen25-vl-7b.yaml" returns webhook timeout.
-for ns_lbl in "redhat-ods-operator name=rhods-operator" \
-              "redhat-ods-applications control-plane=odh-model-controller"; do
-  ns=$(echo $ns_lbl | awk '{print $1}'); lbl=$(echo $ns_lbl | awk '{print $2}')
-  bad=$(oc -n "$ns" get pods -l "$lbl" --no-headers | awk '$3!="Running" || $4>5')
-  [ -n "$bad" ] && oc -n "$ns" delete pod -l "$lbl"
+# 6b. THE BROAD WEBHOOK / OPERATOR HEALTH SWEEP. Today's bring-up surfaced
+#     four separate pods that crashloop on the always-loaded ip-10-0-7-84
+#     and break demos until restarted. Doing it as a generic loop because
+#     the list grows.
+#       - redhat-ods-operator (kserve-kueuelabels validator)
+#       - odh-model-controller (KServe pod mutating webhook)
+#       - knative-serving controllers (autoscaler, autoscaler-hpa, controller, net-istio-controller, net-istio-webhook, webhook)
+#       - gpu-operator (was at 218 restarts on bring-up before we kicked it)
+#     Anything with restarts >5 OR not Running gets force-deleted so it lands fresh.
+for nslbl in "redhat-ods-operator name=rhods-operator" \
+             "redhat-ods-applications control-plane=odh-model-controller" \
+             "redhat-ods-applications deployment=rhods-dashboard" \
+             "knative-serving app=autoscaler" \
+             "knative-serving app=autoscaler-hpa" \
+             "knative-serving app=controller" \
+             "knative-serving app=net-istio-controller" \
+             "knative-serving app=net-istio-webhook" \
+             "knative-serving app=webhook" \
+             "gpu-operator-resources app=gpu-operator"; do
+  ns=$(echo $nslbl | awk '{print $1}'); lbl=$(echo $nslbl | awk '{print $2}')
+  oc -n "$ns" get pods -l "$lbl" -o json 2>/dev/null | jq -r '.items[] |
+      select((.metadata.ownerReferences|any(.kind=="ReplicaSet")) and
+             (.status.containerStatuses[]? | (.restartCount > 5 or .ready == false))) |
+      .metadata.name' | while read p; do
+    [ -n "$p" ] && oc -n "$ns" delete pod "$p" --grace-period=0 --force --wait=false 2>/dev/null
+  done
 done
-# Wait for the replacements to land Running 1/1 on a healthy node.
-for ns_lbl in "redhat-ods-operator name=rhods-operator" \
-              "redhat-ods-applications control-plane=odh-model-controller"; do
-  ns=$(echo $ns_lbl | awk '{print $1}'); lbl=$(echo $ns_lbl | awk '{print $2}')
-  until oc -n "$ns" get pods -l "$lbl" --no-headers \
-        | awk '$2~/^[0-9]+\/[0-9]+$/ && $2==substr($2,index($2,"/")+1)"/"substr($2,index($2,"/")+1) && $3=="Running"' \
-        | grep -q .; do sleep 5; done
-done
+# Wait ~60s for replacements; the webhook endpoints in particular can be
+# rough until they land Running.
+sleep 60
 
 # 7. GPU-mutex pre-flight: no pod must hold nvidia.com/gpu before we apply the IS.
 until [ "$(oc get pods -A -o json | jq '[.items[] | select(.spec.containers[]?.resources.requests."nvidia.com/gpu"? == "1")] | length')" = "0" ]; do
   echo "GPU still held; waiting..."; sleep 10
 done
 
-# 8. Apply the InferenceService (model pull + vLLM cold-start).
+# 8. Apply the InferenceService AND verify the pipeline still has all its
+#    Tekton resources. Today we found the Pipeline definition itself was
+#    missing from pd-cctv even though tasks were there — re-applying covers
+#    that case + any other manifest drift since the last sync.
 oc apply -f police-department/manifests/inference/pd-qwen25-vl-7b.yaml
+oc apply -f police-department/manifests/pipeline/pd-pipeline.yaml
+oc apply -f police-department/manifests/pipeline/pd-triggertemplate.yaml
+oc apply -f police-department/manifests/pipeline/pd-triggerbinding.yaml
 until oc -n pd-cctv get pods -l serving.kserve.io/inferenceservice=pd-qwen25-vl-7b \
        -o jsonpath='{.items[0].status.containerStatuses[?(@.name=="kserve-container")].ready}' \
        | grep -q true; do sleep 15; done
