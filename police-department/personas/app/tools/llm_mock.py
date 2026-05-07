@@ -257,11 +257,39 @@ def _journalist(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
     return {"prose": prose, "claims": claims}
 
 
+def _quick(req: ChatRequest, ctx: dict[str, Any]) -> dict[str, Any]:
+    """One-liner fallback. Try to answer the most common direct asks
+    using the indexed Aurora context; otherwise say nothing's known."""
+    q = (req.q or "").lower()
+    plates = ctx.get("plates", []) or []
+    real_plates = [p for p in plates if p["text"].upper() not in
+                   {"CAMERA", "CAMERAL", "EXIT", "STOP", "OPEN", "CLOSED"}]
+    faces = ctx.get("faces", {}) or {}
+    n_subjects = faces.get("unique_subjects", 0)
+
+    if any(k in q for k in ("plate", "license")):
+        prose = (f"Top OCR reading: {real_plates[0]['text']} "
+                 f"(seen {real_plates[0]['sightings']}× , conf "
+                 f"{real_plates[0]['confidence']:.2f}).") if real_plates \
+                else "No real license plate is readable in this clip."
+    elif any(k in q for k in ("how many", "people", "person", "suspect")):
+        if n_subjects:
+            prose = f"{n_subjects} distinct subject{'s' if n_subjects != 1 else ''} on the indexed faces."
+        else:
+            prose = "Nobody distinct enough to track in this clip."
+    elif "vehicle" in q or "car" in q:
+        prose = "Vehicle details aren't captured in this mock-mode response."
+    else:
+        prose = (ctx.get("prose") or "(no narration on file yet)")[:160]
+    return {"prose": prose + " *(Mock — Quick persona)*", "claims": []}
+
+
 _MOCKS = {
     "detective": _detective,
     "patrol": _patrol,
     "evidence_clerk": _evidence_clerk,
     "journalist": _journalist,
+    "quick": _quick,
 }
 
 

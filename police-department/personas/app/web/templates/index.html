@@ -139,6 +139,7 @@
   .msg .who.patrol { color: #60a5fa; }
   .msg .who.evidence_clerk { color: #c084fc; }
   .msg .who.journalist { color: #34d399; }
+  .msg .who.quick { color: #f472b6; }
   .msg .body { padding: 10px 14px; border-radius: 6px; background: var(--panel-2); white-space: pre-wrap; }
   .msg.user .body { background: var(--accent); color: #0f172a; }
   .msg .claims { margin-top: 8px; font-size: 12px; color: var(--muted); }
@@ -269,6 +270,7 @@
       <h2 style="margin: 0; flex: 1;">Chat about clip <code id="active-clip" style="color: var(--accent);">— pick a clip —</code></h2>
       <label for="persona" style="font-size: 12px; color: var(--muted);">Persona</label>
       <select id="persona">
+        <option value="quick">Quick (one-liner)</option>
         <option value="journalist">Journalist (narrative)</option>
         <option value="detective">Detective (investigative)</option>
         <option value="patrol">Patrol (situational)</option>
@@ -519,7 +521,8 @@ function renderChatLog(messages) {
     div.className = "msg " + (m.who === "user" ? "user" : "");
     const whoLabel = m.who === "user" ? "You" :
       ({"detective": "Detective", "patrol": "Patrol",
-        "evidence_clerk": "Evidence Clerk", "journalist": "Journalist"})[m.who] || m.who;
+        "evidence_clerk": "Evidence Clerk", "journalist": "Journalist",
+        "quick": "Quick"})[m.who] || m.who;
     let claimsHtml = "";
     if (m.claims && m.claims.length) {
       claimsHtml = '<div class="claims"><strong>Claims:</strong><ul>';
