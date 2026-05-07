@@ -24,22 +24,18 @@ spec:
     syncOptions:
     - CreateNamespace=false
     - ServerSideApply=true
-  # Secrets in git are stubs (empty strings); real values are written by
-  # bootstrap/01_secrets.sh from AWS SSM. Without these exclusions, selfHeal
-  # blanks them on every reconcile.
+  # Sensitive Secrets (pd-aurora-credentials, pd-portkey-key) are NOT in
+  # the git source — bootstrap/01_secrets.sh creates them with the
+  # argocd.argoproj.io/sync-options=Prune=false annotation so ArgoCD
+  # won't manage them. Same out-of-band pattern as pd-anthropic-key.
+  # Earlier we kept stubs in git with /data ignoreDifferences, but the
+  # ServerSideApply syncOption combined with selfHeal=true still blanked
+  # the values on the very first reconcile after each pd-personas spec
+  # generation; removing the manifest entirely is the durable fix.
   ignoreDifferences:
-    - group: ""
-      kind: Secret
-      name: pd-aurora-credentials
-      namespace: pd-personas
-      jsonPointers:
-        - /data
-    - group: ""
-      kind: Secret
-      name: pd-portkey-key
-      namespace: pd-personas
-      jsonPointers:
-        - /data
+    # pd-s3-creds IS in git (no real secret in cluster otherwise) and
+    # gets re-stamped at session start with fresh STS, so /data still
+    # needs to be ignored.
     - group: ""
       kind: Secret
       name: pd-s3-creds

@@ -82,6 +82,13 @@ upsert_secret() {
   oc create secret generic "$name" -n "$ns" "${args[@]}" \
     --dry-run=client -o yaml \
     | oc apply --server-side --force-conflicts -f -
+  # Mark the Secret bootstrap-managed so ArgoCD won't blank /data via
+  # ServerSideApply (when the git source has empty placeholders) or
+  # prune it (when the git source omits the manifest entirely). The
+  # bootstrap script is the single source-of-truth for sensitive values;
+  # the cluster Secret survives ArgoCD reconcile cycles.
+  oc -n "$ns" annotate secret "$name" \
+    "argocd.argoproj.io/sync-options=Prune=false" --overwrite >/dev/null 2>&1 || true
 }
 
 # ── Defaults ────────────────────────────────────────────────────────────────
