@@ -59,6 +59,21 @@ def render_context(
             f"[narration #{i}, clip={h['clip_id'][:8]}, score={h['score']:.3f}]\n{h['prose']}"
         )
     if clip_ctx:
+        # Operator corrections trump everything else — the operator
+        # explicitly typed these from the chat. List them FIRST so the
+        # persona-LLM weighs them above any auto-extracted reading.
+        ops = clip_ctx.get("operator_corrections") or []
+        if ops:
+            lines = []
+            for o in ops:
+                ts = o.get("ts_sec")
+                ts_part = f" @{ts:.1f}s" if isinstance(ts, (int, float)) else ""
+                lines.append(f"  - [{o['kind']}] {o['text']}{ts_part}")
+            blocks.append(
+                "[operator corrections — AUTHORITATIVE, override any "
+                "auto-detected plate/face/vehicle reading below]\n" +
+                "\n".join(lines)
+            )
         # The pinned-clip narration is the primary evidence — without
         # this the persona reasons only over plates + face tracks and
         # produces a generic "people arriving in waves" answer instead

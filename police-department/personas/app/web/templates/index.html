@@ -302,7 +302,7 @@
       <div class="empty">Upload an mp4 or pick a recent clip on the left, then ask any question.</div>
     </div>
     <div class="input-row">
-      <input id="q" type="text" placeholder="What happened in this clip? (Try: 'Anything actionable?', 'Chain of custody', 'Identify suspects')" disabled>
+      <input id="q" type="text" placeholder="What happened? · Or type /help for slash commands (correct a plate, override count, add a note…)" disabled>
       <button id="send" disabled>Send</button>
     </div>
   </section>
@@ -773,6 +773,131 @@ function linkifyTimestamps(safeHtml) {
   return safeHtml;
 }
 
+// ── Slash commands (operator corrections) ──────────────────────
+// Parse "/plate ABC1234 @0:42" → {kind:"plate", text:"ABC1234", ts_sec: 42}
+// Returns null if not a slash command, or {kind, text, ts_sec} on success,
+// or {error} on bad syntax.
+const SLASH_HELP = `**Slash commands** (operator corrections — authoritative, override auto-detected data)
+
+  /plate &lt;text&gt; [@&lt;time&gt;]      authoritative plate reading
+  /people &lt;N&gt;                  override unique-subject count
+  /vehicle &lt;text&gt;              vehicle make/model/color
+  /event &lt;text&gt; [@&lt;time&gt;]      add an action / event with optional timestamp
+  /suspect &lt;#&gt;: &lt;description&gt;  describe one suspect (e.g. "/suspect 1: red hoodie, ringleader")
+  /note &lt;text&gt;                 generic free-text correction or annotation
+
+  /list      show all corrections on file for this clip
+  /undo      remove the most recent correction
+  /help      show this list
+
+Time formats accepted: 0:42, 1:23, 8.5s, 12s. The persona will treat these as the source of truth on the next chat reply.`;
+
+function parseTimestamp(s) {
+  if (!s) return null;
+  s = s.trim();
+  let m = s.match(/^(\d+):(\d{2})$/);
+  if (m) return (+m[1]) * 60 + (+m[2]);
+  m = s.match(/^(\d+):(\d{2}):(\d{2})$/);
+  if (m) return (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]);
+  m = s.match(/^(\d+(?:\.\d+)?)s?$/);
+  if (m) return +m[1];
+  return null;
+}
+
+function parseSlashCommand(line) {
+  if (!line.startsWith("/")) return null;
+  const parts = line.slice(1).split(/\s+/);
+  const cmd = (parts.shift() || "").toLowerCase();
+  let rest = parts.join(" ").trim();
+  // Pull out trailing "@<timestamp>" if any
+  let ts_sec = null;
+  const tsMatch = rest.match(/\s*@(\S+)\s*$/);
+  if (tsMatch) {
+    ts_sec = parseTimestamp(tsMatch[1]);
+    if (ts_sec == null) return {error: `Couldn't parse timestamp \`@${tsMatch[1]}\` — use 0:42 / 1:23:45 / 8.5s`};
+    rest = rest.slice(0, tsMatch.index).trim();
+  }
+  const direct = {plate:1, people:1, vehicle:1, event:1, suspect:1, note:1};
+  if (cmd in direct) {
+    if (!rest) return {error: `\`/${cmd}\` needs an argument. Try \`/help\``};
+    if (cmd === "people") {
+      const n = parseInt(rest, 10);
+      if (!isFinite(n) || n < 1 || n > 200) return {error: "/people takes a number 1-200"};
+      return {kind: "people", text: String(n), ts_sec: null};
+    }
+    return {kind: cmd, text: rest, ts_sec};
+  }
+  if (cmd === "list" || cmd === "undo" || cmd === "help") return {action: cmd};
+  return {error: `Unknown command \`/${cmd}\`. Try \`/help\``};
+}
+
+async function handleSlashCommand(parsed) {
+  if (!activeClip && (parsed.kind || parsed.action !== "help")) {
+    toast("Pick a clip first to attach corrections.");
+    return;
+  }
+  const log = $("#chat-log");
+  if (log.querySelector(".empty")) log.innerHTML = "";
+  const echoUser = (text) => {
+    const div = document.createElement("div");
+    div.className = "msg user";
+    div.innerHTML = `<div class="who">You</div><div class="body">${linkifyTimestamps(escapeHtml(text))}</div>`;
+    log.appendChild(div);
+  };
+  const showSystem = (md) => {
+    const div = document.createElement("div");
+    div.className = "msg";
+    div.innerHTML = `<div class="who" style="color: var(--muted);">System</div>` +
+                    `<div class="body" style="background: rgba(56,189,248,0.06); border: 1px dashed var(--line);">${renderRichText(md)}</div>`;
+    log.appendChild(div); log.scrollTop = log.scrollHeight;
+  };
+
+  if (parsed.error) { echoUser($("#q").value); showSystem("⚠ " + parsed.error); return; }
+  if (parsed.action === "help") { echoUser($("#q").value); showSystem(SLASH_HELP); return; }
+  if (parsed.action === "list") {
+    echoUser($("#q").value);
+    try {
+      const r = await fetch(`/api/clip/${activeClip}/corrections`);
+      const d = await r.json();
+      if (!d.corrections || !d.corrections.length) { showSystem("_No corrections on file for this clip._"); return; }
+      const rows = d.corrections.map(c => {
+        const ts = c.ts_sec != null ? ` @${(+c.ts_sec).toFixed(1)}s` : "";
+        return `  - **${c.kind}**: ${c.text}${ts} _(${c.created_at})_`;
+      });
+      showSystem("**Corrections on file**\n" + rows.join("\n"));
+    } catch (e) { showSystem("⚠ Failed to load corrections: " + e); }
+    return;
+  }
+  if (parsed.action === "undo") {
+    echoUser($("#q").value);
+    try {
+      const r = await fetch(`/api/clip/${activeClip}/correction/last`, {method: "DELETE"});
+      if (!r.ok) { showSystem("_No corrections to undo._"); return; }
+      const d = await r.json();
+      const c = d.deleted;
+      showSystem(`Removed last correction: **${c.kind}** — ${c.text}`);
+    } catch (e) { showSystem("⚠ Undo failed: " + e); }
+    return;
+  }
+
+  // submit a real correction
+  echoUser($("#q").value);
+  try {
+    const r = await fetch(`/api/clip/${activeClip}/correction`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(parsed),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      showSystem("⚠ Correction failed: " + (e.detail || r.status));
+      return;
+    }
+    const d = await r.json();
+    const ts = d.ts_sec != null ? ` @${(+d.ts_sec).toFixed(1)}s` : "";
+    showSystem(`✓ Recorded **${d.kind}**: ${d.text}${ts}\n\n_The persona will treat this as authoritative on the next chat._`);
+  } catch (e) { showSystem("⚠ Correction failed: " + e); }
+}
+
 $("#send").addEventListener("click", sendMessage);
 $("#q").addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
 
@@ -788,9 +913,19 @@ $("#clear-chat").addEventListener("click", async () => {
 });
 
 async function sendMessage() {
-  if (!activeClip) { toast("Pick or upload a clip first."); return; }
   const q = $("#q").value.trim();
   if (!q) return;
+  // Slash commands first — operator corrections, /list, /undo, /help.
+  if (q.startsWith("/")) {
+    const parsed = parseSlashCommand(q);
+    if (parsed) {
+      $("#q").value = ""; $("#send").disabled = true;
+      try { await handleSlashCommand(parsed); }
+      finally { $("#send").disabled = false; $("#q").focus(); }
+      return;
+    }
+  }
+  if (!activeClip) { toast("Pick or upload a clip first."); return; }
   const persona = $("#persona").value;
   $("#q").value = ""; $("#send").disabled = true;
 

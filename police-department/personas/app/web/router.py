@@ -25,7 +25,7 @@ from fastapi.responses import HTMLResponse, Response
 from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 
-from app.tools import chat_history, clip_context, clip_url, mode, pipeline_status, thumbnail, upload as s3_upload, vlm_mode
+from app.tools import chat_history, clip_context, clip_url, corrections, mode, pipeline_status, thumbnail, upload as s3_upload, vlm_mode
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -194,6 +194,41 @@ def pipeline_one(run_name: str) -> dict:
 @router.get("/api/chat/history/{clip_id}")
 def chat_log(clip_id: str) -> dict:
     return {"clip_id": clip_id, "messages": chat_history.history(clip_id)}
+
+
+@router.post("/api/clip/{clip_id}/correction")
+def add_correction(clip_id: str, payload: dict) -> dict:
+    """Operator-submitted correction (slash command from chat).
+
+    payload: {kind: 'plate'|'people'|'vehicle'|'event'|'suspect'|'note',
+              text: '<value>', ts_sec: <optional float>}
+    """
+    kind = (payload or {}).get("kind", "").strip()
+    text = (payload or {}).get("text", "").strip()
+    ts_sec = (payload or {}).get("ts_sec")
+    if kind not in corrections.VALID_KINDS:
+        raise HTTPException(400, f"invalid kind {kind!r}; valid: {corrections.VALID_KINDS}")
+    if not text:
+        raise HTTPException(400, "text is required")
+    try:
+        return corrections.add(clip_id, kind, text,
+                               ts_sec=float(ts_sec) if ts_sec is not None else None)
+    except Exception as e:
+        log.warning("correction insert failed: %s", e)
+        raise HTTPException(500, str(e))
+
+
+@router.get("/api/clip/{clip_id}/corrections")
+def list_corrections(clip_id: str) -> dict:
+    return {"clip_id": clip_id, "corrections": corrections.list_for_clip(clip_id)}
+
+
+@router.delete("/api/clip/{clip_id}/correction/last")
+def undo_correction(clip_id: str) -> dict:
+    row = corrections.delete_last(clip_id)
+    if not row:
+        raise HTTPException(404, "no corrections on file for this clip")
+    return {"deleted": row}
 
 
 @router.delete("/api/chat/history/{clip_id}")

@@ -263,6 +263,20 @@ def load(clip_id: str) -> dict[str, Any] | None:
                         json_payload.get("transcript", {}).get("segments", [])[:8]
                     )
 
+                # Operator corrections — newest first, take all (usually <10)
+                cur.execute(
+                    "SELECT kind, text, ts_sec, operator, created_at::text "
+                    "FROM pd_cctv.operator_corrections "
+                    "WHERE clip_id = %s ORDER BY created_at DESC",
+                    (cid,),
+                )
+                operator_corrections = [
+                    {"kind": k, "text": t,
+                     "ts_sec": float(ts) if ts is not None else None,
+                     "operator": op, "created_at": ca}
+                    for (k, t, ts, op, ca) in cur.fetchall()
+                ]
+
         return {
             "clip_id_full": cid,
             "clip_id_short": cid[:8],
@@ -278,6 +292,7 @@ def load(clip_id: str) -> dict[str, Any] | None:
             "faces":  faces_summary,
             "custody_log_count": custody_count,
             "transcript_segments": transcript_segs,
+            "operator_corrections": operator_corrections,
         }
     except Exception as e:
         log.warning("clip_context.load(%s) failed: %s", clip_id, e)
