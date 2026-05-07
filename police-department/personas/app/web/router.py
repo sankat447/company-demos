@@ -25,7 +25,7 @@ from fastapi.responses import HTMLResponse, Response
 from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 
-from app.tools import chat_history, clip_context, clip_url, mode, pipeline_status, thumbnail, upload as s3_upload
+from app.tools import chat_history, clip_context, clip_url, mode, pipeline_status, thumbnail, upload as s3_upload, vlm_mode
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,6 +46,29 @@ def index() -> HTMLResponse:
 @router.get("/api/mode")
 def get_mode() -> dict:
     return {"mode": mode.current(), "valid": list(mode.VALID_MODES)}
+
+
+@router.get("/api/vlm-mode")
+def get_vlm_mode() -> dict:
+    cur = vlm_mode.current()
+    return {**cur, "valid": list(vlm_mode.VALID_MODES)}
+
+
+@router.post("/api/vlm-mode")
+def set_vlm_mode(payload: dict) -> dict:
+    new = (payload or {}).get("mode", "").strip()
+    if new not in vlm_mode.VALID_MODES:
+        raise HTTPException(400, f"invalid vlm-mode {new!r}; valid: {vlm_mode.VALID_MODES}")
+    try:
+        return vlm_mode.set_mode(
+            new,
+            frames=str(payload["frames"]) if payload.get("frames") is not None else None,
+            resolution=str(payload["resolution"]) if payload.get("resolution") is not None else None,
+            jpeg_quality=str(payload["jpeg_quality"]) if payload.get("jpeg_quality") is not None else None,
+        )
+    except Exception as e:
+        log.warning("vlm-mode patch failed: %s", e)
+        raise HTTPException(500, str(e))
 
 
 @router.post("/api/mode")
@@ -116,7 +139,17 @@ def get_clip_video_url(clip_id: str) -> dict:
 
 @router.post("/api/upload")
 async def upload(file: UploadFile = File(...),
-                 uploaded_by: str = Form("ui")) -> dict:
+                 uploaded_by: str = Form("ui"),
+                 vlm_mode_override: str = Form(""),
+                 vlm_frames: str = Form("")) -> dict:
+    # vlm_mode_override:
+    #   ""                  -> let the Tekton task read pd-vlm-mode CM default.
+    #   "local"             -> force in-cluster Qwen-VL for this clip.
+    #   "claude-multimodal" -> force Anthropic Claude multimodal (sends the
+    #                          frames once at ingest; chat is text-only).
+    # The UI's "Deep analysis" checkbox sets this to "claude-multimodal".
+    if vlm_mode_override and vlm_mode_override not in vlm_mode.VALID_MODES:
+        raise HTTPException(400, f"invalid vlm_mode_override {vlm_mode_override!r}")
     # Stream to disk so we don't hold a 150 MB upload in RAM.
     suffix = Path(file.filename or "clip.mp4").suffix or ".mp4"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -130,7 +163,12 @@ async def upload(file: UploadFile = File(...),
                 raise HTTPException(413, f"upload exceeds {_MAX_UPLOAD_MB} MB cap")
         tmp_path = tmp.name
     try:
-        result = s3_upload.upload_clip(tmp_path, uploaded_by=uploaded_by)
+        result = s3_upload.upload_clip(
+            tmp_path,
+            uploaded_by=uploaded_by,
+            vlm_mode_override=vlm_mode_override,
+            vlm_frames=vlm_frames,
+        )
         result["size_bytes"] = size
         return result
     finally:

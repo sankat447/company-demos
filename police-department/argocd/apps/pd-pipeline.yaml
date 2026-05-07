@@ -41,3 +41,13 @@ spec:
       namespace: pd-cctv
       jsonPointers:
         - /data
+    # pd-vlm-mode is mutated live by the UI's /api/vlm-mode endpoint
+    # (operator flips local <-> claude-multimodal from the header
+    # dropdown). Without this, selfHeal would revert to the git default
+    # within seconds.
+    - group: ""
+      kind: ConfigMap
+      name: pd-vlm-mode
+      namespace: pd-cctv
+      jsonPointers:
+        - /data

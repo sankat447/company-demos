@@ -29,6 +29,19 @@ spec:
   - name: uploaded-by
     type: string
     default: "pipeline"
+  - name: vlm-mode-override
+    type: string
+    default: ""
+    description: |
+      Per-PipelineRun override of the pd-vlm-mode ConfigMap. The UI's
+      "Deep analysis" checkbox sets this to "claude-multimodal" for
+      one-off opt-in. Empty = inherit ConfigMap default.
+  - name: vlm-frames-override
+    type: string
+    default: ""
+    description: |
+      Per-PipelineRun override of the keyframe count. Empty = use
+      ConfigMap default (16 for claude-multimodal, capped to 4 for local).
   workspaces:
   - name: shared
     description: Shared workspace PVC across all tasks
@@ -55,6 +68,10 @@ spec:
     params:
     - name: clip-id
       value: $(params.clip-id)
+    - name: vlm-mode-override
+      value: $(params.vlm-mode-override)
+    - name: frames-override
+      value: $(params.vlm-frames-override)
 
   - name: whisper-asr
     taskRef:

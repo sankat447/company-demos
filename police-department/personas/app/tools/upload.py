@@ -80,10 +80,18 @@ def _s3():
     )
 
 
-def upload_clip(local_path: str | Path, *, uploaded_by: str = "ui") -> dict:
+def upload_clip(local_path: str | Path, *, uploaded_by: str = "ui",
+                vlm_mode_override: str = "",
+                vlm_frames: str = "") -> dict:
     """Upload a local mp4 to S3 and trigger the EventListener.
 
-    Returns: {clip_id, s3_uri, key, event_id}.
+    vlm_mode_override / vlm_frames:
+      Optional per-clip overrides for the pd-vlm-mode ConfigMap default,
+      surfaced through the EventListener payload to the TriggerBinding to
+      the Pipeline's vlm-mode-override / vlm-frames-override params, then
+      to the vlm-caption Tekton task. Empty strings = inherit ConfigMap.
+
+    Returns: {clip_id, s3_uri, key, event_id, vlm_mode_override}.
     """
     local_path = Path(local_path)
     if not local_path.is_file():
@@ -102,6 +110,10 @@ def upload_clip(local_path: str | Path, *, uploaded_by: str = "ui") -> dict:
         "clip_s3_uri": s3_uri,
         "clip_id": clip_id,
         "uploaded_by": uploaded_by,
+        # The TriggerBinding maps body.vlm_mode -> vlm-mode-override param;
+        # the watcher CronJob path doesn't set these so they default to "".
+        "vlm_mode": vlm_mode_override or "",
+        "vlm_frames": vlm_frames or "",
     }
     headers = {"Content-Type": "application/json",
                "Ce-Type": "pd.s3.clip.uploaded.v1"}
@@ -120,4 +132,5 @@ def upload_clip(local_path: str | Path, *, uploaded_by: str = "ui") -> dict:
         "s3_uri": s3_uri,
         "key": key,
         "event_id": body.get("eventID"),
+        "vlm_mode_override": vlm_mode_override or "",
     }

@@ -24,3 +24,7 @@ spec:
     value: $(body.clip_id)
   - name: uploaded-by
     value: $(body.uploaded_by)
+  - name: vlm-mode-override
+    value: $(body.vlm_mode)
+  - name: vlm-frames-override
+    value: $(body.vlm_frames)

@@ -81,6 +81,13 @@
                  padding: 8px 10px; border-radius: 4px; background: transparent; }
   .upload-info.ok { background: rgba(34,197,94,0.08); color: var(--ok); }
   .upload-info.err { background: rgba(239,68,68,0.08); color: var(--err); }
+  .deep-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px;
+                 font-size: 12px; color: var(--muted); cursor: pointer;
+                 padding: 8px 10px; border-radius: 4px;
+                 border: 1px solid transparent; user-select: none; }
+  .deep-toggle:hover { border-color: var(--line); background: var(--panel-2); }
+  .deep-toggle input[type="checkbox"] { accent-color: var(--accent); }
+  .deep-toggle em { color: #94a3b8; font-style: normal; font-size: 11px; }
   /* Pipeline progress */
   .stages { list-style: none; padding: 0; margin: 12px 0 0; font-family: ui-monospace, monospace; font-size: 13px; }
   .stages li { padding: 6px 0; border-bottom: 1px dashed var(--line); display: flex; align-items: center; }
@@ -203,7 +210,12 @@
   </h1>
   <span class="badge" id="ns-badge">pd-cctv</span>
   <div class="spacer"></div>
-  <label for="mode">LLM mode</label>
+  <label for="vlm-mode">VLM (ingest)</label>
+  <select id="vlm-mode" title="VLM mode used at clip-ingest time. claude-multimodal sends N base64 frames to Anthropic ONCE per clip; chat is text-only afterwards.">
+    <option value="local">local (Qwen-VL on GPU)</option>
+    <option value="claude-multimodal">claude (Anthropic, ~$0.15/clip)</option>
+  </select>
+  <label for="mode" style="margin-left: 12px;">LLM (chat)</label>
   <select id="mode">
     <option value="mock">mock (fast, no GPU)</option>
     <option value="local">local (Llama on GPU)</option>
@@ -227,6 +239,10 @@
         <p><strong>Drop an .mp4 here</strong></p>
         <p>or click to choose a file</p>
         <span class="hint">Up to 300 MB &middot; pushed to S3 &middot; perception pipeline auto-triggers</span>
+      </label>
+      <label class="deep-toggle" title="Sends 16 high-resolution keyframes to Anthropic Claude at ingest time only. Frames never re-leave the cluster on chat.">
+        <input type="checkbox" id="deep-analysis">
+        <span>Deep analysis for this clip <em>(claude multimodal — overrides default, ~$0.15)</em></span>
       </label>
       <div id="upload-info" class="upload-info"></div>
     </div>
@@ -292,7 +308,7 @@ function toast(msg, ok = false) {
   setTimeout(() => t.style.display = "none", 4000);
 }
 
-// ── Mode ─────────────────────────────────────────────────────────
+// ── LLM (chat) Mode ──────────────────────────────────────────────
 async function loadMode() {
   const r = await fetch("/api/mode"); const d = await r.json();
   $("#mode").value = d.mode;
@@ -303,8 +319,33 @@ $("#mode").addEventListener("change", async (e) => {
     body: JSON.stringify({mode: e.target.value}),
   });
   const d = await r.json();
-  if (r.ok) toast(`Mode set to ${d.mode}. ${d.note || ""}`, true);
+  if (r.ok) toast(`Chat LLM mode set to ${d.mode}. ${d.note || ""}`, true);
   else toast(`Mode change failed: ${d.detail || "?"}`);
+});
+
+// ── VLM (ingest) Mode ────────────────────────────────────────────
+async function loadVlmMode() {
+  try {
+    const r = await fetch("/api/vlm-mode"); const d = await r.json();
+    $("#vlm-mode").value = d.mode;
+    // Sync the deep-analysis checkbox: if default is already claude-multimodal,
+    // pre-tick it so users don't have to click both.
+    $("#deep-analysis").checked = (d.mode === "claude-multimodal");
+  } catch (e) { /* tolerate startup race */ }
+}
+$("#vlm-mode").addEventListener("change", async (e) => {
+  const r = await fetch("/api/vlm-mode", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({mode: e.target.value}),
+  });
+  if (r.ok) {
+    const d = await r.json();
+    toast(`Ingest VLM mode set to ${d.mode}. New uploads use this default.`, true);
+    $("#deep-analysis").checked = (d.mode === "claude-multimodal");
+  } else {
+    const e2 = await r.json().catch(() => ({}));
+    toast(`VLM mode change failed: ${e2.detail || r.status}`);
+  }
 });
 
 // ── Recent clips ──────────────────────────────────────────────────
@@ -389,11 +430,15 @@ fileInput.addEventListener("change", e => {
 
 async function handleFile(file) {
   const info = $("#upload-info");
+  const deep = $("#deep-analysis").checked;
   info.className = "upload-info";
-  info.textContent = `Uploading ${file.name} (${(file.size/1e6).toFixed(1)} MB)…`;
+  info.textContent = `Uploading ${file.name} (${(file.size/1e6).toFixed(1)} MB)${deep ? " · Deep analysis ON" : ""}…`;
   const fd = new FormData();
   fd.append("file", file);
   fd.append("uploaded_by", "ui");
+  // Per-clip override: only sent when the operator explicitly checks the box.
+  // Empty string = let the Tekton task fall through to pd-vlm-mode CM default.
+  if (deep) fd.append("vlm_mode_override", "claude-multimodal");
   try {
     const r = await fetch("/api/upload", {method: "POST", body: fd});
     if (!r.ok) {
@@ -691,7 +736,7 @@ async function sendMessage() {
 }
 
 // ── Bootstrap ────────────────────────────────────────────────────
-loadMode(); loadClips();
+loadMode(); loadVlmMode(); loadClips();
 setInterval(loadClips, 30_000);   // light periodic refresh
 </script>
 </body>

@@ -1,0 +1,53 @@
+# =============================================================================
+#  pd-vlm-mode — switch between local Qwen-VL and Anthropic Claude multimodal
+#  for the *pipeline-time* visual-narrative generation.
+#
+#  Independent from pd-llm-mode (which controls *chat-time* persona LLM).
+#  Rationale: persona /chat is reasoning over indexed text and is cheap on
+#  Claude; vlm-caption is the only place a real video frame leaves the
+#  cluster, so it gets its own toggle so the policy can be different.
+#
+#  Read by:
+#    - vlm-caption Tekton task (pd-cctv ns) — mounted at /etc/pd-vlm-mode/
+#    - persona UI — surfaces current value in the header dropdown
+#
+#  mode values:
+#    local              -> POST frames to the in-cluster Qwen-VL InferenceService
+#                          (no external egress; only what the open-weights 7B
+#                          model can reason about). Default.
+#    claude-multimodal  -> base64-encode N frames and POST to
+#                          api.anthropic.com/v1/messages with the forensic
+#                          prompt. ~$0.10–0.20 per clip; produces materially
+#                          richer narrative (vehicle make/model, suspect
+#                          descriptions, action sequence) the persona can
+#                          then reason over for free at chat time.
+#
+#  Other knobs (used in both modes; defaults tuned for ~$0.15/clip on Claude):
+#    frames        -> number of keyframes ffmpeg samples (must be ≤ 30 for
+#                     Anthropic's 100-image cap with safety margin; for local
+#                     mode must be ≤ vLLM --limit-mm-per-prompt={"image":N}).
+#    resolution    -> ffmpeg scale=W:-1 long edge in px.
+#    jpeg_quality  -> ffmpeg -q:v (1=best, 31=worst).
+#
+#  Per-upload override: the UI's drop-zone "Deep analysis" checkbox sends a
+#  vlm_mode form field that overrides this ConfigMap default for that one
+#  PipelineRun. Watcher-fired runs (S3-watcher CronJob) always inherit the
+#  ConfigMap default.
+#
+#  ArgoCD: pd-pipeline.spec.ignoreDifferences keeps /data ignored so live
+#  patches via the UI's /api/vlm-mode don't get reverted on the next sync.
+# =============================================================================
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-vlm-mode
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+    app.kubernetes.io/component: vlm-routing
+data:
+  mode: "local"
+  frames: "16"
+  resolution: "1280"
+  jpeg_quality: "2"

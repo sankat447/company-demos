@@ -18,6 +18,16 @@ spec:
     description: UUID for this clip
   - name: uploaded-by
     default: "s3-watcher"
+  - name: vlm-mode-override
+    description: |
+      Optional per-PipelineRun override of the pd-vlm-mode ConfigMap.
+      Empty string = inherit ConfigMap default (recommended for the
+      S3-watcher path). The UI sets this to "claude-multimodal" only
+      when the operator ticks the "Deep analysis" checkbox.
+    default: ""
+  - name: vlm-frames-override
+    description: Per-PipelineRun keyframe-count override; empty = ConfigMap default.
+    default: ""
   resourcetemplates:
   - apiVersion: tekton.dev/v1
     kind: PipelineRun
@@ -66,6 +76,10 @@ spec:
         value: $(tt.params.clip-id)
       - name: uploaded-by
         value: $(tt.params.uploaded-by)
+      - name: vlm-mode-override
+        value: $(tt.params.vlm-mode-override)
+      - name: vlm-frames-override
+        value: $(tt.params.vlm-frames-override)
       workspaces:
       - name: shared
         persistentVolumeClaim:

@@ -122,6 +122,14 @@ spec:
                       "clip_s3_uri": f"s3://{bucket}/{k}",
                       "clip_id":     str(uuid.uuid4()),
                       "uploaded_by": "s3-watcher",
+                      # vlm_mode / vlm_frames are required body fields for
+                      # the TriggerBinding (it does $(body.vlm_mode) etc).
+                      # Empty strings let the vlm-caption Tekton task fall
+                      # through to the pd-vlm-mode ConfigMap default.
+                      # Watcher path NEVER opts into claude-multimodal —
+                      # only explicit UI uploads do.
+                      "vlm_mode":   "",
+                      "vlm_frames": "",
                   }
                   data = json.dumps(payload).encode("utf-8")
                   req = urllib.request.Request(
