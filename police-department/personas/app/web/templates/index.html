@@ -149,6 +149,10 @@
   .input-row button { background: var(--accent); color: #0f172a; border: none; border-radius: 4px;
                        padding: 9px 16px; font-weight: 600; cursor: pointer; }
   .input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .clear-btn { background: transparent; color: var(--muted); border: 1px solid var(--line);
+               border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+               transition: color 0.12s, border-color 0.12s; }
+  .clear-btn:hover { color: var(--err); border-color: var(--err); }
   .empty { color: var(--muted); padding: 30px; text-align: center; }
   .toast { position: fixed; bottom: 18px; right: 18px; background: var(--err); color: white;
            padding: 10px 16px; border-radius: 4px; font-size: 13px; max-width: 360px; }
@@ -270,6 +274,8 @@
         <option value="patrol">Patrol (situational)</option>
         <option value="evidence_clerk">Evidence Clerk (custody)</option>
       </select>
+      <button id="clear-chat" class="clear-btn" title="Erase the conversation for this clip and start fresh"
+              style="display: none;">Clear</button>
     </div>
     <div id="player" class="player-wrap hidden">
       <video id="clip-video" controls preload="metadata"></video>
@@ -377,6 +383,7 @@ async function selectClip(clipId) {
   activeClip = clipId;
   $("#active-clip").textContent = clipId.slice(0, 8);
   $("#q").disabled = false; $("#send").disabled = false;
+  $("#clear-chat").style.display = "inline-block";
   // Load video player (presigned S3 URL) and chat history in parallel
   loadVideo(clipId);
   const r = await fetch(`/api/chat/history/${clipId}`); const d = await r.json();
@@ -674,6 +681,17 @@ function linkifyTimestamps(safeHtml) {
 
 $("#send").addEventListener("click", sendMessage);
 $("#q").addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
+
+$("#clear-chat").addEventListener("click", async () => {
+  if (!activeClip) return;
+  if (!confirm("Clear this clip's chat history? (This only affects the conversation log; the clip's indexed Aurora data stays.)")) return;
+  try {
+    const r = await fetch(`/api/chat/history/${activeClip}`, {method: "DELETE"});
+    if (!r.ok) { toast(`Clear failed: ${r.status}`); return; }
+    renderChatLog([]);
+    toast("Chat cleared.", true);
+  } catch (e) { toast(`Clear failed: ${e}`); }
+});
 
 async function sendMessage() {
   if (!activeClip) { toast("Pick or upload a clip first."); return; }

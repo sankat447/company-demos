@@ -42,18 +42,10 @@ spec:
       namespace: pd-personas
       jsonPointers:
         - /data
-    # The pd-llm-mode ConfigMaps (one per ns) are flipped at runtime by the
-    # chat UI's mode dropdown and by demo operators. Git holds the safe
-    # default "mock"; selfHeal must not revert a /api/mode patch.
-    - group: ""
-      kind: ConfigMap
-      name: pd-llm-mode
-      namespace: pd-cctv
-      jsonPointers:
-        - /data
-    - group: ""
-      kind: ConfigMap
-      name: pd-llm-mode
-      namespace: pd-personas
-      jsonPointers:
-        - /data
+    # pd-llm-mode used to be a git-tracked ConfigMap with /data ignored
+    # here, but the same ServerSideApply + selfHeal race that hit
+    # pd-aurora-credentials reverted it back to "mock" mid-demo. Removed
+    # from git (manifests/personas/pd-llm-mode-configmap.yaml deleted)
+    # and the live cluster CMs are annotated argocd.../sync-options=Prune=false
+    # so this Application no longer touches them. Bootstrap (or the UI's
+    # /api/mode endpoint) is the canonical way to set the value.

@@ -194,3 +194,14 @@ def pipeline_one(run_name: str) -> dict:
 @router.get("/api/chat/history/{clip_id}")
 def chat_log(clip_id: str) -> dict:
     return {"clip_id": clip_id, "messages": chat_history.history(clip_id)}
+
+
+@router.delete("/api/chat/history/{clip_id}")
+def chat_clear(clip_id: str) -> dict:
+    """Wipe the in-memory chat history for one clip.
+
+    History is per-pod-process (see chat_history.py). For the demo this
+    is fine — the user clicked "Clear" because they want a fresh
+    conversation, and any new turn after this returns the empty list."""
+    chat_history.clear(clip_id)
+    return {"clip_id": clip_id, "messages": []}
