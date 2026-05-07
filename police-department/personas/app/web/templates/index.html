@@ -547,18 +547,18 @@ function renderChatLog(messages) {
     const bodyHtml = m.who === "user"
       ? linkifyTimestamps(escapeHtml(m.text))   // user input: leave plain, just linkify times
       : renderRichText(m.text);                  // persona output: render markdown
-    // Download button only on persona replies (not user msgs)
-    let dlBtn = "";
-    if (m.who !== "user") {
-      const safeProse = (m.text || "").replace(/"/g, "&quot;").replace(/\n/g, "\\n");
-      const claimsJson = JSON.stringify(m.claims || []).replace(/"/g, "&quot;");
-      dlBtn = `<button class="dl-btn" title="Download as plain text"
-                       onclick='downloadResponse(${JSON.stringify(m.who)}, ${JSON.stringify(activeClip || "")}, ${JSON.stringify(m.text || "")}, ${JSON.stringify(m.claims || [])})'
-              >${DL_ICON}</button>`;
-    }
+    const dlBtn = m.who !== "user"
+      ? `<button class="dl-btn" title="Download as plain text">${DL_ICON}</button>` : "";
     div.innerHTML = `<div class="who ${m.who}">${whoLabel}</div>` +
                     `<div class="body">${dlBtn}${bodyHtml}</div>${claimsHtml}`;
     log.appendChild(div);
+    // Bind the download click programmatically so apostrophes/quotes
+    // in prose don't break an inline onclick attribute.
+    if (m.who !== "user") {
+      const btn = div.querySelector(".dl-btn");
+      if (btn) btn.addEventListener("click",
+        () => downloadResponse(m.who, activeClip || "", m.text || "", m.claims || []));
+    }
   }
   log.scrollTop = log.scrollHeight;
 }
@@ -969,11 +969,15 @@ async function sendMessage() {
       }
       claimsHtml += "</ul></div>";
     }
-    const dlBtn = `<button class="dl-btn" title="Download as plain text"
-                       onclick='downloadResponse(${JSON.stringify(persona)}, ${JSON.stringify(activeClip || "")}, ${JSON.stringify(d.prose || "")}, ${JSON.stringify(d.claims || [])})'
-                  >${DL_ICON}</button>`;
+    const dlBtn = `<button class="dl-btn" title="Download as plain text">${DL_ICON}</button>`;
     reply.innerHTML = `<div class="who ${persona}">${persona}</div>` +
                       `<div class="body">${dlBtn}${renderRichText(d.prose)}</div>${claimsHtml}`;
+    // Bind programmatically — same reason as in renderChatLog.
+    {
+      const btn = reply.querySelector(".dl-btn");
+      if (btn) btn.addEventListener("click",
+        () => downloadResponse(persona, activeClip || "", d.prose || "", d.claims || []));
+    }
     log.appendChild(reply);
     log.scrollTop = log.scrollHeight;
 
