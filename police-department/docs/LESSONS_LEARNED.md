@@ -254,14 +254,20 @@ The time-slicing config (cm `time-slicing-config-all` in `gpu-operator-resources
 
 ---
 
-### Lesson 10 — Three independent VLM knobs must move in lockstep
+### Lesson 10 — Four VLM knobs must move in lockstep (and the resolution trap)
 | Knob | Where | Constraint |
 |---|---|---|
-| `frames` (Tekton task default / per-upload override) | `pd-vlm-mode` ConfigMap | local: ≤4. claude-multimodal: ≤30 (Anthropic 100-image cap with margin) |
+| `frames` | `pd-vlm-mode` ConfigMap | local: ≤4. claude-multimodal: ≤30 (Anthropic 100-image cap with margin) |
+| `resolution` | `pd-vlm-mode` ConfigMap | local: **640 max** (1280 busts max-model-len). claude-multimodal: 1280 OK |
 | `--limit-mm-per-prompt={"image":N}` | `pd-vllm-vlm-runtime.yaml` | Must be ≥ frames count for local mode |
-| `--max-model-len` | same | Must fit `frames × ~1280 visual tokens + prompt + max_tokens` |
+| `--max-model-len` | same | Must fit `frames × visual_tokens_per_image + prompt + max_tokens` |
 
-For 4 frames @ 1280px → 5120 visual + ~500 text + 2048 completion = 7668 tokens — fits in 8192. For 8 frames you'd need max-model-len ≥ 16384 (and watch GPU memory).
+**Visual tokens per image scales with resolution.** Qwen2.5-VL emits ~1130 visual tokens/image at 640 px, ~1900 at 1280 px. So:
+- 4 frames @ 640 px → 4520 visual + 500 text + 2048 completion = ~7068 tokens — fits 8192 ✓
+- 4 frames @ 1280 px → 7600 visual + 500 + 2048 = ~10148 — **busts 8192** (this is the "decoder prompt length 9240" error)
+- 16 frames @ 1280 px → 30400 visual + ... — fine for claude-multimodal (200k ctx) but well over local
+
+**Default**: `pd-vlm-mode` ships with `resolution=640` for local-mode safety. The UI's "Deep analysis" checkbox flips mode to claude-multimodal *and* the operator should bump resolution to 1280 (via the dropdown / `oc patch cm`). The ConfigMap has a **single resolution field used by both modes** — if you want them independent, branch in the Tekton task.
 
 ---
 
