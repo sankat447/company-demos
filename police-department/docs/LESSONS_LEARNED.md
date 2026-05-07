@@ -44,6 +44,28 @@ done
 oc -n openshift-pipelines get pods -o wide | grep webhook | grep -v 36-27
 # All must be Running on a node OTHER than ip-10-0-36-27.
 
+# 6b. ALSO verify rhods-operator and odh-model-controller are healthy —
+#     KServe applies a Pod via these admission webhooks; if either has
+#     no endpoints, predictor pod creation fails with "no endpoints
+#     available for service" or "context deadline exceeded".
+#     These pods often crashloop on ip-10-0-7-84 (always-loaded worker)
+#     even after the cordoned-node drain. Symptom: "oc apply -f
+#     pd-qwen25-vl-7b.yaml" returns webhook timeout.
+for ns_lbl in "redhat-ods-operator name=rhods-operator" \
+              "redhat-ods-applications control-plane=odh-model-controller"; do
+  ns=$(echo $ns_lbl | awk '{print $1}'); lbl=$(echo $ns_lbl | awk '{print $2}')
+  bad=$(oc -n "$ns" get pods -l "$lbl" --no-headers | awk '$3!="Running" || $4>5')
+  [ -n "$bad" ] && oc -n "$ns" delete pod -l "$lbl"
+done
+# Wait for the replacements to land Running 1/1 on a healthy node.
+for ns_lbl in "redhat-ods-operator name=rhods-operator" \
+              "redhat-ods-applications control-plane=odh-model-controller"; do
+  ns=$(echo $ns_lbl | awk '{print $1}'); lbl=$(echo $ns_lbl | awk '{print $2}')
+  until oc -n "$ns" get pods -l "$lbl" --no-headers \
+        | awk '$2~/^[0-9]+\/[0-9]+$/ && $2==substr($2,index($2,"/")+1)"/"substr($2,index($2,"/")+1) && $3=="Running"' \
+        | grep -q .; do sleep 5; done
+done
+
 # 7. GPU-mutex pre-flight: no pod must hold nvidia.com/gpu before we apply the IS.
 until [ "$(oc get pods -A -o json | jq '[.items[] | select(.spec.containers[]?.resources.requests."nvidia.com/gpu"? == "1")] | length')" = "0" ]; do
   echo "GPU still held; waiting..."; sleep 10
@@ -284,6 +306,28 @@ oc -n openshift-gitops patch application.argoproj.io pd-pipeline  --type=merge -
 oc -n openshift-gitops patch application.argoproj.io pd-pipeline --type=merge \
   -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true},"syncOptions":["CreateNamespace=false","ServerSideApply=true"]}}}'
 ```
+
+---
+
+### Lesson 16 — Tekton wasn't the only admission webhook bitten by node load
+**What happened.** Even after fixing tekton-operator-proxy-webhook (Lesson 1),
+`oc apply -f pd-qwen25-vl-7b.yaml` failed twice on bring-up:
+1. First with `kserve-kueuelabels-validator.opendatahub.io` timing out — the
+   `rhods-operator` pod was crashlooping on `ip-10-0-7-84` (35 restarts).
+2. Then with `mutating.pod.odh-model-controller.opendatahub.io` reporting
+   `no endpoints available` — the `odh-model-controller` pod was
+   crashlooping on the same overloaded worker (280 restarts).
+Each failure manifested as a different "no endpoints" / "context deadline
+exceeded" error and was misdiagnosed before the obvious shared cause
+showed up: the loaded worker was killing pods faster than they could
+serve admission traffic.
+
+**Remediation.** Step 6b added to the pre-flight: delete any pod in
+`redhat-ods-operator/name=rhods-operator` or
+`redhat-ods-applications/control-plane=odh-model-controller` that has
+restarts >5, then wait for its replacement. Both daemons are part of the
+KServe admission chain, so without them the predictor pod cannot be
+created.
 
 ---
 
