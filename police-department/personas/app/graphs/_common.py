@@ -59,6 +59,17 @@ def render_context(
             f"[narration #{i}, clip={h['clip_id'][:8]}, score={h['score']:.3f}]\n{h['prose']}"
         )
     if clip_ctx:
+        # The pinned-clip narration is the primary evidence — without
+        # this the persona reasons only over plates + face tracks and
+        # produces a generic "people arriving in waves" answer instead
+        # of the rich Vehicle / Timeline / Suspects narrative the
+        # vlm-caption stage actually wrote into Aurora.
+        clip_prose = (clip_ctx.get("prose") or "").strip()
+        if clip_prose:
+            blocks.append(
+                f"[clip narration] (clip={clip_ctx.get('clip_id_short','?')})\n"
+                + clip_prose
+            )
         # Surface the most actionable per-clip evidence the perception
         # pipeline produced — license-plate readings and face detections.
         plates = clip_ctx.get("plates") or []
