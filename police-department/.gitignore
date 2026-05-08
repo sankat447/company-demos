@@ -1,6 +1,10 @@
 # Local-only artifacts
 .env
 .env.*
+# Keep committed templates (operators copy these to the real names)
+!.env.example
+!.env.demo.example
+!.env.*.example
 *.tar
 *.tar.gz
 *.zip
