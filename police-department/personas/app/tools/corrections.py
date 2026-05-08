@@ -25,7 +25,7 @@ import psycopg
 
 log = logging.getLogger(__name__)
 
-VALID_KINDS = ("plate", "people", "vehicle", "event", "suspect", "note")
+VALID_KINDS = ("plate", "people", "vehicle", "event", "suspect", "note", "geo")
 
 
 def _dsn() -> str:

@@ -786,6 +786,11 @@ const SLASH_HELP =
   "/event <text> [@<time>]      add an action / event with optional timestamp\n" +
   "/suspect <#>: <description>  describe one suspect\n" +
   "                              e.g. /suspect 1: red hoodie, ringleader\n" +
+  "/geo <location>              geo-location for this clip — address,\n" +
+  "                              cross-streets, lat,lon, or camera ID:\n" +
+  "                                /geo 123 Main St, Springfield IL\n" +
+  "                                /geo 40.7128, -74.0060\n" +
+  "                                /geo Cam-12 · Main St & 5th Ave\n" +
   "/note <text>                 generic free-text correction or annotation\n" +
   "\n" +
   "/list                        show all corrections on file for this clip\n" +
@@ -820,7 +825,7 @@ function parseSlashCommand(line) {
     if (ts_sec == null) return {error: `Couldn't parse timestamp \`@${tsMatch[1]}\` — use 0:42 / 1:23:45 / 8.5s`};
     rest = rest.slice(0, tsMatch.index).trim();
   }
-  const direct = {plate:1, people:1, vehicle:1, event:1, suspect:1, note:1};
+  const direct = {plate:1, people:1, vehicle:1, event:1, suspect:1, note:1, geo:1};
   if (cmd in direct) {
     if (!rest) return {error: `\`/${cmd}\` needs an argument. Try \`/help\``};
     if (cmd === "people") {
