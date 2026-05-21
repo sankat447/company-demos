@@ -468,8 +468,16 @@ if "$SKIP_BUILD"; then
 else
   if ! "$DRY_RUN"; then
     cd "$REPO_ROOT/police-department/personas"
+    # Ensure BuildConfig + ImageStream exist (one-time per cluster).
+    # The BC is not in git — `oc new-build` creates both resources
+    # from the Dockerfile in this directory. Idempotent: if either
+    # already exists, the command exits non-zero and we ignore.
+    if ! oc -n "$PD_NS_PERSONAS" get bc pd-persona >/dev/null 2>&1; then
+      log "creating pd-persona BuildConfig + ImageStream (first-time setup)"
+      oc -n "$PD_NS_PERSONAS" new-build --binary --strategy=docker --name=pd-persona >/dev/null 2>&1 || true
+    fi
     BUILD=$(oc -n "$PD_NS_PERSONAS" start-build pd-persona --from-dir=. --follow=false 2>&1 | grep -oE 'pd-persona-[0-9]+' | head -1)
-    [ -z "$BUILD" ] && { err "start-build failed"; exit 1; }
+    if [ -z "$BUILD" ]; then err "start-build failed"; exit 1; fi
     log "started build $BUILD; waiting for Complete..."
     while [ "$(oc -n "$PD_NS_PERSONAS" get build "$BUILD" -o jsonpath='{.status.phase}')" != "Complete" ]; do
       sleep 30
