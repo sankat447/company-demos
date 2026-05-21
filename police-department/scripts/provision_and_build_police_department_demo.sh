@@ -541,6 +541,26 @@ if ! "$DRY_RUN"; then
   else
     warn "openshift-pipelines/tekton-results-postgres not found yet — prune CronJob will fail until reconciled"
   fi
+
+  # Lesson 17.13: the Pipelines operator ships a console-plugin Deployment
+  # + ConsolePlugin resource (`pipelines-console-plugin`) but the cluster
+  # Console operator does NOT auto-include it. Without this, the OCP UI's
+  # left nav has no "Pipelines" entry, even though Pipeline + PipelineRuns
+  # exist in pd-cctv. Add it idempotently.
+  if oc get consoleplugin pipelines-console-plugin >/dev/null 2>&1; then
+    CUR_PLUGINS=$(oc get console.operator cluster -o jsonpath='{.spec.plugins}')
+    if ! echo "$CUR_PLUGINS" | grep -q '"pipelines-console-plugin"'; then
+      run oc patch console.operator cluster --type=json \
+        -p='[{"op":"add","path":"/spec/plugins/-","value":"pipelines-console-plugin"}]' >/dev/null
+      log "waiting for openshift-console rollout (UI nav refresh)..."
+      oc -n openshift-console rollout status deploy/console --timeout=180s >/dev/null
+      ok "pipelines-console-plugin enabled (UI gains Pipelines nav)"
+    else
+      ok "pipelines-console-plugin already enabled"
+    fi
+  else
+    warn "ConsolePlugin pipelines-console-plugin not found — Pipelines operator may still be installing"
+  fi
 fi
 
 # ── Step 14: apply IS + pipeline + triggers ───────────────────────────────

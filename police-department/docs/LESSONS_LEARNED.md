@@ -446,6 +446,17 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+13. **OCP Console doesn't enable the Pipelines plugin by default.** The
+    OpenShift Pipelines operator ships a `pipelines-console-plugin`
+    Deployment in `openshift-pipelines` and a `ConsolePlugin` CRD
+    instance — but the cluster `Console` operator's
+    `spec.plugins` list does **not** include it. Symptom: OCP UI's left
+    nav has zero Pipelines entry even though Pipelines + PipelineRuns
+    exist in `pd-cctv`. **Fix**: `oc patch console.operator cluster
+    --type=json -p='[{"op":"add","path":"/spec/plugins/-","value":"pipelines-console-plugin"}]'`
+    + wait for `openshift-console` rollout. Added to step 13.5 of the
+    provision script.
+
 12. **`pd-aurora-credentials-secret.yaml` declared `stringData.endpoint:
     ""` and `stringData.password: ""` "as placeholders for ArgoCD".**
     Every ArgoCD reconcile silently blanked the live endpoint+password
