@@ -446,6 +446,33 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+16. **`pd_cctv.operator_corrections` table was never in the schema
+    ConfigMap.** The persona's slash-command code
+    (`personas/app/tools/corrections.py`, `clip_context.py`,
+    `graphs/_common.py`) reads/writes this table, but `pd-aurora-schema-configmap.yaml`
+    only created 8 tables (clips, custody_log, narrations, entities,
+    events, relationships, plates, faces). Symptom: every persona
+    `/api/clips` GET + every clip-detail load logs `WARNING ... relation
+    "pd_cctv.operator_corrections" does not exist`, the persona returns
+    empty corrections context, and slash commands silently fail at
+    INSERT. **Fix**: added `08_operator_corrections.sql` to the schema
+    CM with the full table + indexes, and added `/sql/08_*` to the
+    init-Job iterator.
+
+15. **IAM user `pd-demo-s3-rw` couldn't write MLflow artifacts.** The
+    structure-and-write task ends with an MLflow log of the run bundle
+    to `s3://ai-demo-data-lake/mlflow-artifacts/<exp>/<run>/...` — but
+    the script's IAM policy only granted PutObject on
+    `clips/police-department/*`, `processed/police-department/*`, and
+    `models/police-department/*`. Symptom: `[structure] WARN: mlflow
+    log failed ... s3:PutObject AccessDenied` at the very end. The
+    task still exits 0 (the warn is intentionally non-fatal), so the
+    PipelineRun succeeds and Aurora has all the rows — but operators
+    looking at MLflow Experiments find empty artifacts. **Fix**:
+    extended the script's `pd-s3-rw` IAM policy to include
+    `arn:aws:s3:::$PD_BUCKET/mlflow-artifacts/*` + the matching ListBucket
+    prefix.
+
 14. **`pd-structure-runner:0.1.0` BuildConfig + ImageStream were never
     committed.** Same pattern as `pd-persona` (lesson 17.6) — the image
     was originally built ad-hoc with `oc new-build` on the dev cluster

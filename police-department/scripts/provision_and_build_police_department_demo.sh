@@ -178,11 +178,12 @@ if "$needs_rotate" && ! "$DRY_RUN"; then
      "Resource":[
         "arn:aws:s3:::$PD_BUCKET/clips/police-department/*",
         "arn:aws:s3:::$PD_BUCKET/processed/police-department/*",
-        "arn:aws:s3:::$PD_BUCKET/models/police-department/*"]},
+        "arn:aws:s3:::$PD_BUCKET/models/police-department/*",
+        "arn:aws:s3:::$PD_BUCKET/mlflow-artifacts/*"]},
     {"Sid":"BucketList","Effect":"Allow","Action":["s3:ListBucket"],
      "Resource":"arn:aws:s3:::$PD_BUCKET",
      "Condition":{"StringLike":{"s3:prefix":[
-        "clips/police-department/*","processed/police-department/*","models/police-department/*"]}}}
+        "clips/police-department/*","processed/police-department/*","models/police-department/*","mlflow-artifacts/*"]}}}
 ]}
 POL
   aws iam put-user-policy --user-name "$IAM_USER" --policy-name pd-s3-rw \

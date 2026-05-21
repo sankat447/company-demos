@@ -206,3 +206,29 @@ data:
     LEFT JOIN pd_cctv.plates     p ON p.clip_id = c.clip_id
     LEFT JOIN pd_cctv.faces      f ON f.clip_id = c.clip_id
     GROUP BY c.clip_id;
+  08_operator_corrections.sql: |
+    -- =============================================================================
+    --  Operator-submitted corrections — backs the persona slash commands
+    --  (/plate, /people, /vehicle, /event, /suspect, /note, /geo).
+    --
+    --  Persona /chat treats these rows as authoritative, overriding noisy OCR /
+    --  face-track output. Schema is referenced by:
+    --     personas/app/tools/corrections.py
+    --     personas/app/tools/clip_context.py
+    --     personas/app/graphs/_common.py
+    --  Was previously created ad-hoc on the dev cluster (lesson 17.15).
+    -- =============================================================================
+    CREATE TABLE IF NOT EXISTS pd_cctv.operator_corrections (
+      id          BIGSERIAL PRIMARY KEY,
+      clip_id     UUID NOT NULL REFERENCES pd_cctv.clips(clip_id) ON DELETE CASCADE,
+      kind        TEXT NOT NULL CHECK (kind IN
+                    ('plate','people','vehicle','event','suspect','note','geo')),
+      text        TEXT NOT NULL,
+      ts_sec      NUMERIC(8,3),
+      operator    TEXT NOT NULL DEFAULT 'ui',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS operator_corrections_clip_idx
+      ON pd_cctv.operator_corrections(clip_id);
+    CREATE INDEX IF NOT EXISTS operator_corrections_kind_idx
+      ON pd_cctv.operator_corrections(kind);

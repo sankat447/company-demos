@@ -61,7 +61,7 @@ spec:
           echo "[pd-aurora-init] applying pd_cctv schema to ${PGHOST}/${PGDATABASE}..."
           for f in /sql/01_schema.sql /sql/02_tables.sql /sql/03_indexes.sql \
                    /sql/04_triggers_custody.sql /sql/05_views.sql /sql/06_seed.sql \
-                   /sql/07_faces_plates.sql; do
+                   /sql/07_faces_plates.sql /sql/08_operator_corrections.sql; do
             echo "[pd-aurora-init] >> $f"
             psql --single-transaction --set ON_ERROR_STOP=on -f "$f"
           done
