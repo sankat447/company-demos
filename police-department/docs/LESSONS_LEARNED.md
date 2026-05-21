@@ -446,6 +446,21 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+12. **`pd-aurora-credentials-secret.yaml` declared `stringData.endpoint:
+    ""` and `stringData.password: ""` "as placeholders for ArgoCD".**
+    Every ArgoCD reconcile silently blanked the live endpoint+password
+    back to `""`, which caused the `pd-aurora-init` PostSync hook Job
+    to fail with `connection to server on socket "/var/run/postgresql/
+    .s.PGSQL.5432" failed` (PGHOST was empty). The persona service
+    then logged `relation "pd_cctv.clips" does not exist` on every
+    `/api/clips` call because the schema was never created. **Fix**:
+    remove `endpoint` and `password` from the git manifest entirely.
+    The provision script's `upsert` helper uses `oc apply --server-side
+    --force-conflicts`, so the script-stamped fields are owned by a
+    different field-manager and survive ArgoCD reconciles. The git
+    manifest now only declares `database` + `username` (deterministic
+    values that are safe to be authoritative).
+
 ---
 
 ### Lesson 16 — Tekton wasn't the only admission webhook bitten by node load
