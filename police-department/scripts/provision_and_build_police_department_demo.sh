@@ -93,7 +93,13 @@ fi
 # shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
 
-require() { for v in "$@"; do [ -z "${!v:-}" ] && { err "$v is unset in .env.demo"; exit 1; }; done; }
+require() {
+  # Don't use `[ -z "$x" ] && ...` here — under `set -e` the failing
+  # branch of [ ] aborts the script. Use a plain if/then.
+  for v in "$@"; do
+    if [ -z "${!v:-}" ]; then err "$v is unset in .env.demo"; exit 1; fi
+  done
+}
 require PD_KUBECONFIG PD_AWS_PROFILE PD_AWS_REGION PD_ANTHROPIC_API_KEY \
         PD_BUCKET PD_NS_CCTV PD_NS_PERSONAS
 [ -f "$PD_KUBECONFIG" ] || { err "PD_KUBECONFIG file does not exist: $PD_KUBECONFIG"; exit 1; }
@@ -102,19 +108,26 @@ export KUBECONFIG="$PD_KUBECONFIG"
 # PD_MACHINESET_PREFIX changes per Terraform run (the cluster ID is
 # generated). If blank, auto-detect from the live MachineSets.
 if [ -z "${PD_MACHINESET_PREFIX:-}" ]; then
+  # macOS BSD sed doesn't like `|` as both the separator and alternation
+  # operator on the same line. Use awk-based extraction instead.
   PD_MACHINESET_PREFIX=$(oc -n openshift-machine-api get machineset -o name 2>/dev/null \
-    | head -1 | sed -E 's|machineset.machine.openshift.io/||; s|-(worker|gpu-demo|compute)-us-east-.*||')
-  [ -n "$PD_MACHINESET_PREFIX" ] && log "auto-detected MachineSet prefix: $PD_MACHINESET_PREFIX" \
-                                || { err "PD_MACHINESET_PREFIX not set + auto-detect failed"; exit 1; }
+    | head -1 \
+    | awk -F'/' '{print $2}' \
+    | awk -F'-' '{print $1"-"$2"-"$3}')
+  if [ -n "$PD_MACHINESET_PREFIX" ]; then
+    log "auto-detected MachineSet prefix: $PD_MACHINESET_PREFIX"
+  else
+    err "PD_MACHINESET_PREFIX not set + auto-detect failed"; exit 1
+  fi
 fi
 ok "env loaded · KUBECONFIG=$PD_KUBECONFIG · PD_BUCKET=$PD_BUCKET · MS=$PD_MACHINESET_PREFIX"
 
 # ── Step 2: cluster reachability ──────────────────────────────────────────
 banner "Step 2 · Verify cluster + identity"
 WHO=$(oc whoami 2>/dev/null || true)
-[ -z "$WHO" ] && { err "oc whoami failed; check KUBECONFIG"; exit 1; }
+if [ -z "$WHO" ]; then err "oc whoami failed; check KUBECONFIG"; exit 1; fi
 log "logged in as $WHO"
-[ "$WHO" != "system:admin" ] && warn "expected system:admin; some MachineSet ops may be denied"
+if [ "$WHO" != "system:admin" ]; then warn "expected system:admin; some MachineSet ops may be denied"; fi
 
 # AWS SSO check (only critical if we need to provision IAM)
 AWS_PROFILE="$PD_AWS_PROFILE"; export AWS_PROFILE
@@ -226,8 +239,8 @@ if [ -z "${PD_AURORA_HOST:-}" ] || [ -z "${PD_AURORA_PASSWORD:-}" ]; then
                           --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || echo "")
   fi
 fi
-[ -z "$PD_AURORA_HOST" ] && { err "PD_AURORA_HOST empty AND autodiscovery failed (tried Secret + SSM)"; exit 1; }
-[ -z "$PD_AURORA_PASSWORD" ] && { err "PD_AURORA_PASSWORD empty AND autodiscovery failed"; exit 1; }
+if [ -z "$PD_AURORA_HOST" ]; then err "PD_AURORA_HOST empty AND autodiscovery failed (tried Secret + SSM)"; exit 1; fi
+if [ -z "$PD_AURORA_PASSWORD" ]; then err "PD_AURORA_PASSWORD empty AND autodiscovery failed"; exit 1; fi
 log "Aurora host: $PD_AURORA_HOST"
 for ns in "$PD_NS_CCTV" "$PD_NS_PERSONAS"; do
   upsert pd-aurora-credentials "$ns" \
@@ -312,7 +325,7 @@ if ! "$DRY_RUN"; then
   T=$(date +%s); LIM=$((T+900))   # 15-min timeout
   while [ "$(oc get node -l nvidia.com/gpu.present=true \
               -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null)" != "4" ]; do
-    [ "$(date +%s)" -gt "$LIM" ] && { err "GPU allocatable=4 timeout"; exit 1; }
+    if [ "$(date +%s)" -gt "$LIM" ]; then err "GPU allocatable=4 timeout"; exit 1; fi
     sleep 15
   done
   ok "GPU allocatable=4"
@@ -325,8 +338,8 @@ if ! "$DRY_RUN"; then
             -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
       [ "$r" = "2" ] || bad=$((bad+1))
     done
-    [ "$bad" = "0" ] && break
-    [ "$(date +%s)" -gt "$LIM" ] && { err "worker readyReplicas timeout"; exit 1; }
+    if [ "$bad" = "0" ]; then break; fi
+    if [ "$(date +%s)" -gt "$LIM" ]; then err "worker readyReplicas timeout"; exit 1; fi
     sleep 15
   done
   ok "workers 2/2 across us-east-1a/1b/1c"
