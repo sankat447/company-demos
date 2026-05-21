@@ -290,13 +290,36 @@ upsert_cm pd-vlm-mode "$PD_NS_CCTV" "mode=local" "frames=16" "resolution=640" "j
 ok "modes set: chat=claude · ingest=local @ 640px"
 
 # ── Step 6: ArgoCD bootstrap ──────────────────────────────────────────────
-banner "Step 6 · ArgoCD app-of-apps (delegate to bootstrap/03_apply_argocd.sh)"
-if [ -x "$REPO_ROOT/police-department/bootstrap/03_apply_argocd.sh" ]; then
-  if "$DRY_RUN"; then log "DRY bootstrap/03_apply_argocd.sh"
-  else "$REPO_ROOT/police-department/bootstrap/03_apply_argocd.sh"
-  fi
+banner "Step 6 · ArgoCD app-of-apps"
+# Inline this rather than delegating, because bootstrap/03_apply_argocd.sh
+# has a 10-min per-app waiter that times out before ArgoCD's natural 3-min
+# refresh cycle has even started on a fresh cluster — and its non-zero
+# exit silently truncates the parent script. We do the apply ourselves
+# and just wait for the bootstrap App itself to be Synced+Healthy (which
+# means all 7 children have materialised); each child reconciles on its
+# own clock after that.
+APP_OF_APPS="$REPO_ROOT/police-department/argocd/bootstrap-application.yaml"
+if "$DRY_RUN"; then
+  log "DRY oc apply -f $APP_OF_APPS"
+elif [ -f "$APP_OF_APPS" ]; then
+  oc apply -f "$APP_OF_APPS" >/dev/null
+  log "waiting up to 20 min for pd-bootstrap Synced+Healthy + 7 child apps to exist"
+  T=$(date +%s); LIM=$((T+1200))
+  while true; do
+    sync=$(oc -n openshift-gitops get application.argoproj.io pd-bootstrap -o jsonpath='{.status.sync.status}' 2>/dev/null)
+    n_children=$(oc -n openshift-gitops get application.argoproj.io --no-headers 2>/dev/null | grep -c '^pd-' || true)
+    if [ "$sync" = "Synced" ] && [ "$n_children" -ge 7 ]; then
+      ok "pd-bootstrap Synced; $n_children pd-* child apps exist"
+      break
+    fi
+    if [ "$(date +%s)" -gt "$LIM" ]; then
+      warn "ArgoCD bootstrap waiter timed out (sync=$sync children=$n_children) — continuing; manifests below will apply directly"
+      break
+    fi
+    sleep 20
+  done
 else
-  warn "bootstrap/03_apply_argocd.sh not found; skipping ArgoCD bring-up"
+  warn "$APP_OF_APPS not found; skipping ArgoCD bring-up"
 fi
 
 # ── Step 7: stage Qwen-VL model into S3 (idempotent) ──────────────────────
