@@ -446,6 +446,20 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+14. **`pd-structure-runner:0.1.0` BuildConfig + ImageStream were never
+    committed.** Same pattern as `pd-persona` (lesson 17.6) — the image
+    was originally built ad-hoc with `oc new-build` on the dev cluster
+    and the Tekton task pins
+    `image-registry.openshift-image-registry.svc:5000/pd-cctv/pd-structure-runner:0.1.0`.
+    A fresh cluster has no BuildConfig + no image → final `structure-and-write`
+    task fails with `TaskRunImagePullFailed: ErrImagePull ... name unknown`,
+    even though every preceding task (yolo + faces + vlm-caption + whisper)
+    succeeded — so the whole PipelineRun is wasted. **Fix**: new step
+    13.7 of the provision script runs `oc new-build --binary
+    --strategy=docker --name=pd-structure-runner` against
+    `runner-images/structure-and-write/`, kicks off a build, waits for
+    Complete, and `oc tag :latest :0.1.0`. Idempotent on re-runs.
+
 13. **OCP Console doesn't enable the Pipelines plugin by default.** The
     OpenShift Pipelines operator ships a `pipelines-console-plugin`
     Deployment in `openshift-pipelines` and a `ConsolePlugin` CRD

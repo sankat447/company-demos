@@ -563,6 +563,54 @@ if ! "$DRY_RUN"; then
   fi
 fi
 
+# ── Step 13.7: build pd-structure-runner image (one-time, per cluster) ───
+# Lesson 17.14: the structure-and-write Tekton task references
+# `image-registry.openshift-image-registry.svc:5000/pd-cctv/pd-structure-runner:0.1.0`,
+# which is built from `runner-images/structure-and-write/Dockerfile` via an
+# OpenShift BuildConfig that was created ad-hoc on the original cluster
+# (`oc new-build --binary --strategy=docker --name=pd-structure-runner`).
+# A fresh cluster has no such BuildConfig → image pull fails → the
+# entire pipeline fails at the last task even though every GPU task
+# succeeded. Bake the build in.
+#
+# Idempotent: if the BC + IS exist AND a Complete build is already on
+# file, skip the rebuild.
+banner "Step 13.7 · pd-structure-runner image (Tekton task dependency)"
+if "$SKIP_BUILD"; then
+  ok "skipped (--skip-build) — assuming :0.1.0 is already in the registry"
+elif ! "$DRY_RUN"; then
+  RUNNER_DIR="$REPO_ROOT/police-department/runner-images/structure-and-write"
+  if [ ! -f "$RUNNER_DIR/Dockerfile" ]; then
+    err "pd-structure-runner Dockerfile not found at $RUNNER_DIR"; exit 1
+  fi
+  if ! oc -n "$PD_NS_CCTV" get bc pd-structure-runner >/dev/null 2>&1; then
+    log "creating pd-structure-runner BuildConfig + ImageStream (first-time setup)"
+    (cd "$RUNNER_DIR" && oc -n "$PD_NS_CCTV" new-build --binary --strategy=docker --name=pd-structure-runner >/dev/null 2>&1 || true)
+  fi
+  # If :0.1.0 tag already exists with a backing image, skip rebuild.
+  HAVE_TAG=$(oc -n "$PD_NS_CCTV" get is pd-structure-runner -o jsonpath='{.status.tags[?(@.tag=="0.1.0")].tag}' 2>/dev/null)
+  if [ "$HAVE_TAG" = "0.1.0" ]; then
+    ok "pd-structure-runner:0.1.0 already in registry"
+  else
+    BUILD=$(cd "$RUNNER_DIR" && oc -n "$PD_NS_CCTV" start-build pd-structure-runner --from-dir=. --follow=false 2>&1 | grep -oE 'pd-structure-runner-[0-9]+' | head -1)
+    if [ -z "$BUILD" ]; then err "pd-structure-runner start-build failed"; exit 1; fi
+    log "started build $BUILD; waiting for Complete..."
+    LIM=$(($(date +%s)+900))   # 15-min ceiling for pip install on UBI
+    while true; do
+      PH=$(oc -n "$PD_NS_CCTV" get build "$BUILD" -o jsonpath='{.status.phase}')
+      case "$PH" in
+        Complete) break ;;
+        Failed|Error|Cancelled) err "$BUILD ended $PH"; exit 1 ;;
+      esac
+      [ "$(date +%s)" -gt "$LIM" ] && { err "$BUILD timeout"; exit 1; }
+      sleep 20
+    done
+    # BC outputs to :latest; Task pins :0.1.0 → retag.
+    oc -n "$PD_NS_CCTV" tag pd-structure-runner:latest pd-structure-runner:0.1.0 >/dev/null
+    ok "$BUILD Complete — pd-structure-runner:0.1.0 in registry"
+  fi
+fi
+
 # ── Step 14: apply IS + pipeline + triggers ───────────────────────────────
 banner "Step 14 · Apply InferenceService + Pipeline + Triggers"
 M="$REPO_ROOT/police-department/manifests"
