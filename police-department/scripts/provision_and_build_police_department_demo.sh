@@ -253,21 +253,29 @@ if [ -n "${PD_PORTKEY_API_KEY:-}" ]; then
   upsert pd-portkey-key "$PD_NS_PERSONAS" "api_key=$PD_PORTKEY_API_KEY"
 fi
 
-# KServe storage-init (optional — only if user provided long-lived AWS keys
-# specifically for the model storage-init; the runtime keys above can serve
-# this purpose too, since pd-demo-s3-rw includes models/* read access).
+# pd-kserve-s3-creds — REQUIRED for the KServe storage-initializer (Lesson 17).
+# IS revision is rejected at admission with `secrets "pd-kserve-s3-creds"
+# not found` if this is missing. If the operator didn't supply dedicated
+# long-lived keys, reuse the pd-demo-s3-rw IAM user's keys (pd-s3-creds)
+# — that user's policy already grants read on models/police-department/*.
 if [ -n "${PD_KSERVE_S3_AKID:-}" ] && [ -n "${PD_KSERVE_S3_SECRET:-}" ]; then
-  if ! "$DRY_RUN"; then
-    oc -n "$PD_NS_CCTV" create secret generic pd-kserve-s3-creds \
-      --from-literal=AWS_ACCESS_KEY_ID="$PD_KSERVE_S3_AKID" \
-      --from-literal=AWS_SECRET_ACCESS_KEY="$PD_KSERVE_S3_SECRET" \
-      --dry-run=client -o yaml | oc apply --server-side --force-conflicts -f -
-    oc -n "$PD_NS_CCTV" annotate secret pd-kserve-s3-creds \
-      serving.kserve.io/s3-endpoint=s3.amazonaws.com \
-      serving.kserve.io/s3-region="$PD_AWS_REGION" \
-      serving.kserve.io/s3-usehttps=1 serving.kserve.io/s3-verifyssl=1 \
-      "argocd.argoproj.io/sync-options=Prune=false" --overwrite >/dev/null
-  fi
+  KSV_AKID="$PD_KSERVE_S3_AKID"; KSV_SECRET="$PD_KSERVE_S3_SECRET"
+  log "  pd-kserve-s3-creds: using PD_KSERVE_S3_AKID from .env.demo"
+else
+  KSV_AKID=$(oc -n "$PD_NS_CCTV" get secret pd-s3-creds -o jsonpath='{.data.access_key_id}' 2>/dev/null | base64 -d || echo "")
+  KSV_SECRET=$(oc -n "$PD_NS_CCTV" get secret pd-s3-creds -o jsonpath='{.data.secret_access_key}' 2>/dev/null | base64 -d || echo "")
+  log "  pd-kserve-s3-creds: reusing pd-s3-creds keys (no separate KSV_* configured)"
+fi
+if [ -n "$KSV_AKID" ] && [ -n "$KSV_SECRET" ] && ! "$DRY_RUN"; then
+  oc -n "$PD_NS_CCTV" create secret generic pd-kserve-s3-creds \
+    --from-literal=AWS_ACCESS_KEY_ID="$KSV_AKID" \
+    --from-literal=AWS_SECRET_ACCESS_KEY="$KSV_SECRET" \
+    --dry-run=client -o yaml | oc apply --server-side --force-conflicts -f -
+  oc -n "$PD_NS_CCTV" annotate secret pd-kserve-s3-creds \
+    serving.kserve.io/s3-endpoint=s3.amazonaws.com \
+    serving.kserve.io/s3-region="$PD_AWS_REGION" \
+    serving.kserve.io/s3-usehttps=1 serving.kserve.io/s3-verifyssl=1 \
+    "argocd.argoproj.io/sync-options=Prune=false" --overwrite >/dev/null
 fi
 ok "secrets stamped"
 
@@ -338,6 +346,36 @@ for az in 1a 1b 1c; do
   run oc -n openshift-machine-api scale machineset "$ms" --replicas=2
 done
 gpu_ms="${PD_MACHINESET_PREFIX}-gpu-demo-us-east-1a"
+
+# Lesson 17 — fresh Terraform leaves the GPU MachineSet with three quirks
+# that break provisioning if not patched:
+#   1. instanceType = g4dn.xlarge (T4 16 GB) → vLLM OOMs loading Qwen-VL.
+#      Patch to g5.xlarge (A10G 24 GB).
+#   2. securityGroups tag refers to `<cluster>-worker-sg` but the actual
+#      SG created by Terraform is tagged `<cluster>-node`.
+#   3. subnet tag refers to `<cluster>-private-us-east-1a` but the actual
+#      subnet is tagged `<cluster>-subnet-private-us-east-1a`.
+# Patch all three in one go before scaling.
+if ! "$DRY_RUN"; then
+  CUR_TYPE=$(oc -n openshift-machine-api get machineset "$gpu_ms" -o jsonpath='{.spec.template.spec.providerSpec.value.instanceType}' 2>/dev/null)
+  CUR_SG=$(oc -n openshift-machine-api get machineset "$gpu_ms" -o jsonpath='{.spec.template.spec.providerSpec.value.securityGroups[0].filters[0].values[0]}' 2>/dev/null)
+  CUR_SUBNET=$(oc -n openshift-machine-api get machineset "$gpu_ms" -o jsonpath='{.spec.template.spec.providerSpec.value.subnet.filters[0].values[0]}' 2>/dev/null)
+  WORKER_SG=$(oc -n openshift-machine-api get machineset "${PD_MACHINESET_PREFIX}-worker-us-east-1a" -o jsonpath='{.spec.template.spec.providerSpec.value.securityGroups[0].filters[0].values[0]}' 2>/dev/null)
+  WORKER_SUBNET=$(oc -n openshift-machine-api get machineset "${PD_MACHINESET_PREFIX}-worker-us-east-1a" -o jsonpath='{.spec.template.spec.providerSpec.value.subnet.filters[0].values[0]}' 2>/dev/null)
+  needs_patch=false
+  [ "$CUR_TYPE" != "g5.xlarge" ] && needs_patch=true
+  [ "$CUR_SG" != "$WORKER_SG" ] && needs_patch=true
+  [ "$CUR_SUBNET" != "$WORKER_SUBNET" ] && needs_patch=true
+  if "$needs_patch"; then
+    log "patching GPU MachineSet (type=$CUR_TYPE→g5.xlarge, sg=$CUR_SG→$WORKER_SG, subnet=$CUR_SUBNET→$WORKER_SUBNET)"
+    oc -n openshift-machine-api patch machineset "$gpu_ms" --type=json -p "[
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/instanceType\",\"value\":\"g5.xlarge\"},
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/securityGroups/0/filters/0/values\",\"value\":[\"$WORKER_SG\"]},
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/subnet/filters/0/values\",\"value\":[\"$WORKER_SUBNET\"]}
+    ]" >/dev/null
+    ok "GPU MachineSet patched (g5.xlarge + platform-matched SG/subnet)"
+  fi
+fi
 run oc -n openshift-machine-api scale machineset "$gpu_ms" --replicas=1
 ok "scale-up requested"
 
@@ -366,6 +404,24 @@ if ! "$DRY_RUN"; then
     sleep 15
   done
   ok "workers 2/2 across us-east-1a/1b/1c"
+fi
+
+# ── Step 10.5: apply time-slicing (1 physical GPU → 4 vGPUs) ──────────────
+# Lesson 17: NOT in git on previous platform versions. Now committed at
+# manifests/inference/pd-gpu-time-slicing.yaml. Apply the ConfigMap and
+# patch the ClusterPolicy to reference it. Re-apply is idempotent.
+banner "Step 10.5 · GPU time-slicing (1 physical → 4 vGPUs)"
+if ! "$DRY_RUN"; then
+  oc apply -f "$REPO_ROOT/police-department/manifests/inference/pd-gpu-time-slicing.yaml" >/dev/null
+  oc patch clusterpolicy gpu-cluster-policy --type=merge \
+    -p '{"spec":{"devicePlugin":{"config":{"name":"time-slicing-config-all","default":"any"}}}}' >/dev/null 2>&1 || true
+  # Wait for allocatable to reach 4 (device-plugin re-publishes within ~60s).
+  T=$(date +%s); LIM=$((T+180))
+  while [ "$(oc get node -l nvidia.com/gpu.present=true -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null)" != "4" ]; do
+    if [ "$(date +%s)" -gt "$LIM" ]; then warn "time-slicing didn't propagate within 3 min — continuing"; break; fi
+    sleep 15
+  done
+  ok "GPU allocatable: $(oc get node -l nvidia.com/gpu.present=true -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}')"
 fi
 
 # ── Step 11: detect + drain bad nodes ─────────────────────────────────────
@@ -489,6 +545,19 @@ else
     oc -n "$PD_NS_PERSONAS" rollout status deploy/pd-persona --timeout=300s
     ok "persona rolled out"
   fi
+fi
+
+# ── Step 15.5: re-stamp pd-vlm-mode at 640px (post-ArgoCD reconcile) ──────
+# Lesson 17: ArgoCD's pd-pipeline app ships pd-vlm-mode with resolution=1280
+# in git, which busts vLLM max-model-len=8192 in local mode (lesson 10).
+# Re-patch the live CM AFTER ArgoCD has run, with Prune=false so our value
+# sticks across future syncs.
+if ! "$DRY_RUN"; then
+  oc -n "$PD_NS_CCTV" patch cm pd-vlm-mode --type=merge \
+    -p '{"data":{"resolution":"640","frames":"16","jpeg_quality":"2","mode":"local"}}' >/dev/null
+  oc -n "$PD_NS_CCTV" annotate cm pd-vlm-mode \
+    argocd.argoproj.io/sync-options=Prune=false --overwrite >/dev/null
+  ok "pd-vlm-mode = local @ 640px (lesson-10 safe default)"
 fi
 
 # ── Step 16: smoke test ───────────────────────────────────────────────────

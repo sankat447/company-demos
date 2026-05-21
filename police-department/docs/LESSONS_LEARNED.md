@@ -352,6 +352,72 @@ oc -n openshift-gitops patch application.argoproj.io pd-pipeline --type=merge \
 
 ---
 
+### Lesson 17 — Fresh-cluster bring-up has its own gotchas (2026-05-21)
+First end-to-end run of the new `provision_and_build_police_department_demo.sh`
+on a freshly-Terraformed cluster surfaced four issues, all encoded into the
+script now so the next operator hits zero of them:
+
+1. **MachineSet prefix is generated per Terraform run** (`ai-demo-lt9wz` →
+   `ai-demo-zpvwj`). Leave `PD_MACHINESET_PREFIX` blank in `.env.demo`; the
+   script auto-detects from `oc -n openshift-machine-api get machineset`.
+
+2. **GPU MachineSet template references the wrong AWS Security Group + Subnet
+   names.** Terraform Created `ai-demo-zpvwj-node` (worker SG) and
+   `ai-demo-zpvwj-subnet-private-us-east-1a`, but the cluster's GPU MachineSet
+   template was authored against the older naming `*-worker-sg` /
+   `*-private-us-east-1a`. Symptom: GPU machine goes to `Failed` after ~30 min
+   with `error getting security groups IDs: no security group found`.
+   **Fix**: patch the MachineSet to use the platform's actual names. Script
+   detects this by checking whether the machine reaches `Provisioned`; if it
+   sits in `Provisioning` past 5 min, sniff the error and patch.
+
+3. **g4dn.xlarge T4 (16 GB) is NOT enough for Qwen-VL 7B.** Fresh Terraform
+   defaults the GPU MachineSet to `g4dn.xlarge`; vLLM loads ~14 GB of model
+   weights into VRAM, then OOMs on the first KV-cache allocation. Symptom:
+   `CUDA out of memory. Tried to allocate 260.00 MiB. GPU 0 has a total
+   capacity of 14.56 GiB of which 58.81 MiB is free`. **Fix**: patch the GPU
+   MachineSet to `g5.xlarge` (A10G 24 GB) before letting it provision. Script
+   does this unconditionally.
+
+4. **Time-slicing ConfigMap + ClusterPolicy patch are NOT in git.** They were
+   live-applied on the previous cluster's GPU operator. Fresh cluster comes up
+   with `nvidia.com/gpu` allocatable = 1, not 4 → only one GPU-requesting pod
+   can run at a time → yolo / faces / vlm-caption serialise instead of
+   running in parallel. **Fix**: ship the `time-slicing-config-all`
+   ConfigMap + ClusterPolicy patch in `manifests/inference/` and apply them
+   in step 11 of the bring-up.
+
+5. **`pd-kserve-s3-creds` was always created out-of-band** by the operator
+   running `oc apply` ad-hoc. Without it, KServe storage-initializer can't
+   download the model and the IS revision is rejected by the
+   `inferenceservice.kserve-webhook-server.pod-mutator` with
+   `secrets "pd-kserve-s3-creds" not found`. **Fix**: script now stamps it
+   alongside `pd-s3-creds` (reusing the same long-lived IAM keys) in step 4.
+
+6. **Persona BuildConfig + ImageStream were never committed.** On the
+   original cluster they were created with `oc new-build` early in
+   development. A fresh cluster has no BC, so step 15's `oc start-build`
+   returns empty. **Fix**: script now runs `oc new-build --binary
+   --strategy=docker --name=pd-persona` the first time through; subsequent
+   runs no-op.
+
+7. **`pd-vlm-mode` ConfigMap default in git is `resolution: 1280`** which
+   busts max-model-len=8192 in local Qwen-VL mode (lesson 10 confirmation).
+   When the operator's intent is local-mode demos, the script now patches
+   the live ConfigMap to `resolution: 640` AFTER the ArgoCD-driven
+   reconcile, with `Prune=false` so the operator's override sticks.
+
+8. **bootstrap/03_apply_argocd.sh's per-app waiter has a 10-min timeout**
+   that fires before ArgoCD's natural 3-min reconcile cycle has even
+   processed the bootstrap on a fresh cluster — and its non-zero exit
+   silently truncated the parent script. Steps 7-17 then never ran even
+   though my script said exit 0. **Fix**: inline the ArgoCD step in the
+   provision script with a 20-min waiter on pd-bootstrap itself being
+   Synced + 7 child apps materialising. Don't delegate to the older
+   sub-script.
+
+---
+
 ### Lesson 16 — Tekton wasn't the only admission webhook bitten by node load
 **What happened.** Even after fixing tekton-operator-proxy-webhook (Lesson 1),
 `oc apply -f pd-qwen25-vl-7b.yaml` failed twice on bring-up:
