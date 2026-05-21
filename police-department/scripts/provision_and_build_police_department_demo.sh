@@ -95,10 +95,19 @@ set -a; source "$ENV_FILE"; set +a
 
 require() { for v in "$@"; do [ -z "${!v:-}" ] && { err "$v is unset in .env.demo"; exit 1; }; done; }
 require PD_KUBECONFIG PD_AWS_PROFILE PD_AWS_REGION PD_ANTHROPIC_API_KEY \
-        PD_BUCKET PD_NS_CCTV PD_NS_PERSONAS PD_MACHINESET_PREFIX
+        PD_BUCKET PD_NS_CCTV PD_NS_PERSONAS
 [ -f "$PD_KUBECONFIG" ] || { err "PD_KUBECONFIG file does not exist: $PD_KUBECONFIG"; exit 1; }
 export KUBECONFIG="$PD_KUBECONFIG"
-ok "env loaded · KUBECONFIG=$PD_KUBECONFIG · PD_BUCKET=$PD_BUCKET"
+
+# PD_MACHINESET_PREFIX changes per Terraform run (the cluster ID is
+# generated). If blank, auto-detect from the live MachineSets.
+if [ -z "${PD_MACHINESET_PREFIX:-}" ]; then
+  PD_MACHINESET_PREFIX=$(oc -n openshift-machine-api get machineset -o name 2>/dev/null \
+    | head -1 | sed -E 's|machineset.machine.openshift.io/||; s|-(worker|gpu-demo|compute)-us-east-.*||')
+  [ -n "$PD_MACHINESET_PREFIX" ] && log "auto-detected MachineSet prefix: $PD_MACHINESET_PREFIX" \
+                                || { err "PD_MACHINESET_PREFIX not set + auto-detect failed"; exit 1; }
+fi
+ok "env loaded · KUBECONFIG=$PD_KUBECONFIG · PD_BUCKET=$PD_BUCKET · MS=$PD_MACHINESET_PREFIX"
 
 # ── Step 2: cluster reachability ──────────────────────────────────────────
 banner "Step 2 · Verify cluster + identity"
@@ -114,6 +123,20 @@ if ! aws sts get-caller-identity --output text >/dev/null 2>&1; then
   if ! "$DRY_RUN"; then aws sso login --profile "$PD_AWS_PROFILE"; fi
 fi
 ok "AWS identity: $(aws sts get-caller-identity --query Arn --output text 2>/dev/null || echo dry-run)"
+
+# ── Step 2.5: ensure demo namespaces exist (idempotent) ───────────────────
+# Both secret-stamping (step 3+4) and CM creation (step 5) need these.
+# ArgoCD's pd-namespaces app will reconcile labels/annotations on the
+# next sync; we just need them to physically exist NOW.
+banner "Step 2.5 · Ensure demo namespaces exist"
+for ns in "$PD_NS_CCTV" "$PD_NS_PERSONAS"; do
+  if "$DRY_RUN"; then log "DRY ensure ns/$ns"; continue; fi
+  oc create namespace "$ns" --dry-run=client -o yaml | oc apply -f - >/dev/null 2>&1 \
+    && log "  ns/$ns ready"
+done
+# Label so RHOAI dashboard sees pd-cctv as a Data Science Project.
+"$DRY_RUN" || oc label ns "$PD_NS_CCTV" opendatahub.io/dashboard=true --overwrite >/dev/null 2>&1 || true
+ok "namespaces present"
 
 # ── Step 3: long-lived IAM user pd-demo-s3-rw ─────────────────────────────
 banner "Step 3 · Long-lived IAM user pd-demo-s3-rw (replaces 1h STS)"
@@ -187,13 +210,24 @@ for ns in "$PD_NS_PERSONAS" "$PD_NS_CCTV"; do
   upsert pd-anthropic-key "$ns" "api_key=$PD_ANTHROPIC_API_KEY"
 done
 
-# Aurora — autodiscover from ai-demo if not given
+# Aurora — autodiscover in two ways:
+#   1. ai-demo/aurora-credentials Secret (older platform deployments)
+#   2. AWS SSM Parameter Store /ai-demo/aurora/{endpoint,master-password}
+#      (newer ai-demo-stack-aws Terraform — what fresh clusters look like)
 if [ -z "${PD_AURORA_HOST:-}" ] || [ -z "${PD_AURORA_PASSWORD:-}" ]; then
-  log "autodiscovering Aurora from ai-demo/aurora-credentials..."
+  log "autodiscovering Aurora — try cluster Secret first, then AWS SSM"
   PD_AURORA_HOST=$(oc -n ai-demo get secret aurora-credentials -o jsonpath='{.data.endpoint}' 2>/dev/null | base64 -d || true)
   PD_AURORA_PASSWORD=$(oc -n ai-demo get secret aurora-credentials -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || true)
+  if [ -z "$PD_AURORA_HOST" ] || [ -z "$PD_AURORA_PASSWORD" ]; then
+    log "  cluster Secret not found; trying SSM"
+    PD_AURORA_HOST=$(aws ssm get-parameter --region "$PD_AWS_REGION" --name /ai-demo/aurora/endpoint \
+                       --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+    PD_AURORA_PASSWORD=$(aws ssm get-parameter --region "$PD_AWS_REGION" --name /ai-demo/aurora/master-password \
+                          --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+  fi
 fi
-[ -z "$PD_AURORA_HOST" ] && { err "PD_AURORA_HOST is empty AND ai-demo/aurora-credentials autodiscovery failed"; exit 1; }
+[ -z "$PD_AURORA_HOST" ] && { err "PD_AURORA_HOST empty AND autodiscovery failed (tried Secret + SSM)"; exit 1; }
+[ -z "$PD_AURORA_PASSWORD" ] && { err "PD_AURORA_PASSWORD empty AND autodiscovery failed"; exit 1; }
 log "Aurora host: $PD_AURORA_HOST"
 for ns in "$PD_NS_CCTV" "$PD_NS_PERSONAS"; do
   upsert pd-aurora-credentials "$ns" \
