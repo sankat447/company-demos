@@ -66,7 +66,28 @@ run() { if "$DRY_RUN"; then printf "  ${_C_YLW}DRY:${_C_RST} %s\n" "$*" >&2; els
 set -a; source "$ENV_FILE"; set +a
 export KUBECONFIG="$PD_KUBECONFIG"
 oc whoami >/dev/null || { err "oc whoami failed"; exit 1; }
-log "kubeconfig=$PD_KUBECONFIG · ns=($PD_NS_CCTV,$PD_NS_PERSONAS) · bucket=$PD_BUCKET"
+
+# MachineSet prefix auto-detect (lesson 17.17 — destroy script used to swallow
+# the empty prefix and pass `-gpu-demo-us-east-1a` to oc scale, which then
+# parsed it as a shorthand flag `-g`). Real names look like
+# `ai-demo-zpvwj-gpu-demo-us-east-1a` → prefix is the first 3 dash-fields.
+if [ -z "${PD_MACHINESET_PREFIX:-}" ]; then
+  PD_MACHINESET_PREFIX=$(oc -n openshift-machine-api get machineset -o name 2>/dev/null \
+    | head -1 | awk -F'/' '{print $2}' \
+    | awk -F'-' 'BEGIN{OFS="-"} {
+        # strip the trailing "-<role>-us-east-<az>" suffix; role is any of
+        # worker|gpu-demo|gpu|compute; AZ is 1a/1b/1c. Find the boundary.
+        for(i=NF;i>=1;i--){ if($i ~ /^[0-9][a-z]$/){az_i=i;break} }
+        if(az_i){ NF=az_i-3 } else { NF=NF-1 }
+        print
+      }')
+fi
+if [ -z "$PD_MACHINESET_PREFIX" ]; then
+  err "PD_MACHINESET_PREFIX could not be auto-detected — set it explicitly in .env.demo"
+  exit 1
+fi
+
+log "kubeconfig=$PD_KUBECONFIG · ns=($PD_NS_CCTV,$PD_NS_PERSONAS) · bucket=$PD_BUCKET · ms-prefix=$PD_MACHINESET_PREFIX"
 "$HARD" && warn "HARD mode — will also delete IAM user + bootstrap Application"
 
 # ── Step 1: wipe Aurora rows (preserve sentinel) ──────────────────────────
@@ -172,13 +193,15 @@ run oc -n "$PD_NS_CCTV" delete configurations.serving.knative.dev --all --wait=f
 run oc -n "$PD_NS_CCTV" delete revisions.serving.knative.dev --all --wait=false 2>&1 | tail -1
 
 # ── Step 6: scale GPU to 0 ────────────────────────────────────────────────
+# Note the `--replicas=0 --` ordering: even with a correctly-resolved prefix,
+# defending against future flag-parsing oddness costs nothing.
 banner "Step 6 · Scale GPU MachineSet 1 → 0"
-run oc -n openshift-machine-api scale machineset "${PD_MACHINESET_PREFIX}-gpu-demo-us-east-1a" --replicas=0
+run oc -n openshift-machine-api scale --replicas=0 -- machineset/"${PD_MACHINESET_PREFIX}-gpu-demo-us-east-1a"
 
 # ── Step 7: scale workers back to baseline ────────────────────────────────
 banner "Step 7 · Scale worker MachineSets 2 → 1 per AZ"
 for az in 1a 1b 1c; do
-  run oc -n openshift-machine-api scale machineset "${PD_MACHINESET_PREFIX}-worker-us-east-${az}" --replicas=1
+  run oc -n openshift-machine-api scale --replicas=1 -- machineset/"${PD_MACHINESET_PREFIX}-worker-us-east-${az}"
 done
 
 # ── Step 8 + 9: HARD only — delete sensitive Secrets + IAM user ───────────

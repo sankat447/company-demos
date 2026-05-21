@@ -446,6 +446,18 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+17. **`destroy_police_department_demo.sh` swallowed the empty
+    `PD_MACHINESET_PREFIX` and called `oc scale machineset
+    -gpu-demo-us-east-1a --replicas=0`**, which `oc` then parsed as
+    `-g` shorthand → `error: unknown shorthand flag: 'g'`. Both scale
+    steps (GPU → 0 and workers → 1/AZ) silently failed at the end of
+    teardown, leaving the cluster at full cost until manually scaled.
+    **Fix**: ported the auto-detect logic from the provision script
+    into the destroy script (extracts e.g. `ai-demo-zpvwj` from the
+    live MachineSet names), and changed the scale invocation to
+    `oc scale --replicas=0 -- machineset/<name>` so a future bug in
+    the prefix can't ever masquerade as a flag.
+
 16. **`pd_cctv.operator_corrections` table was never in the schema
     ConfigMap.** The persona's slash-command code
     (`personas/app/tools/corrections.py`, `clip_context.py`,
