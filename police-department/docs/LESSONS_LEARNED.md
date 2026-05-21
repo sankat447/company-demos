@@ -416,6 +416,36 @@ script now so the next operator hits zero of them:
    Synced + 7 child apps materialising. Don't delegate to the older
    sub-script.
 
+9. **Tekton `coschedule=workspaces` pins every PipelineRun task to one
+   node** via a podAffinity to an `affinity-assistant` pod. Our workspace
+   is RWX (EFS) so the assistant is unnecessary — and harmful: if the
+   assistant lands on a non-GPU worker, `yolo-detect` and
+   `faces-and-plates` go `Pending` forever ("Insufficient nvidia.com/gpu"
+   on the node they're pinned to, even though the GPU node has 4 free
+   vGPUs). Symptom: yolo + faces stuck in `Pending`, affinity-assistant
+   on a non-GPU node, predictor happily running on the GPU node.
+   **Fix**: `oc patch tektonconfig config --type=merge -p
+   '{"spec":{"pipeline":{"coschedule":"disabled"}}}'`. Added as step 13.5
+   of the provision script.
+
+10. **`pd-results-prune-creds` ships empty in git** and the CronJob
+    connects to `tekton-results-postgres-service.openshift-pipelines.svc`
+    — i.e. it needs the **Tekton Results Postgres** user/password
+    (key names `user` + `password`), NOT Aurora. Without the keys, the
+    pod fails with `couldn't find key user in Secret
+    pd-cctv/pd-results-prune-creds` and the CronJob accumulates Failed
+    runs every 15 min. **Fix**: step 13.5 stamps it from
+    `openshift-pipelines/tekton-results-postgres` (`POSTGRES_USER` /
+    `POSTGRES_PASSWORD`).
+
+11. **Aurora `password` field can be empty in the platform-issued
+    `aurora-credentials` Secret on fresh clusters.** Platform now stores
+    the real password in SSM at `/ai-demo/aurora/master-password`; the
+    K8s Secret is sometimes only the *schema* with an empty password
+    until the platform's Aurora-init Job runs. **Fix**: provision script
+    already prefers SSM as the source-of-truth for the password in step
+    4; just confirmed this is the correct precedence going forward.
+
 ---
 
 ### Lesson 16 — Tekton wasn't the only admission webhook bitten by node load

@@ -496,6 +496,53 @@ if ! "$DRY_RUN"; then
   fi
 fi
 
+# ── Step 13.5: Tekton coschedule + pd-results-prune-creds ─────────────────
+# Lesson 17.9: Tekton's default `coschedule=workspaces` pins every task in a
+# PipelineRun to one node via a podAffinity to an `affinity-assistant` pod.
+# Our workspace is RWX (EFS) so we don't need the assistant — and worse, if
+# the assistant lands on a non-GPU node, yolo-detect + faces-and-plates
+# can't get scheduled because they request `nvidia.com/gpu: 1`. Set
+# coschedule=disabled so each task schedules independently.
+#
+# Lesson 17.10: pd-results-prune CronJob expects `pd-results-prune-creds`
+# Secret with keys `user`+`password` for the **Tekton Results Postgres**
+# (NOT Aurora). The git manifest ships an empty Secret; we have to stamp
+# it from `openshift-pipelines/tekton-results-postgres` after the Pipelines
+# operator is up.
+banner "Step 13.5 · Tekton coschedule + pd-results-prune-creds"
+if ! "$DRY_RUN"; then
+  if oc get tektonconfig config >/dev/null 2>&1; then
+    CUR_COSCHED=$(oc get tektonconfig config -o jsonpath='{.spec.pipeline.coschedule}' 2>/dev/null)
+    if [ "$CUR_COSCHED" != "disabled" ]; then
+      run oc patch tektonconfig config --type=merge \
+        -p '{"spec":{"pipeline":{"coschedule":"disabled"}}}' >/dev/null
+      ok "tektonconfig coschedule=disabled (was: ${CUR_COSCHED:-unset})"
+    else
+      ok "tektonconfig coschedule already disabled"
+    fi
+  else
+    warn "tektonconfig 'config' not found — Pipelines operator may still be installing"
+  fi
+
+  if oc -n openshift-pipelines get secret tekton-results-postgres >/dev/null 2>&1; then
+    TR_USER=$(oc -n openshift-pipelines get secret tekton-results-postgres -o jsonpath='{.data.POSTGRES_USER}' | base64 -d)
+    TR_PASS=$(oc -n openshift-pipelines get secret tekton-results-postgres -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d)
+    if [ -n "$TR_USER" ] && [ -n "$TR_PASS" ]; then
+      oc -n "$PD_NS_CCTV" create secret generic pd-results-prune-creds \
+        --from-literal=user="$TR_USER" \
+        --from-literal=password="$TR_PASS" \
+        --dry-run=client -o yaml | oc apply -f - >/dev/null
+      oc -n "$PD_NS_CCTV" annotate secret pd-results-prune-creds \
+        argocd.argoproj.io/sync-options=Prune=false --overwrite >/dev/null 2>&1 || true
+      ok "pd-results-prune-creds stamped from openshift-pipelines/tekton-results-postgres"
+    else
+      warn "tekton-results-postgres present but empty — prune CronJob will fail until reconciled"
+    fi
+  else
+    warn "openshift-pipelines/tekton-results-postgres not found yet — prune CronJob will fail until reconciled"
+  fi
+fi
+
 # ── Step 14: apply IS + pipeline + triggers ───────────────────────────────
 banner "Step 14 · Apply InferenceService + Pipeline + Triggers"
 M="$REPO_ROOT/police-department/manifests"
