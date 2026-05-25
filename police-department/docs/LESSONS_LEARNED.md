@@ -452,11 +452,17 @@ script now so the next operator hits zero of them:
     `-g` shorthand → `error: unknown shorthand flag: 'g'`. Both scale
     steps (GPU → 0 and workers → 1/AZ) silently failed at the end of
     teardown, leaving the cluster at full cost until manually scaled.
-    **Fix**: ported the auto-detect logic from the provision script
-    into the destroy script (extracts e.g. `ai-demo-zpvwj` from the
-    live MachineSet names), and changed the scale invocation to
-    `oc scale --replicas=0 -- machineset/<name>` so a future bug in
-    the prefix can't ever masquerade as a flag.
+    **Fix v1**: ported the awk-based "strip the role+AZ suffix" logic
+    from the provision script. That broke on the next teardown because
+    the compute MachineSet `ai-demo-zpvwj-compute-us-east-1a` sorted
+    first, so awk peeled off only `-us-east-1a` and left
+    `ai-demo-zpvwj-compute` as the prefix. **Fix v2**: pin on the
+    deterministic `<prefix>-worker-us-east-1a` MachineSet (worker is
+    always 1 dash-field, AZ 1a always exists), then strip the known
+    suffix with parameter expansion: `${ms%-worker-us-east-1a}`. Same
+    fix applied to the provision script's auto-detect for symmetry.
+    Also reordered `oc scale --replicas=0 -- machineset/<name>` so a
+    future broken prefix can never masquerade as a flag.
 
 16. **`pd_cctv.operator_corrections` table was never in the schema
     ConfigMap.** The persona's slash-command code

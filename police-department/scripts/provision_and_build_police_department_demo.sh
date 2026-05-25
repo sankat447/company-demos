@@ -108,12 +108,15 @@ export KUBECONFIG="$PD_KUBECONFIG"
 # PD_MACHINESET_PREFIX changes per Terraform run (the cluster ID is
 # generated). If blank, auto-detect from the live MachineSets.
 if [ -z "${PD_MACHINESET_PREFIX:-}" ]; then
-  # macOS BSD sed doesn't like `|` as both the separator and alternation
-  # operator on the same line. Use awk-based extraction instead.
-  PD_MACHINESET_PREFIX=$(oc -n openshift-machine-api get machineset -o name 2>/dev/null \
-    | head -1 \
-    | awk -F'/' '{print $2}' \
-    | awk -F'-' '{print $1"-"$2"-"$3}')
+  # Pin on the deterministic `<prefix>-worker-us-east-1a` MachineSet name.
+  # The previous "split on - and take fields 1-3" approach is fragile: it
+  # only worked because `ai-demo-zpvwj` happens to be 3 fields. The destroy
+  # script tried a smarter awk-based suffix-strip and STILL got it wrong on
+  # clusters where the `<prefix>-compute-us-east-1a` MachineSet sorted first
+  # — see lesson 17.17.
+  WORKER_MS=$(oc -n openshift-machine-api get machineset -o name 2>/dev/null \
+    | awk -F'/' '{print $2}' | grep -E -- '-worker-us-east-1a$' | head -1)
+  PD_MACHINESET_PREFIX="${WORKER_MS%-worker-us-east-1a}"
   if [ -n "$PD_MACHINESET_PREFIX" ]; then
     log "auto-detected MachineSet prefix: $PD_MACHINESET_PREFIX"
   else

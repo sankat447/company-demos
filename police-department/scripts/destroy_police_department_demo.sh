@@ -72,15 +72,13 @@ oc whoami >/dev/null || { err "oc whoami failed"; exit 1; }
 # parsed it as a shorthand flag `-g`). Real names look like
 # `ai-demo-zpvwj-gpu-demo-us-east-1a` → prefix is the first 3 dash-fields.
 if [ -z "${PD_MACHINESET_PREFIX:-}" ]; then
-  PD_MACHINESET_PREFIX=$(oc -n openshift-machine-api get machineset -o name 2>/dev/null \
-    | head -1 | awk -F'/' '{print $2}' \
-    | awk -F'-' 'BEGIN{OFS="-"} {
-        # strip the trailing "-<role>-us-east-<az>" suffix; role is any of
-        # worker|gpu-demo|gpu|compute; AZ is 1a/1b/1c. Find the boundary.
-        for(i=NF;i>=1;i--){ if($i ~ /^[0-9][a-z]$/){az_i=i;break} }
-        if(az_i){ NF=az_i-3 } else { NF=NF-1 }
-        print
-      }')
+  # First attempt (lesson 17.17 v1) used `awk -F-` to peel off "-<role>-us-east-<az>",
+  # but the role field-count varies (worker=1, gpu-demo=2, compute=1), so we ended
+  # up with `ai-demo-zpvwj-compute` on a cluster whose compute MachineSet sorted
+  # first. v2: pin on the deterministic `<prefix>-worker-us-east-1a` name.
+  WORKER_MS=$(oc -n openshift-machine-api get machineset -o name 2>/dev/null \
+    | awk -F'/' '{print $2}' | grep -E -- '-worker-us-east-1a$' | head -1)
+  PD_MACHINESET_PREFIX="${WORKER_MS%-worker-us-east-1a}"
 fi
 if [ -z "$PD_MACHINESET_PREFIX" ]; then
   err "PD_MACHINESET_PREFIX could not be auto-detected — set it explicitly in .env.demo"
