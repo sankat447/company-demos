@@ -504,17 +504,27 @@ if ! "$DRY_RUN"; then
 fi
 
 # ── Step 13: GPU mutex preflight (skip if predictor already running) ──────
+# Lesson 17.20: the v1 of this step compared "count of GPU-requesting pods"
+# to 0 and looped until clear. But the predictor pod ITSELF requests
+# `nvidia.com/gpu: 1`, so once the IS was reconciling (managed by ArgoCD's
+# pd-inference app applied way back in Step 6), the count was ≥1 forever and
+# the script hung in this loop for hours.
 banner "Step 13 · GPU-mutex preflight"
 if ! "$DRY_RUN"; then
-  PRED_READY=$(oc -n "$PD_NS_CCTV" get pods -l serving.kserve.io/inferenceservice=pd-qwen25-vl-7b \
-    -o jsonpath='{.items[0].status.containerStatuses[?(@.name=="kserve-container")].ready}' 2>/dev/null)
-  if [ "$PRED_READY" = "true" ]; then
-    ok "predictor is already 3/3 — leaving GPU mutex alone"
+  if oc -n "$PD_NS_CCTV" get inferenceservice pd-qwen25-vl-7b >/dev/null 2>&1; then
+    # An IS exists → its predictor pod IS the legitimate GPU holder; the
+    # `wait predictor 3/3` block in Step 14 below covers the readiness check.
+    # Don't count it as an orphan.
+    ok "InferenceService pd-qwen25-vl-7b already exists — Step 14 handles readiness"
   else
+    # No IS yet (truly fresh cluster) — check for stray GPU-holding pods
+    # that would block the predictor from being scheduled.
+    T=$(date +%s); LIM=$((T+300))   # 5-min ceiling
     while [ "$(oc get pods -A -o json | jq '[.items[] |
                 select(.spec.containers[]?.resources.requests."nvidia.com/gpu"? == "1")] | length')" != "0" ]; do
       log "waiting for orphan GPU-holding pods to clear..."
       sleep 10
+      [ "$(date +%s)" -gt "$LIM" ] && { warn "orphan GPU pods didn't clear in 5min — continuing"; break; }
     done
     ok "GPU mutex clean"
   fi

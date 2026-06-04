@@ -446,6 +446,19 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+20. **Step 13 (GPU-mutex preflight) hung forever counting the predictor
+    pod itself as a stray GPU holder.** The original loop:
+    `while [ count_pods_requesting_gpu != 0 ]; do sleep 10; done`. By Step
+    13 the IS already exists (ArgoCD applied it back in Step 6) and the
+    predictor pod is requesting `nvidia.com/gpu: 1` — so the count is
+    permanently ≥ 1 and the loop never exits. On today's bring-up the
+    script sat in this loop for 30+ min while the predictor cold-started
+    and went to 3/3 Ready in parallel. **Fix**: short-circuit the whole
+    block if `oc get inferenceservice pd-qwen25-vl-7b` exists. Step 14's
+    "wait predictor 3/3" block is the real readiness gate. Also added a
+    5-min hard timeout to the orphan-wait loop for the truly-fresh case
+    so a future surprise can't hang the script indefinitely.
+
 19. **Step 10 (wait `nvidia.com/gpu` allocatable=4) ordered BEFORE Step
     10.5 (apply time-slicing ConfigMap + ClusterPolicy patch).** On a
     fresh cluster the wait timed out after 15 min because the patch
