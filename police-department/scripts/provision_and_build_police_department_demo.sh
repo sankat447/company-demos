@@ -227,6 +227,19 @@ for ns in "$PD_NS_PERSONAS" "$PD_NS_CCTV"; do
   upsert pd-anthropic-key "$ns" "api_key=$PD_ANTHROPIC_API_KEY"
 done
 
+# HuggingFace token — used by the one-time model fetcher Job in step 7.
+# Lesson 17.18: step 7's bootstrap/02_fetch_models.sh wires the Job to
+# read `secret/pd-hf-token` (key=token), but Step 4 only stamped Anthropic
+# + Aurora + S3. A fresh cluster with no model in S3 then hit
+# `CreateContainerConfigError: secret "pd-hf-token" not found`, the
+# fetcher Job sat 26+ min until the script's wait timed out, and Step 10
+# later failed because the model wasn't staged.
+if [ -n "${PD_HF_TOKEN:-}" ]; then
+  upsert pd-hf-token "$PD_NS_CCTV" "token=$PD_HF_TOKEN"
+else
+  warn "PD_HF_TOKEN is empty — model fetcher (step 7) will fail if model is missing from S3"
+fi
+
 # Aurora — autodiscover in two ways:
 #   1. ai-demo/aurora-credentials Secret (older platform deployments)
 #   2. AWS SSM Parameter Store /ai-demo/aurora/{endpoint,master-password}
@@ -383,19 +396,44 @@ fi
 run oc -n openshift-machine-api scale machineset "$gpu_ms" --replicas=1
 ok "scale-up requested"
 
-# ── Step 10: wait GPU allocatable=4 + workers ready ───────────────────────
-banner "Step 10 · Wait — GPU time-sliced + workers Ready"
+# ── Step 10: GPU online + time-slicing applied + workers ready ────────────
+# Lesson 17.19: this was previously split into Step 10 (wait allocatable=4)
+# and Step 10.5 (apply time-slicing ConfigMap + ClusterPolicy patch). On a
+# fresh cluster that ordering is a chicken-and-egg — Step 10's wait would
+# time out because Step 10.5 hadn't applied the patch yet. Merge them:
+# wait for the GPU node to come online with allocatable>=1, THEN apply the
+# time-slicing config, THEN wait for allocatable=4.
+banner "Step 10 · Wait — GPU online + time-sliced + workers Ready"
 if ! "$DRY_RUN"; then
-  log "waiting for GPU allocatable=4 (NOT >=1; that means time-slicing not yet applied)"
-  T=$(date +%s); LIM=$((T+900))   # 15-min timeout
+  log "(a) waiting for GPU node to appear with allocatable>=1 (NVIDIA operator ready)"
+  T=$(date +%s); LIM=$((T+900))   # 15-min ceiling for EC2 boot + operator
+  while :; do
+    ALLOC=$(oc get node -l nvidia.com/gpu.present=true \
+              -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null)
+    [ -n "$ALLOC" ] && [ "$ALLOC" != "0" ] && break
+    if [ "$(date +%s)" -gt "$LIM" ]; then err "GPU node never reached allocatable>=1"; exit 1; fi
+    sleep 20
+  done
+  ok "GPU online (allocatable=$ALLOC, pre-slicing)"
+
+  log "(b) apply time-slicing ConfigMap + ClusterPolicy patch (1 physical → 4 vGPUs)"
+  oc apply -f "$REPO_ROOT/police-department/manifests/inference/pd-gpu-time-slicing.yaml" >/dev/null
+  oc patch clusterpolicy gpu-cluster-policy --type=merge \
+    -p '{"spec":{"devicePlugin":{"config":{"name":"time-slicing-config-all","default":"any"}}}}' >/dev/null 2>&1 || true
+  # If the device-plugin daemonset doesn't auto-pickup the config, bounce it.
+  DP_POD=$(oc get pods -A -l app.kubernetes.io/component=nvidia-device-plugin -o name 2>/dev/null | head -1)
+  [ -z "$DP_POD" ] && DP_POD=$(oc get pods -A -o name 2>/dev/null | grep nvidia-device-plugin-daemonset | head -1)
+  [ -n "$DP_POD" ] && oc delete "$DP_POD" --ignore-not-found >/dev/null 2>&1 || true
+
+  log "(c) waiting for GPU allocatable=4 (time-slicing live)"
   while [ "$(oc get node -l nvidia.com/gpu.present=true \
               -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null)" != "4" ]; do
-    if [ "$(date +%s)" -gt "$LIM" ]; then err "GPU allocatable=4 timeout"; exit 1; fi
+    if [ "$(date +%s)" -gt "$LIM" ]; then err "GPU allocatable=4 timeout (slicing didn't propagate)"; exit 1; fi
     sleep 15
   done
-  ok "GPU allocatable=4"
+  ok "GPU allocatable=4 (time-sliced)"
 
-  log "waiting for all worker MachineSets readyReplicas=2"
+  log "(d) waiting for all worker MachineSets readyReplicas=2"
   while :; do
     bad=0
     for az in 1a 1b 1c; do
@@ -408,24 +446,6 @@ if ! "$DRY_RUN"; then
     sleep 15
   done
   ok "workers 2/2 across us-east-1a/1b/1c"
-fi
-
-# ── Step 10.5: apply time-slicing (1 physical GPU → 4 vGPUs) ──────────────
-# Lesson 17: NOT in git on previous platform versions. Now committed at
-# manifests/inference/pd-gpu-time-slicing.yaml. Apply the ConfigMap and
-# patch the ClusterPolicy to reference it. Re-apply is idempotent.
-banner "Step 10.5 · GPU time-slicing (1 physical → 4 vGPUs)"
-if ! "$DRY_RUN"; then
-  oc apply -f "$REPO_ROOT/police-department/manifests/inference/pd-gpu-time-slicing.yaml" >/dev/null
-  oc patch clusterpolicy gpu-cluster-policy --type=merge \
-    -p '{"spec":{"devicePlugin":{"config":{"name":"time-slicing-config-all","default":"any"}}}}' >/dev/null 2>&1 || true
-  # Wait for allocatable to reach 4 (device-plugin re-publishes within ~60s).
-  T=$(date +%s); LIM=$((T+180))
-  while [ "$(oc get node -l nvidia.com/gpu.present=true -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null)" != "4" ]; do
-    if [ "$(date +%s)" -gt "$LIM" ]; then warn "time-slicing didn't propagate within 3 min — continuing"; break; fi
-    sleep 15
-  done
-  ok "GPU allocatable: $(oc get node -l nvidia.com/gpu.present=true -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}')"
 fi
 
 # ── Step 11: detect + drain bad nodes ─────────────────────────────────────

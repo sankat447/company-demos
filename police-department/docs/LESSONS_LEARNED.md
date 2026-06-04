@@ -446,6 +446,28 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+19. **Step 10 (wait `nvidia.com/gpu` allocatable=4) ordered BEFORE Step
+    10.5 (apply time-slicing ConfigMap + ClusterPolicy patch).** On a
+    fresh cluster the wait timed out after 15 min because the patch
+    that would make allocatable=4 was scheduled to run AFTER the wait.
+    A `Cluster Policy` with `spec.devicePlugin.config` empty advertises
+    1 GPU. **Fix**: merged into a single Step 10 with four sub-phases:
+    (a) wait GPU node online with allocatable≥1, (b) apply the
+    time-slicing ConfigMap + ClusterPolicy patch, (c) bounce the
+    device-plugin daemonset, (d) wait allocatable=4 + workers 2/2.
+
+18. **`pd-hf-token` Secret never stamped by Step 4.** Step 7's
+    `bootstrap/02_fetch_models.sh` wires the model-fetcher Job to
+    `secretKeyRef: pd-hf-token/token`, but the provision script's
+    Secret-stamp block only handled Anthropic + Aurora + S3 +
+    Portkey + KServe. On a fresh data lake (no model in S3) the
+    fetcher Job sat in `CreateContainerConfigError` with `secret
+    "pd-hf-token" not found` for 26+ min before the script's wait
+    timed out — and Step 10 then failed because the model was
+    missing. **Fix**: Step 4 now stamps `pd-hf-token` in `pd-cctv`
+    from the `PD_HF_TOKEN` env var, with a warn (not error) if the
+    var is empty and the model is already in S3.
+
 17. **`destroy_police_department_demo.sh` swallowed the empty
     `PD_MACHINESET_PREFIX` and called `oc scale machineset
     -gpu-demo-us-east-1a --replicas=0`**, which `oc` then parsed as
