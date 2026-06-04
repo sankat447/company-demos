@@ -446,6 +446,20 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+22. **BGE-small embedding model was missing from S3 after hard
+    teardown.** `bootstrap/02_fetch_models.sh` only staged Qwen2.5-VL;
+    BGE-small (`BAAI/bge-small-en-v1.5`, ~130 MB) was implicitly assumed
+    to "always be there" because it survived soft teardowns. After the
+    first hard teardown the model prefix was wiped, but the next
+    provision only re-staged Qwen-VL — so the structure-and-write task's
+    BGE-small fetch returned 0 entries, sentence-transformers fell
+    through to local-load on the empty dir, and transformers raised
+    `ValueError: Unrecognized model in .../bge-small-en-v1.5. Should
+    have a 'model_type' key in its config.json`. Every "Indexing in
+    Aurora" step failed identically until the model was re-staged.
+    **Fix**: 02_fetch_models.sh now also stages BGE-small with its own
+    idempotency guard (`aws s3 ls $BGE_PREFIX/config.json`).
+
 21. **`05_views.sql` and `07_faces_plates.sql` both `CREATE OR REPLACE
     VIEW pd_cctv.v_clip_summary`** but 07 adds two columns (plate_count,
     face_count). On the first run: 05 creates 8 cols, 07 widens to 10

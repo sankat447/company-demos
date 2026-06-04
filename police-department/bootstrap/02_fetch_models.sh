@@ -116,3 +116,80 @@ job=$(oc -n "$PD_NS_CCTV" get job -l app.kubernetes.io/part-of=police-department
         --sort-by=.metadata.creationTimestamp -o name | tail -n 1)
 oc -n "$PD_NS_CCTV" wait --for=condition=complete --timeout=20m "$job"
 log_ok "Qwen2.5-VL staged at $S3_PREFIX"
+
+# =============================================================================
+#  Stage BGE-small-en-v1.5 (lesson 17.22)
+#
+#  The structure-and-write Tekton task embeds clip narrations with BGE-small
+#  before INSERTing into Aurora pgvector. The task fetches the model from
+#  `s3://${PD_BUCKET}/models/police-department/bge-small-en-v1.5/` because
+#  HF direct downloads were unreliable mid-pipeline. On a hard-teardowned
+#  cluster (S3 models prefix wiped) the model is missing, the task fetches
+#  0 entries, sentence-transformers falls through to local-load on an empty
+#  dir, transformers raises
+#    ValueError: Unrecognized model in .../bge-small-en-v1.5
+#  and every Indexing-in-Aurora step fails. ~130 MB, takes <30s to stage.
+# =============================================================================
+BGE_S3_PREFIX="s3://${PD_BUCKET}/models/police-department/bge-small-en-v1.5"
+BGE_REPO="BAAI/bge-small-en-v1.5"
+
+log_info "checking $BGE_S3_PREFIX/config.json..."
+if aws s3 ls "$BGE_S3_PREFIX/config.json" >/dev/null 2>&1; then
+  log_ok "BGE-small already staged; skipping"
+else
+  log_info "staging BGE-small via ephemeral Job"
+  cat <<EOF | oc apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pd-fetch-bge-$(date +%s)
+  namespace: $PD_NS_CCTV
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: fetch
+        image: registry.access.redhat.com/ubi9/python-311:latest
+        env:
+        - { name: HF_TOKEN,              valueFrom: { secretKeyRef: { name: pd-hf-token, key: token } } }
+        - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: pd-s3-creds, key: access_key_id } } }
+        - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: pd-s3-creds, key: secret_access_key } } }
+        - { name: AWS_REGION,            value: "us-east-1" }
+        - { name: BGE_S3_PREFIX,         value: "$BGE_S3_PREFIX" }
+        - { name: BGE_REPO,              value: "$BGE_REPO" }
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          pip install --quiet --no-cache-dir 'huggingface_hub==0.26.2' boto3==1.35.40
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from huggingface_hub import snapshot_download
+          import boto3
+          local = snapshot_download(repo_id=os.environ["BGE_REPO"],
+                                    token=os.environ["HF_TOKEN"],
+                                    local_dir="/tmp/bge")
+          uri = os.environ["BGE_S3_PREFIX"].removeprefix("s3://")
+          bucket, _, root = uri.partition("/")
+          s3 = boto3.client("s3", region_name="us-east-1")
+          for fp in Path(local).rglob("*"):
+              if not fp.is_file(): continue
+              key = f"{root}/{fp.relative_to(local).as_posix()}"
+              s3.upload_file(str(fp), bucket, key)
+              print(f"  -> s3://{bucket}/{key}", flush=True)
+          PY
+        resources:
+          requests: { cpu: "100m", memory: "1Gi" }
+          limits:   { cpu: "1",    memory: "2Gi" }
+EOF
+  job=$(oc -n "$PD_NS_CCTV" get job -l app.kubernetes.io/part-of=police-department \
+          --sort-by=.metadata.creationTimestamp -o name | tail -n 1)
+  oc -n "$PD_NS_CCTV" wait --for=condition=complete --timeout=10m "$job"
+  log_ok "BGE-small staged at $BGE_S3_PREFIX"
+fi
