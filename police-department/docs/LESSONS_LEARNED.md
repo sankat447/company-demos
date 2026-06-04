@@ -446,6 +446,19 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+21. **`05_views.sql` and `07_faces_plates.sql` both `CREATE OR REPLACE
+    VIEW pd_cctv.v_clip_summary`** but 07 adds two columns (plate_count,
+    face_count). On the first run: 05 creates 8 cols, 07 widens to 10
+    cols — both succeed. On every re-run: 05 tries to REPLACE a 10-col
+    view with an 8-col definition → Postgres rejects with `cannot drop
+    columns from view`, the whole init Job aborts (`--single-transaction
+    --set ON_ERROR_STOP=on`), 06 + 07 + 08 never execute on re-runs —
+    so `operator_corrections` never gets created and the persona's
+    slash-command code throws `relation does not exist`. **Fix**: 05
+    now starts with `DROP VIEW IF EXISTS ... CASCADE` for both views
+    and uses plain `CREATE VIEW` afterwards. Idempotent against any
+    prior state.
+
 20. **Step 13 (GPU-mutex preflight) hung forever counting the predictor
     pod itself as a stray GPU holder.** The original loop:
     `while [ count_pods_requesting_gpu != 0 ]; do sleep 10; done`. By Step
