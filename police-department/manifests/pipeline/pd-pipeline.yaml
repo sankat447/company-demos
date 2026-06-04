@@ -96,6 +96,11 @@ spec:
       value: $(params.clip-id)
 
   - name: faces-and-plates
+    # Display label rendered in the OCP Pipelines UI tooltip + the persona
+    # ingest-progress sidebar. The task id stays `faces-and-plates` for
+    # backwards compat (referenced by trigger templates, structure-and-write,
+    # GPU-mutex preflight, MLflow logging).
+    displayName: "Objects & Licence Plates"
     taskRef:
       name: pd-task-faces-and-plates
     runAfter: [pull-clip]
