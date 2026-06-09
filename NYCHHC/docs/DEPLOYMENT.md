@@ -22,9 +22,12 @@ verifies the platform Aurora SSM + `ai-demo` namespace still exist afterward.
 
 ## Prerequisites
 
-- `aws`, `terraform` (≥1.7), `oc`, `jq`, and `docker` or `podman` on PATH.
+- `aws`, `terraform` (≥1.7), `oc`, `jq` on PATH. **No local docker/podman needed** —
+  images build in-cluster via OpenShift BuildConfig.
 - AWS SSO profile **`rhoai-demo`** (`aws sso login --profile rhoai-demo`).
 - `KUBECONFIG` pointing at the `ai-demo` cluster (`oc whoami` works).
+- The branch must be **pushed to GitHub** — ArgoCD pulls manifests from
+  `sankat447/company-demos` at `targetRevision: feature/nychhc-v1`.
 - Platform must be up (Aurora SSM params present, Portkey reachable).
 
 ## Deploy
@@ -36,14 +39,16 @@ cp terraform/terraform.tfvars.example terraform/terraform.tfvars   # optional; d
 ```
 
 `deploy.sh` does, in order:
-1. `terraform apply` — ECR repo (isolated state).
-2. Build + push the backend image to that ECR repo (`:0.1.0` + `:latest`).
-3. Create namespace `nychhc-demo` + bootstrap the `nychhc-aurora` Secret from SSM
-   (not in git, so ArgoCD never blanks it — PD lesson).
-4. Apply `db/schema.sql` to the shared Aurora (schemas + a minimal seed) via an
+1. `terraform apply` — ECR repos (isolated state).
+2. Create namespace `nychhc-demo` + the `ecr-push` registry secret (build push + pod pull).
+3. **In-cluster builds**: `oc start-build … --from-dir` for backend + frontend
+   (OpenShift BuildConfig, Docker strategy) → pushes images to ECR.
+4. Bootstrap the `nychhc-aurora` Secret from SSM (not in git → ArgoCD never blanks it).
+5. Apply `db/schema.sql` to the shared Aurora (schemas + minimal seed) via an
    in-cluster ephemeral psql pod (Aurora is in-VPC, unreachable from a laptop).
-5. `oc apply` the demo's ArgoCD Application → syncs the manifests in `gitops/manifests`.
-6. Wait for rollout + smoke-test `/health`.
+6. Train + publish the two models to S3 (`SKIP_MODELS=1` to skip).
+7. `oc apply` the demo's ArgoCD Application → syncs `gitops/manifests`.
+8. Wait for rollouts + smoke-test; print the frontend Route (demo URL).
 
 ## Destroy (demo only)
 

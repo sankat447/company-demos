@@ -25,36 +25,42 @@ ok "ECR: $ECR_URL , $ECR_FE_URL"
 grep -q "$ACCOUNT" "$DEMO_DIR/gitops/manifests/30-backend-deployment.yaml" \
   || warn "Deployment image account != $ACCOUNT — update 30-backend-deployment.yaml image:"
 
-# ── 2. Build + push the copilot image to the demo ECR repo ────────────────────
-CLI="$(container_cli)"
-log "Build + push image ($CLI) → ${ECR_URL}:${IMAGE_TAG}"
-aws ecr get-login-password --profile "$AWS_PROFILE" --region "$AWS_REGION" \
-  | "$CLI" login --username AWS --password-stdin "${ECR_URL%/*}"
-"$CLI" build -t "${ECR_URL}:${IMAGE_TAG}" -t "${ECR_URL}:latest" "$DEMO_DIR/backend"
-"$CLI" push "${ECR_URL}:${IMAGE_TAG}"
-"$CLI" push "${ECR_URL}:latest"
-log "Build + push frontend → ${ECR_FE_URL}:${IMAGE_TAG}"
-"$CLI" build -t "${ECR_FE_URL}:${IMAGE_TAG}" -t "${ECR_FE_URL}:latest" "$DEMO_DIR/frontend"
-"$CLI" push "${ECR_FE_URL}:${IMAGE_TAG}"
-"$CLI" push "${ECR_FE_URL}:latest"
-ok "Images pushed (backend + frontend)"
-
-# ── 3. Namespace + Aurora Secret (bootstrapped from SSM; NOT in git, L6) ──────
-log "Namespace + Aurora secret"
+# ── 2. Namespace + ECR push/pull secret (no local docker — we build in-cluster) ─
+log "Namespace + ECR registry secret"
 oc create namespace "$NS" --dry-run=client -o yaml | oc apply -f - >/dev/null
 oc label namespace "$NS" demo=nychhc --overwrite >/dev/null
+REGISTRY="${ECR_URL%%/*}"   # <account>.dkr.ecr.<region>.amazonaws.com
+# Used by BuildConfig (push) AND the pods (pull, via the SA's imagePullSecrets).
+# ECR tokens last ~12h — re-running deploy.sh refreshes this.
+oc -n "$NS" create secret docker-registry ecr-push \
+  --docker-server="$REGISTRY" --docker-username=AWS \
+  --docker-password="$(aws ecr get-login-password --profile "$AWS_PROFILE" --region "$AWS_REGION")" \
+  --dry-run=client -o yaml | oc apply -f - >/dev/null
+ok "Registry secret ecr-push ready ($REGISTRY)"
+
+# ── 3. In-cluster image builds (OpenShift BuildConfig → ECR) ──────────────────
+log "In-cluster build: backend"
+oc -n "$NS" apply -f "$DEMO_DIR/build/backend-buildconfig.yaml" >/dev/null
+oc -n "$NS" start-build nychhc-copilot --from-dir="$DEMO_DIR/backend" --follow
+log "In-cluster build: frontend"
+oc -n "$NS" apply -f "$DEMO_DIR/build/frontend-buildconfig.yaml" >/dev/null
+oc -n "$NS" start-build nychhc-frontend --from-dir="$DEMO_DIR/frontend" --follow
+ok "Images built + pushed to ECR (backend + frontend)"
+
+# ── 4. Aurora Secret (bootstrapped from SSM; NOT in git, L6) ──────────────────
+log "Aurora secret"
 DSN="$(aurora_dsn)"
 # No ArgoCD tracking label → ArgoCD never prunes/blanks it (PD lesson).
 oc -n "$NS" create secret generic nychhc-aurora \
   --from-literal=dsn="$DSN" --dry-run=client -o yaml | oc apply -f - >/dev/null
 ok "Secret nychhc-aurora ready"
 
-# ── 4. Demo schemas + seed on the shared Aurora (demo-owned objects only) ─────
+# ── 5. Demo schemas + seed on the shared Aurora (demo-owned objects only) ─────
 log "Apply schema + seed (schemas: workforce, rag)"
 run_sql_stdin "$DSN" < "$DEMO_DIR/db/schema.sql"
 ok "Schema + seed applied"
 
-# ── 4b. Train + publish predictive models to S3 (KServe storageUri targets) ───
+# ── 6. Train + publish predictive models to S3 (KServe storageUri targets) ────
 # Skip with SKIP_MODELS=1 (e.g. iterating on the app only).
 if [[ "${SKIP_MODELS:-0}" != "1" ]]; then
   log "Train + publish predictive models → s3://ai-demo-data-lake/models/nychhc/"
@@ -64,13 +70,13 @@ else
   warn "SKIP_MODELS=1 — backend will use the rules fallback until models are published"
 fi
 
-# ── 5. Register the demo's ArgoCD Application (no edit to platform app-of-apps)─
+# ── 7. Register the demo's ArgoCD Application (no edit to platform app-of-apps)─
 log "Apply ArgoCD Application"
 oc apply -f "$DEMO_DIR/gitops/application.yaml"
 oc -n openshift-gitops annotate application/nychhc-demo \
   argocd.argoproj.io/refresh=hard --overwrite >/dev/null 2>&1 || true
 
-# ── 6. Wait for rollout + smoke test ──────────────────────────────────────────
+# ── 8. Wait for rollout + smoke test ──────────────────────────────────────────
 log "Wait for rollouts"
 oc -n "$NS" rollout status deploy/nychhc-copilot --timeout=300s || warn "backend rollout slow — check ArgoCD"
 oc -n "$NS" rollout status deploy/nychhc-frontend --timeout=300s || warn "frontend rollout slow — check ArgoCD"

@@ -27,7 +27,7 @@ need() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; }
 preflight() {
   log "Preflight: tools + auth"
   for t in aws terraform oc jq; do need "$t"; done
-  command -v docker >/dev/null 2>&1 || command -v podman >/dev/null 2>&1 || die "need docker or podman"
+  # No local docker/podman needed — images build in-cluster via OpenShift BuildConfig.
   # AWS SSO (1h TTL) — refresh if stale.
   aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null 2>&1 \
     || { log "AWS SSO login ($AWS_PROFILE)"; aws sso login --profile "$AWS_PROFILE"; }
