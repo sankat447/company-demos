@@ -47,9 +47,12 @@ lightly. Everything explicitly shortcut is documented in
 | Doc | Purpose |
 |-----|---------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the demo's pods connect to the existing platform (Mermaid diagram) |
+| [docs/FUNCTIONAL_SPEC.md](docs/FUNCTIONAL_SPEC.md) | DR-01…DR-12 + the scheduling/PTO/Assistant flows |
+| [docs/STATUS.md](docs/STATUS.md) | **Live deployment state, every cluster mutation + rollback, how to operate/tear down** |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Scoped Terraform deploy/destroy design (stands on `ai-demo-stack-aws`) |
 | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) | Every synthetic dataset + RAG source + Aurora table schemas |
 | [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | What is **not** production-ready — "what changes for real PHI" |
-| [docs/LESSONS_LEARNED.md](docs/LESSONS_LEARNED.md) | Gotchas captured as we build |
+| [docs/LESSONS_LEARNED.md](docs/LESSONS_LEARNED.md) | Gotchas captured as we build (incl. the full GPU/model bring-up chain) |
 | `DEMO_SCRIPT.md` | *(written last)* 15-minute presenter walk-through |
 
 ## Repository layout

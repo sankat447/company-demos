@@ -5,6 +5,63 @@ Captured as we build. Newest first. (Carry-over platform lessons L1–L10 live i
 
 ---
 
+## Live GPU/model serving on RHOAI — the bring-up gotchas (2026-06-09)
+
+Getting the granite LLM + the two sklearn models serving on the `ai-demo` cluster
+hit a chain of real platform traps. In order:
+
+1. **Cluster pods have NO egress to huggingface.co.** vLLM crashed with
+   `OSError: couldn't connect to huggingface.co`. Models must be **staged in S3**
+   (the platform's own pattern) and pulled by the KServe storage-initializer. We
+   download on a laptop (`huggingface_hub.snapshot_download`) → `aws s3 sync` →
+   `s3://ai-demo-data-lake/models/nychhc/<model>/`. *(`huggingface-cli download`
+   is deprecated → no-ops with a help dump; use `snapshot_download`.)*
+2. **KServe storage-initializer doesn't pass STS session tokens.** Temp SSO creds
+   (`ASIA…`) → `InvalidAccessKeyId`. Fix: a **long-lived, bucket-scoped IAM user**
+   (`nychhc-demo-s3-rw`, the police-department pattern) in the KServe S3 secret
+   (`nychhc-s3-creds`, annotated `serving.kserve.io/s3-*`, linked to the predictor SA).
+3. **Single-GPU rolling-update deadlock.** A new IS revision can't schedule because
+   the old (crashing) pod still holds the one GPU; Deployment keeps both
+   ReplicaSets at 1. Fix: delete the **stale ReplicaSet** + set the predictor
+   Deployment `strategy: Recreate` (KServe may re-reconcile, so deleting the old RS
+   is the reliable unblock). GPU time-slicing shows `allocatable=4` vGPU.
+4. **KServe RawDeployment predictor Service is HEADLESS (`clusterIP: None`).** The
+   `80→8080` port mapping does NOT apply — the DNS name resolves straight to the pod,
+   so callers must hit **`:8080`**, not `:80` (we got `Connection refused` on 80).
+5. **vLLM tool-calling is off by default.** The agent's function-calling failed with
+   `"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser`.
+   Add `--enable-auto-tool-choice --tool-call-parser granite` to the IS args.
+6. **A 2B model is too weak for open-ended agentic chat.** `granite-3.1-2b` follows
+   "use a table" but not "call the tool" — it hallucinates plausible numbers AND
+   role-plays a whole fake user/assistant transcript with JSON. Mitigations:
+   `stop=["\nuser:", …]`, `max_tokens` cap, a strict "answer only this turn" prompt,
+   and a `_clean()` that truncates at the first fabricated turn + strips
+   `<tool_call>`/JSON/code-fence artifacts. **Real fix = a larger model (8B)** for
+   reliable tool use; explicit asks (book/cancel/PTO) work on 2B, open-ended status
+   does not.
+7. **The cluster ships NO sklearn ServingRuntime** (RHOAI 2.25 has only vLLM
+   runtimes). The two `modelFormat: sklearn` IS had no runtime → "Failed", zero pods.
+   Fix: our own **`nychhc-sklearn` ServingRuntime** — a tiny FastAPI KServe-v1
+   predictor with **sklearn pinned to the training version (1.9)** and the joblibs
+   **baked into the image** (no version-skew, no S3 at runtime).
+8. **sklearn joblib version skew** breaks unpickling server-side → always serve with
+   the exact training sklearn version (bake it).
+9. **Mesh STRICT mTLS** blocks a non-mesh pod calling a mesh svc (`portkey.ai-demo.svc`)
+   → use the **Route**; but the Route's self-signed ingress cert needs
+   `NYCHHC_PORTKEY_VERIFY_SSL=false`. (We ultimately serve our own in-namespace vLLM.)
+10. **Platform Portkey is the headless OSS gateway with no provider config** → returns
+    `400 x-portkey-provider required`; even Open WebUI isn't actually wired to it. We
+    serve our own granite vLLM rather than depend on it.
+11. **Cluster runs CPU-hot** → scaled a worker MachineSet +1 (annotation-guarded
+    `nychhc-demo.iisl.com/scaled-up-by=nychhc-demo`; `destroy.sh` reverts it).
+12. **In-cluster builds, no local docker.** OpenShift BuildConfig (binary,
+    `oc start-build --from-dir`) → ECR. ECR token ~12h → refresh each deploy.
+    `.dockerignore` must exclude `.venv` (don't upload 100s of MB).
+13. **ConfigMap change needs a pod restart** — ArgoCD won't roll the Deployment on a
+    ConfigMap edit; `oc rollout restart` after applying.
+
+---
+
 ## Design phase
 
 - **Reference diagram redefined the demo.** The original brief speced a clinical
