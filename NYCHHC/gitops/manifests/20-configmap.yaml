@@ -17,7 +17,7 @@ data:
   # would route this through Portkey for unified observability (L5) — documented as
   # the prod path once Portkey has a provider config.
   NYCHHC_PORTKEY_BASE_URL: "http://nychhc-llm-predictor.nychhc-demo.svc.cluster.local"
-  NYCHHC_PRIMARY_MODEL: "granite-8b"
+  NYCHHC_PRIMARY_MODEL: "granite-2b"
   NYCHHC_FALLBACK_MODEL: ""           # no fallback alias; single local model
   NYCHHC_PORTKEY_VERIFY_SSL: "true"   # plain-http in-cluster svc; TLS verify N/A
 
