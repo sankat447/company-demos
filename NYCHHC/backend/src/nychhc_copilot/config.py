@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     portkey_base_url: str = "http://portkey.ai-demo.svc:8787"
     portkey_api_key: str = "dummy"   # gateway/admin key; from Vault in live (L6)
     portkey_virtual_key: str = ""    # provider virtual key; from Vault in live (L6)
+    # The in-cluster Portkey Route uses the OpenShift default (self-signed) ingress
+    # cert. Set false to skip TLS verification for that internal route (demo only;
+    # prod would trust the ingress CA / use a real cert). See docs/COMPLIANCE.md.
+    portkey_verify_ssl: bool = True
     primary_model: str = "llama-3-1-8b"  # vLLM on KServe
     fallback_model: str = "bedrock-claude-3-haiku"  # Bedrock via Portkey (IRSA)
     llm_temperature: float = 0.1

@@ -34,6 +34,14 @@ def _base_url(settings: Settings) -> str:
 
 def build_chat_model(settings: Settings, model: str | None = None) -> ChatOpenAI:
     """A ChatOpenAI bound to one model alias, routed through Portkey."""
+    kwargs: dict = {}
+    # The Portkey Route uses the cluster's self-signed ingress cert; optionally skip
+    # verification for that internal route (demo only). Sync + async clients both.
+    if not settings.portkey_verify_ssl:
+        import httpx
+
+        kwargs["http_client"] = httpx.Client(verify=False)
+        kwargs["http_async_client"] = httpx.AsyncClient(verify=False)
     return ChatOpenAI(
         model=model or settings.primary_model,
         base_url=_base_url(settings),
@@ -43,6 +51,7 @@ def build_chat_model(settings: Settings, model: str | None = None) -> ChatOpenAI
         timeout=settings.llm_request_timeout_s,
         max_retries=1,
         streaming=True,
+        **kwargs,
     )
 
 
