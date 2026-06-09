@@ -1,17 +1,11 @@
-# NYC H+H Streamlit role app. Single-stage UBI python (OpenShift arbitrary-UID safe).
+# NYC H+H wireframe — served as a static branded SPA (replaces the Streamlit app).
+# Single-stage UBI python (OpenShift arbitrary-UID safe). Phase 2 wires the inline
+# ROSTER/RISK/PTO/BAL arrays to the backend data API + Copilot to the granite LLM.
 FROM registry.access.redhat.com/ubi9/python-311:latest
 
 WORKDIR /opt/app-root/src
-
-COPY requirements.txt ./
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
-
-COPY . ./
-
-# In-cluster the backend is reached by Service DNS; overridden via env in the manifest.
-ENV NYCHHC_BACKEND_URL=http://nychhc-copilot.nychhc-demo.svc:8080 \
-    PYTHONUNBUFFERED=1
+COPY index.html ./
 
 EXPOSE 8501
-
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Simple static server (demo-grade). Serves index.html at /.
+CMD ["python", "-m", "http.server", "8501"]

@@ -29,7 +29,7 @@ spec:
               value: "http://nychhc-copilot.nychhc-demo.svc:8080"
           readinessProbe:
             httpGet:
-              path: /_stcore/health
+              path: /
               port: 8501
             initialDelaySeconds: 5
             periodSeconds: 10
