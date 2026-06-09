@@ -69,6 +69,125 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
         return (f"Proposal {prop.proposal_id} created — STATUS: {prop.status} "
                 f"(routed via {prop.routed_via}). A human must approve before any write.")
 
+    # ── Scheduling tools — same `service` actions the UI calls (one source of truth) ──
+    from ..scheduling import service as S
+
+    aurora = providers.aurora
+
+    def _find_provider(text: str):
+        text = (text or "").lower().replace("dr.", "").strip()
+        rows = [dict(zip(r.columns, row)) for r in [aurora.query(
+            "SELECT id, name, specialty FROM sched_providers")] for row in r.rows]
+        for p in rows:
+            if text and text in p["name"].lower():
+                return p
+        return None
+
+    def _find_patient(text: str):
+        t = (text or "").lower()
+        res = aurora.query("SELECT id, name, mrn FROM sched_patients")
+        for row in res.rows:
+            p = dict(zip(res.columns, row))
+            if t and (t in p["name"].lower() or t in p["mrn"].lower() or t in p["id"].lower()):
+                return p
+        return None
+
+    def find_doctors(specialty: str) -> str:
+        """List doctors in a specialty (e.g. Cardiology, Pulmonology) with each one's next open slot."""
+        docs = S.list_doctors_by_specialty(aurora, specialty)
+        if not docs:
+            return f"No doctors found in specialty '{specialty}'. Try one of: {', '.join(S.list_specialties(aurora))}."
+        return "\n".join(
+            f"- {d['name']} ({d['credential']}, {d['specialty']}) · next open: "
+            f"{(d['next_available'] or {}).get('date','—')} {(d['next_available'] or {}).get('time','')}"
+            for d in docs)
+
+    def view_calendar(provider: str, date: str) -> str:
+        """Show a provider's calendar for an ISO date (YYYY-MM-DD): open and booked slots."""
+        p = _find_provider(provider)
+        if not p:
+            return f"Unknown provider '{provider}'."
+        cal = S.get_calendar(aurora, p["id"], date)
+        if cal.get("blocked"):
+            return f"{p['name']} is on PTO (Blocked) on {date}."
+        opens = [s["time"] for s in cal["slots"] if s["status"] == "Open"]
+        books = [f"{s['time']} {s['appt']['patient_name']}" for s in cal["slots"] if s["status"] == "Booked"]
+        return f"{p['name']} · {date}\nOpen: {', '.join(opens) or 'none'}\nBooked: {', '.join(books) or 'none'}"
+
+    def book_appointment(patient: str, provider: str, date: str, time: str,
+                         type: str = "Follow-up", reason: str = "") -> str:
+        """Book an appointment: patient (name or MRN), provider (name), date YYYY-MM-DD, time HH:MM."""
+        pt, pr = _find_patient(patient), _find_provider(provider)
+        if not pt:
+            return f"Unknown patient '{patient}'."
+        if not pr:
+            return f"Unknown provider '{provider}'."
+        r = S.book_appointment(aurora, pt["id"], pr["id"], date, time, type=type, reason=reason)
+        return (f"Booked {pt['name']} with {r['provider']} ({r['specialty']}) on {date} at {time}."
+                if r.get("ok") else f"Could not book: {r.get('error')}")
+
+    def cancel_appointment(appt_query: str) -> str:
+        """Cancel an appointment matched by patient name/MRN/provider/time; frees the slot and suggests re-offer candidates."""
+        appts = S.find_appointments(aurora, query=appt_query)
+        if not appts:
+            return f"No booked appointment matches '{appt_query}'."
+        a = appts[0]
+        r = S.cancel_appointment(aurora, a["id"], reason="copilot")
+        cands = ", ".join(c["name"] for c in r.get("reoffer_candidates", [])[:3])
+        return (f"Cancelled {a['patient_name']}'s {a['appt_time']} with {a['provider_name']} on {a['appt_date']}. "
+                f"Freed slot — re-offer candidates: {cands or 'none'}.")
+
+    def modify_appointment(appt_query: str, new_date: str = "", new_time: str = "", new_provider: str = "") -> str:
+        """Move an appointment (matched by patient/MRN/time) to a new date/time/provider; frees the old slot."""
+        appts = S.find_appointments(aurora, query=appt_query)
+        if not appts:
+            return f"No appointment matches '{appt_query}'."
+        a = appts[0]
+        pid = _find_provider(new_provider)["id"] if new_provider and _find_provider(new_provider) else None
+        r = S.modify_appointment(aurora, a["id"], provider_id=pid, d=new_date or None, time=new_time or None)
+        return (f"Moved {a['patient_name']}'s appointment → {r['after']['date']} {r['after']['time']} with {r['provider']}."
+                if r.get("ok") else f"Could not modify: {r.get('error')}")
+
+    def pto_impact(provider: str, start: str, end: str) -> str:
+        """Put a provider on PTO (start/end YYYY-MM-DD) and report impacted appointments + reassignment options."""
+        p = _find_provider(provider)
+        if not p:
+            return f"Unknown provider '{provider}'."
+        S.request_pto(aurora, p["id"], start, end, "Vacation")
+        imp = S.compute_pto_impact(aurora, p["id"], start, end)
+        lines = [f"{p['name']} PTO {start}→{end}: {imp['impacted_count']} appts impacted "
+                 f"· {imp['auto_resolvable_count']} auto-resolvable · {imp['needs_manual_count']} need attention."]
+        for a in imp["impacted"][:6]:
+            opt = a["reassign_options"][0]["provider"] if a["reassign_options"] else \
+                  (a["reschedule_options"][0]["provider"] + " (reschedule)" if a["reschedule_options"] else "manual")
+            lines.append(f"- {a['patient_name']} {a['appt_date']} {a['appt_time']} → {a['recommendation']}: {opt}")
+        lines.append("Say 'apply all auto' to reassign the auto-resolvable ones.")
+        return "\n".join(lines)
+
+    def apply_auto_reassign(provider: str, start: str, end: str) -> str:
+        """Apply all auto-resolvable reassignments for a provider's PTO window (same-specialty, same-time peers)."""
+        p = _find_provider(provider)
+        if not p:
+            return f"Unknown provider '{provider}'."
+        imp = S.compute_pto_impact(aurora, p["id"], start, end)
+        plan = [{"appt_id": a["id"], "provider_id": a["reassign_options"][0]["provider_id"],
+                 "date": a["appt_date"], "time": a["appt_time"]}
+                for a in imp["impacted"] if a["recommendation"] == "reassign"]
+        if not plan:
+            return "No auto-resolvable reassignments."
+        r = S.apply_reassignments(aurora, plan)
+        return f"Applied {r['applied']} reassignment(s); {r['failed']} failed."
+
+    sched_tools = [
+        StructuredTool.from_function(find_doctors),
+        StructuredTool.from_function(view_calendar),
+        StructuredTool.from_function(book_appointment),
+        StructuredTool.from_function(cancel_appointment),
+        StructuredTool.from_function(modify_appointment),
+        StructuredTool.from_function(pto_impact),
+        StructuredTool.from_function(apply_auto_reassign),
+    ]
+
     query_desc = (
         "Run a READ-ONLY SQL query against the workforce database and return a markdown "
         "table. Use for any operational data question (schedules, appointments, PTO, "
@@ -79,6 +198,7 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
         StructuredTool.from_function(no_show_risk),
         StructuredTool.from_function(coverage_forecast),
         StructuredTool.from_function(propose_schedule_change),
+        *sched_tools,
     ]
 
 

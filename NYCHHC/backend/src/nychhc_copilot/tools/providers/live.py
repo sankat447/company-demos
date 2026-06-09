@@ -55,6 +55,19 @@ class LiveAurora(AuroraProvider):
             conn.rollback()
         return QueryResult(columns=cols, rows=rows, sql=stripped)
 
+    def execute(self, sql: str, params: tuple = ()) -> int:
+        import psycopg  # lazy
+
+        # Service layer writes use `?` placeholders (sqlite style); translate for psycopg.
+        pg_sql = sql.replace("?", "%s")
+        with psycopg.connect(self.dsn, autocommit=False) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET search_path TO workforce, public")
+                cur.execute(pg_sql, params)
+                rc = cur.rowcount
+            conn.commit()
+        return rc
+
 
 # Age-band → ordinal must match models/common.AGE_BANDS (the training contract).
 _AGE_ORD = {"0-17": 0, "18-39": 1, "40-64": 2, "65+": 3}

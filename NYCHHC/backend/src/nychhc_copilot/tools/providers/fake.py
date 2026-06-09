@@ -119,6 +119,12 @@ class FakeAurora(AuroraProvider):
         c.executemany("INSERT INTO appointments VALUES (?,?,?,?,?,?,?,?,?)", appts)
         c.commit()
 
+    def execute(self, sql: str, params: tuple = ()) -> int:
+        # sqlite uses ? placeholders (matches our service layer).
+        cur = self.conn.execute(sql, params)
+        self.conn.commit()
+        return cur.rowcount
+
     def query(self, sql: str) -> QueryResult:
         stripped = sql.strip().rstrip(";").lstrip("(")
         low = stripped.lower()

@@ -17,6 +17,8 @@ from .config import Mode, get_settings
 from .disclaimer import DISCLAIMER
 from .api.routes import router
 from .api.data_routes import router as data_router
+from .api.sched_routes import router as sched_router
+from .scheduling import ensure_seeded
 from .tools.providers import build_providers
 
 
@@ -32,6 +34,10 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.settings = settings
     app.state.providers = build_providers(settings)  # backs the data API (dashboard)
+    try:
+        ensure_seeded(app.state.providers.aurora)  # create + seed sched_* (idempotent)
+    except Exception as e:  # don't block startup if seeding hiccups
+        print(f"[scheduling] seed skipped: {e}")
     app.state.copilot = _build_copilot(settings)
     yield
 
@@ -52,6 +58,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(router)
     app.include_router(data_router)
+    app.include_router(sched_router)
     return app
 
 

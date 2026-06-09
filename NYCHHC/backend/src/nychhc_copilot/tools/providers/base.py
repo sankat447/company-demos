@@ -64,6 +64,9 @@ class ChangeProposal:
 @runtime_checkable
 class AuroraProvider(Protocol):
     def query(self, sql: str) -> QueryResult: ...
+    # Parameterized write (INSERT/UPDATE/DELETE/DDL) for the scheduling actions.
+    # Distinct from query()'s read-only text-to-SQL path. Returns affected rowcount.
+    def execute(self, sql: str, params: tuple = ()) -> int: ...
 
 
 @runtime_checkable
