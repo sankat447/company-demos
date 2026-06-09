@@ -72,3 +72,44 @@ assert_demo_namespace() {
   got="$(oc get ns "$NS" -o jsonpath='{.metadata.labels.demo}' 2>/dev/null || true)"
   [[ "$got" == "nychhc" ]] || die "refusing to delete ns '$NS' — missing label ${DEMO_LABEL} (scoped-teardown guard)"
 }
+
+# ── Grafana (platform's, rhoai-monitoring) — add/remove ONLY the NYCHHC objects ──
+GRAFANA_NS="${GRAFANA_NS:-rhoai-monitoring}"
+_grafana_url() {
+  local h; h="$(oc -n "$GRAFANA_NS" get route grafana -o jsonpath='{.spec.host}' 2>/dev/null)"
+  [[ -n "$h" ]] && echo "https://$h" || echo ""
+}
+_grafana_auth() {
+  local p; p="$(oc -n "$GRAFANA_NS" get deploy grafana -o jsonpath='{range .spec.template.spec.containers[0].env[?(@.name=="GF_SECURITY_ADMIN_PASSWORD")]}{.value}{end}' 2>/dev/null)"
+  echo "admin:${p:-Demo1234#}"
+}
+
+grafana_provision() {
+  local GURL GAUTH ep pw
+  GURL="$(_grafana_url)"; GAUTH="$(_grafana_auth)"
+  [[ -z "$GURL" ]] && { warn "Grafana route not found — skipping dashboard"; return 0; }
+  ep="$(ssm_get "/${PLATFORM_SSM_PREFIX}/aurora/endpoint")"
+  pw="$(ssm_get "/${PLATFORM_SSM_PREFIX}/aurora/master-password" decrypt)"
+  log "Grafana: provision NYCHHC datasource + dashboard ($GURL)"
+  # Datasource (recreate for idempotency).
+  curl -sk -u "$GAUTH" -X DELETE "$GURL/api/datasources/uid/nychhc-aurora" >/dev/null 2>&1 || true
+  jq -n --arg url "${ep}:5432" --arg pw "$pw" \
+    '{uid:"nychhc-aurora",name:"NYCHHC Aurora",type:"postgres",access:"proxy",url:$url,user:"rhoai_admin",database:"rhoai_demo",jsonData:{sslmode:"require",postgresVersion:1600},secureJsonData:{password:$pw}}' \
+    | curl -sk -u "$GAUTH" -H 'content-type: application/json' -X POST "$GURL/api/datasources" -d @- >/dev/null
+  # Folder (ignore if exists).
+  curl -sk -u "$GAUTH" -H 'content-type: application/json' -X POST "$GURL/api/folders" -d '{"uid":"nychhc","title":"NYCHHC"}' >/dev/null 2>&1 || true
+  # Dashboard.
+  jq -n --slurpfile d "$DEMO_DIR/grafana/nychhc-dashboard.json" '{dashboard:$d[0],folderUid:"nychhc",overwrite:true}' \
+    | curl -sk -u "$GAUTH" -H 'content-type: application/json' -X POST "$GURL/api/dashboards/db" -d @- >/dev/null \
+    && ok "Grafana dashboard: $GURL/d/nychhc-workforce" || warn "Grafana dashboard import failed"
+}
+
+grafana_teardown() {
+  local GURL GAUTH
+  GURL="$(_grafana_url)"; GAUTH="$(_grafana_auth)"
+  [[ -z "$GURL" ]] && return 0
+  log "Grafana: remove NYCHHC dashboard + datasource + folder"
+  curl -sk -u "$GAUTH" -X DELETE "$GURL/api/dashboards/uid/nychhc-workforce" >/dev/null 2>&1 || true
+  curl -sk -u "$GAUTH" -X DELETE "$GURL/api/datasources/uid/nychhc-aurora" >/dev/null 2>&1 || true
+  curl -sk -u "$GAUTH" -X DELETE "$GURL/api/folders/nychhc" >/dev/null 2>&1 || true
+}

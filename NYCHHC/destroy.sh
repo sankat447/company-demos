@@ -22,6 +22,9 @@ if oc get ns "$NS" >/dev/null 2>&1; then
     | run_sql_stdin "$DSN" || warn "schema drop failed (ns/secret may be gone) — continuing"
 fi
 
+# ── 1b. Remove the NYCHHC Grafana dashboard + datasource + folder (scoped) ────
+grafana_teardown || warn "grafana teardown skipped"
+
 # ── 2. Delete the ArgoCD Application (finalizer cascade-prunes its children) ──
 log "Delete ArgoCD Application nychhc-demo"
 oc -n openshift-gitops delete application nychhc-demo --wait=true --ignore-not-found

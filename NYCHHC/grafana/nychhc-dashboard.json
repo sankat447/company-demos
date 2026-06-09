@@ -1,0 +1,69 @@
+{
+  "uid": "nychhc-workforce",
+  "title": "NYC H+H — Workforce & Patient-Flow",
+  "tags": ["nychhc", "demo"],
+  "timezone": "",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-90d", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "type": "text", "title": "", "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "options": { "mode": "markdown", "content": "## NYC Health + Hospitals — Predictive Workforce & Patient-Flow\n**FOR DEMONSTRATION ONLY — NOT FOR CLINICAL USE — SYNTHETIC DATA** · source: Aurora `workforce` schema" }
+    },
+    {
+      "type": "stat", "title": "Open shifts", "gridPos": { "h": 4, "w": 6, "x": 0, "y": 3 },
+      "datasource": { "type": "postgres", "uid": "nychhc-aurora" },
+      "targets": [ { "refId": "A", "datasource": { "type": "postgres", "uid": "nychhc-aurora" }, "format": "table", "rawSql": "SELECT count(*)::int AS value FROM workforce.shifts WHERE status='open'" } ],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "orange" }, "unit": "none" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/" }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "type": "stat", "title": "Pending PTO", "gridPos": { "h": 4, "w": 6, "x": 6, "y": 3 },
+      "datasource": { "type": "postgres", "uid": "nychhc-aurora" },
+      "targets": [ { "refId": "A", "datasource": { "type": "postgres", "uid": "nychhc-aurora" }, "format": "table", "rawSql": "SELECT count(*)::int AS value FROM workforce.pto_queue WHERE status='pend'" } ],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "yellow" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/" }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "type": "stat", "title": "High no-show risk (RED)", "gridPos": { "h": 4, "w": 6, "x": 12, "y": 3 },
+      "datasource": { "type": "postgres", "uid": "nychhc-aurora" },
+      "targets": [ { "refId": "A", "datasource": { "type": "postgres", "uid": "nychhc-aurora" }, "format": "table", "rawSql": "SELECT count(*)::int AS value FROM workforce.risk_today WHERE tier='RED'" } ],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/" }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "type": "stat", "title": "Booked appts (today)", "gridPos": { "h": 4, "w": 6, "x": 18, "y": 3 },
+      "datasource": { "type": "postgres", "uid": "nychhc-aurora" },
+      "targets": [ { "refId": "A", "datasource": { "type": "postgres", "uid": "nychhc-aurora" }, "format": "table", "rawSql": "SELECT count(*)::int AS value FROM workforce.sched_appointments WHERE appt_date='2026-06-09' AND status='Booked'" } ],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/" }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "type": "piechart", "title": "No-show risk mix (today)", "gridPos": { "h": 9, "w": 8, "x": 0, "y": 7 },
+      "datasource": { "type": "postgres", "uid": "nychhc-aurora" },
+      "targets": [ { "refId": "A", "datasource": { "type": "postgres", "uid": "nychhc-aurora" }, "format": "table", "rawSql": "SELECT tier AS metric, count(*)::int AS value FROM workforce.risk_today GROUP BY tier" } ],
+      "options": { "legend": { "displayMode": "list", "placement": "right" }, "pieType": "donut", "reduceOptions": { "calcs": ["lastNotNull"], "values": true } }
+    },
+    {
+      "type": "barchart", "title": "No-show rate by provider (last 35d %)", "gridPos": { "h": 9, "w": 16, "x": 8, "y": 7 },
+      "datasource": { "type": "postgres", "uid": "nychhc-aurora" },
+      "targets": [ { "refId": "A", "datasource": { "type": "postgres", "uid": "nychhc-aurora" }, "format": "table", "rawSql": "SELECT pr.name AS provider, round(100.0*sum(CASE WHEN a.outcome='no_show' THEN 1 ELSE 0 END)/count(*),1) AS no_show_pct FROM workforce.appointments a JOIN workforce.providers pr ON pr.provider_id=a.provider_id GROUP BY pr.name ORDER BY no_show_pct DESC" } ],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "orange" }, "unit": "percent" } }
+    },
+    {
+      "type": "table", "title": "Today's appointments by specialty", "gridPos": { "h": 9, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "nychhc-aurora" },
+      "targets": [ { "refId": "A", "datasource": { "type": "postgres", "uid": "nychhc-aurora" }, "format": "table", "rawSql": "SELECT pr.specialty AS \"Specialty\", count(*)::int AS \"Appointments\" FROM workforce.sched_appointments a JOIN workforce.sched_providers pr ON pr.id=a.provider_id WHERE a.status='Booked' GROUP BY pr.specialty ORDER BY 2 DESC" } ]
+    },
+    {
+      "type": "barchart", "title": "PTO balance remaining (%)", "gridPos": { "h": 9, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "nychhc-aurora" },
+      "targets": [ { "refId": "A", "datasource": { "type": "postgres", "uid": "nychhc-aurora" }, "format": "table", "rawSql": "SELECT name AS provider, pto_balance_pct AS pct FROM workforce.roster WHERE pto_balance_pct IS NOT NULL ORDER BY pto_balance_pct DESC" } ],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "unit": "percent", "max": 100 } }
+    }
+  ]
+}

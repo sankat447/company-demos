@@ -70,6 +70,9 @@ else
   warn "SKIP_MODELS=1 — backend will use the rules fallback until models are published"
 fi
 
+# ── 6b. Grafana: provision the NYCHHC dashboard + datasource (scoped) ─────────
+grafana_provision || warn "grafana provisioning skipped"
+
 # ── 7. Register the demo's ArgoCD Application (no edit to platform app-of-apps)─
 log "Apply ArgoCD Application"
 oc apply -f "$DEMO_DIR/gitops/application.yaml"
