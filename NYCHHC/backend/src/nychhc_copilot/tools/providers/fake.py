@@ -55,6 +55,56 @@ class FakeAurora(AuroraProvider):
         self.conn = sqlite3.connect(":memory:", check_same_thread=False)
         self._build()
         self._seed()
+        self._seed_dashboard()  # Phase-2 tables so the data API works offline too
+
+    def _seed_dashboard(self) -> None:
+        """roster / risk_today / pto_queue — mirrors db/schema.sql so the dashboard,
+        roster and risk tabs work against the fake (local + tests), not just live."""
+        c = self.conn
+        c.executescript(
+            """CREATE TABLE roster (id INTEGER PRIMARY KEY AUTOINCREMENT, ini TEXT, color TEXT,
+                 name TEXT, role TEXT, license TEXT, phone TEXT, shift TEXT, weekly_hours REAL,
+                 status TEXT, pto_balance_pct INTEGER, pto_balance_hours INTEGER);
+               CREATE TABLE risk_today (id INTEGER PRIMARY KEY AUTOINCREMENT, tier TEXT,
+                 patient_name TEXT, syn_id TEXT, mrn TEXT, phone TEXT, appt_time TEXT,
+                 provider TEXT, risk_pct INTEGER, factors TEXT, action TEXT);
+               CREATE TABLE pto_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, ini TEXT, color TEXT,
+                 provider_name TEXT, type TEXT, dates TEXT, coverage_gap INTEGER, status TEXT);""")
+        c.executemany("INSERT INTO roster (ini,color,name,role,license,phone,shift,weekly_hours,status,pto_balance_pct,pto_balance_hours) VALUES (?,?,?,?,?,?,?,?,?,?,?)", [
+            ("MA", "#cc785c", "Dr. Marcus Adebayo", "Hospitalist · MD", "NY-MD-887214", "(212) 555-0142", "Days", 40.0, "On shift", 78, 156),
+            ("PV", "#b05730", "Priya Venkatesan, RN", "Charge Nurse · RN", "NY-RN-553090", "(212) 555-0118", "Days", 36.0, "On shift", 54, 108),
+            ("YT", "#5e7c58", "Yuki Tanaka, NP", "Nurse Practitioner", "NY-NP-310455", "(212) 555-0156", "Evening", 32.0, "On shift", 66, 132),
+            ("JO", "#c08a2d", "James O'Sullivan, RN", "Staff Nurse · RN", "NY-RN-771265", "(646) 555-0173", "Nights", 36.0, "Available", 31, 62),
+            ("AM", "#b24a38", "Aisha Mohammed, RN", "Staff Nurse · RN", "NY-RN-664120", "(718) 555-0109", "Evening", 40.0, "On shift", None, None),
+            ("HK", "#b05730", "Hannah Kim, RN", "Staff Nurse · RN", "NY-RN-449871", "(212) 555-0127", "Nights", 44.5, "OT watch", 12, 24),
+            ("DO", "#5e7c58", "David Okonkwo, RN", "Float Pool · RN", "NY-RN-902331", "(646) 555-0164", "Days", 24.0, "Available", None, None),
+            ("SR", "#cc785c", "Sofia Rossi, RN", "Staff Nurse · RN", "NY-RN-128744", "(212) 555-0135", "Evening", 32.0, "On shift", None, None),
+            ("CM", "#6b6862", "Carlos Mendez", "Patient Care Tech", "NY-PCT-20418", "(347) 555-0188", "Days", 40.0, "On shift", None, None),
+            ("LN", "#6b6862", "Linh Nguyen", "Patient Care Tech", "NY-PCT-20655", "(718) 555-0191", "Nights", 36.0, "On shift", None, None),
+        ])
+        risk = [
+            ("RED", "Robert Castellano", "#3 · SYN-00003", "SYN-4471", "(212) 555-0103", "9:00 AM", "Dr. Adebayo", 71, '["3 prior no-shows","No reminder confirmed","Rain forecast"]', "Call + overbook"),
+            ("RED", "Gloria Fitzpatrick", "#22 · SYN-00022", "SYN-5108", "(646) 555-0122", "10:30 AM", "Y. Tanaka, NP", 74, '["3 prior no-shows","Transit > 45 min"]', "Call + overbook"),
+            ("RED", "Darnell Brooks", "#27 · SYN-00027", "SYN-6033", "(347) 555-0127", "2:15 PM", "Dr. Adebayo", 75, '["3 prior no-shows","First visit","No text on file"]', "Call patient"),
+            ("AMBER", "Anthony Russo", "#21 · SYN-00021", "SYN-4990", "(718) 555-0121", "11:00 AM", "Y. Tanaka, NP", 54, '["2 prior no-shows"]', "Send text reminder"),
+            ("AMBER", "Mei-Ling Chen", "#16 · SYN-00016", "SYN-4612", "(212) 555-0116", "1:00 PM", "Dr. Adebayo", 52, '["2 prior no-shows","Afternoon slot"]', "Send text reminder"),
+            ("AMBER", "Grace Abara", "#34 · SYN-00034", "SYN-7120", "(646) 555-0134", "3:30 PM", "Y. Tanaka, NP", 35, '["Reschedule last week"]', "Send text reminder"),
+            ("AMBER", "Fatima Al-Rashid", "#15 · SYN-00015", "SYN-4580", "(718) 555-0115", "8:30 AM", "Dr. Adebayo", 31, '["Baseline"]', "Monitor"),
+            ("GREEN", "Samuel Greenberg", "#4 · SYN-00004", "SYN-4419", "(212) 555-0104", "8:00 AM", "Dr. Adebayo", 14, '["Baseline","Confirmed"]', "No action"),
+            ("GREEN", "Olivia Park", "#9 · SYN-00009", "SYN-4503", "(646) 555-0109", "9:45 AM", "Y. Tanaka, NP", 15, '["Baseline","Confirmed"]', "No action"),
+            ("GREEN", "Henry Nwosu", "#10 · SYN-00010", "SYN-4527", "(347) 555-0110", "12:00 PM", "Dr. Adebayo", 30, '["Baseline"]', "No action"),
+            ("GREEN", "Isabella Romano", "#28 · SYN-00028", "SYN-6041", "(212) 555-0128", "1:45 PM", "Y. Tanaka, NP", 17, '["Baseline","Confirmed"]', "No action"),
+            ("GREEN", "Wei Zhang", "#33 · SYN-00033", "SYN-7098", "(718) 555-0133", "4:00 PM", "Dr. Adebayo", 18, '["Baseline"]', "No action"),
+        ]
+        c.executemany("INSERT INTO risk_today (tier,patient_name,syn_id,mrn,phone,appt_time,provider,risk_pct,factors,action) VALUES (?,?,?,?,?,?,?,?,?,?)", risk)
+        c.executemany("INSERT INTO pto_queue (ini,color,provider_name,type,dates,coverage_gap,status) VALUES (?,?,?,?,?,?,?)", [
+            ("JO", "#c08a2d", "James O'Sullivan, RN", "Vacation", "Jun 16–20", 1, "pend"),
+            ("SR", "#cc785c", "Sofia Rossi, RN", "CME / Education", "Jun 24–25", 0, "pend"),
+            ("AM", "#b24a38", "Aisha Mohammed, RN", "Sick", "Jun 9 (today)", 1, "ok"),
+            ("CM", "#6b6862", "Carlos Mendez · PCT", "Vacation", "Jul 1–5", 0, "ok"),
+            ("HK", "#b05730", "Hannah Kim, RN", "Personal", "Jun 30", 0, "no"),
+        ])
+        c.commit()
 
     def _build(self) -> None:
         self.conn.executescript(

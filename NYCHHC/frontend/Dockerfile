@@ -5,6 +5,8 @@ FROM registry.access.redhat.com/ubi9/python-311:latest
 
 WORKDIR /opt/app-root/src
 COPY index.html ./
+COPY css ./css
+COPY js ./js
 
 EXPOSE 8501
 # Simple static server (demo-grade). Serves index.html at /.
