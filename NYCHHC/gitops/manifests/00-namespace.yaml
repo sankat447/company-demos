@@ -1,0 +1,10 @@
+# Demo namespace — OUTSIDE the data-science-smcp mesh (ARCHITECTURE.md D1), so the
+# standard Route works without maistra.io/expose-route. The `demo: nychhc` label is
+# the scoped-teardown guard: destroy.sh deletes by it, never platform namespaces.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nychhc-demo
+  labels:
+    demo: nychhc
+    app.kubernetes.io/part-of: nychhc-demo

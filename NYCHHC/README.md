@@ -63,16 +63,23 @@ NYCHHC/
 │   ├── DATA_SOURCES.md
 │   ├── COMPLIANCE.md
 │   └── LESSONS_LEARNED.md
-├── backend/                   FastAPI + LangChain ReAct agent + MCP server
-├── frontend/                  Streamlit role UIs (NYC H+H branded)
-├── models/                    No-Show + Coverage-Forecast training → MLflow → KServe
-├── ingestion/                 RAG: scrape → embed → upsert pgvector
-├── gitops/                    Kustomize tree + ArgoCD Application
-├── keycloak/                  nychhc-demo realm export (4 roles)
-├── grafana/                   dashboard.json
-├── n8n/                       PTO-impact + no-show-cron + weekly-usage flows
-└── scripts/                   bootstrap.sh / teardown.sh
+├── backend/                   FastAPI + LangChain ReAct agent + MCP server ✅
+├── terraform/                 Self-contained, isolated state — owns ECR (+opt IRSA) ✅
+├── gitops/                    Raw-YAML manifests + standalone ArgoCD Application ✅
+├── db/                        schema.sql (workforce + rag schemas, seed) ✅
+├── scripts/                   lib.sh (deploy/destroy helpers) ✅
+├── deploy.sh / destroy.sh     Scoped: stand on / tear down only demo objects ✅
+├── frontend/                  Streamlit role UIs (NYC H+H branded) ⏳
+├── models/                    No-Show + Coverage-Forecast → MLflow → KServe ⏳
+├── ingestion/                 RAG: scrape → embed → upsert pgvector; full Faker seed ⏳
+├── keycloak/                  nychhc-demo realm export (4 roles) ⏳
+├── grafana/                   dashboard.json ⏳
+└── n8n/                       PTO-impact + no-show-cron + weekly-usage flows ⏳
 ```
+
+Deployment is Terraform-driven and **scoped to the demo** — see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). `deploy.sh` stands the demo up on the
+existing `ai-demo-stack-aws` platform; `destroy.sh` removes only demo-owned objects.
 
 ## Status
 

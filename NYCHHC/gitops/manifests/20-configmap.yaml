@@ -1,0 +1,33 @@
+# Non-secret runtime config. Secrets (Aurora DSN) come from the bootstrapped
+# `nychhc-aurora` Secret, NOT from here (L6).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nychhc-config
+  namespace: nychhc-demo
+  labels:
+    demo: nychhc
+data:
+  NYCHHC_MODE: "live"
+
+  # LLM routing (L5). Default to the in-cluster Portkey svc. If the mesh's STRICT
+  # mTLS blocks this non-mesh caller (ARCHITECTURE.md D1), switch this to Portkey's
+  # external Route (https://portkey-ai-demo.apps.ai-demo.iisdemolab.click) — no code
+  # change needed; the client accepts either.
+  NYCHHC_PORTKEY_BASE_URL: "http://portkey.ai-demo.svc:8787"
+  NYCHHC_PRIMARY_MODEL: "llama-3-1-8b"
+  NYCHHC_FALLBACK_MODEL: "bedrock-claude-3-haiku"
+
+  # Predictive models — empty until the KServe InferenceServices are deployed
+  # (models step). Empty => backend uses the rules fallback (confirmed design D5).
+  NYCHHC_NOSHOW_MODEL_URL: ""
+  NYCHHC_FORECAST_MODEL_URL: ""
+  NYCHHC_MODELS_FALLBACK_ENABLED: "true"
+
+  # n8n webhook — empty until n8n flow imported; empty => workflow proposals are
+  # logged (still approval-gated). Set to the n8n webhook URL to route for real.
+  NYCHHC_N8N_WEBHOOK_URL: ""
+
+  # Telemetry (L9).
+  NYCHHC_OTEL_ENABLED: "true"
+  NYCHHC_OTEL_ENDPOINT: "otel-collector.observability.svc:4317"

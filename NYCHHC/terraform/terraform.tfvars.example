@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored). Defaults match the ai-demo platform.
+aws_region  = "us-east-1"
+aws_profile = "rhoai-demo"
+owner_tag   = "skumar@iisl.com"
+
+# ECR repo for the copilot image (demo-owned).
+ecr_repository_name = "nychhc/copilot"
+
+# IRSA is OFF by default — the demo reads Aurora via a bootstrapped K8s Secret
+# and reaches Bedrock through Portkey. Only enable if a pod must call AWS directly.
+enable_irsa = false
+# oidc_issuer_url = "https://..."   # required only when enable_irsa = true

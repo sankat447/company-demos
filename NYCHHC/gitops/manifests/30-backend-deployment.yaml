@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nychhc-copilot
+  namespace: nychhc-demo
+  labels:
+    app: nychhc-copilot
+    demo: nychhc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nychhc-copilot
+  template:
+    metadata:
+      labels:
+        app: nychhc-copilot
+        demo: nychhc
+    spec:
+      serviceAccountName: nychhc-copilot-sa
+      containers:
+        - name: copilot
+          # Demo-owned ECR repo (terraform). Account/region are the platform's.
+          # imagePullPolicy: Always avoids the BuildConfig :latest/:tag rollout trap
+          # (police-department lesson).
+          image: 406337554361.dkr.ecr.us-east-1.amazonaws.com/nychhc/copilot:0.1.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: nychhc-config
+          env:
+            # Aurora DSN from the bootstrapped Secret (L6). deploy.sh creates it.
+            - name: NYCHHC_AURORA_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: nychhc-aurora
+                  key: dsn
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            # Base cluster runs hot (PD lesson) — keep requests modest.
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

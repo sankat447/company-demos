@@ -47,6 +47,26 @@ Captured as we build. Newest first. (Carry-over platform lessons L1–L10 live i
   census/ratio formula — otherwise every day reads "understaffed" and the
   "next Tuesday specifically" beat collapses. Engineer exactly one gap.
 
+## Deployment (Terraform, scoped to demo)
+
+- **Verify SSM paths against the module, not an agent summary.** An exploration of
+  `ai-demo-stack-aws` reported Aurora at `/ai/aurora/*`; the actual module uses
+  `ssm_path_prefix = local.name = "${project_name}-${environment}"` = **`ai-demo`**,
+  so the real path is **`/ai-demo/aurora/endpoint`** (matches the original brief L7).
+  One grep of `modules/aurora-serverless/main.tf` settled it. Always confirm
+  load-bearing infra facts at the source.
+- **Platform GitOps is raw-YAML app-of-apps, NOT kustomize.** Matched that — dropped
+  the kustomize tree; the demo is plain manifests + one standalone ArgoCD Application.
+- **Isolated TF state = safe scoped destroy.** Demo uses its own state key
+  `nychhc/terraform.tfstate` in the shared bucket, reads platform values via data
+  sources, and never creates a second OIDC provider (references the existing one).
+  `terraform destroy` then physically cannot see platform resources.
+- **Don't put bootstrapped Secrets in the ArgoCD path.** A Secret created out-of-band
+  by `deploy.sh` (no ArgoCD tracking label) won't be pruned/blanked by selfHeal —
+  cleaner than the PD re-stamp dance.
+- **Aurora is in-VPC** — unreachable from a laptop. Run schema/seed SQL from an
+  in-cluster ephemeral psql pod (`oc run ... --image=rhel9/postgresql-16`).
+
 ## Platform parity — inherit from police-department (AWS + OpenShift host)
 
 This demo deploys onto the same `ai-demo` OCP cluster, mirroring the
