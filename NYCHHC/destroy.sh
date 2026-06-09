@@ -42,6 +42,18 @@ for ms in $(oc -n openshift-machine-api get machinesets \
   oc -n openshift-machine-api annotate machineset "$ms" nychhc-demo.iisl.com/scaled-up-by- 2>/dev/null || true
 done
 
+# ── 3c. Remove the demo IAM user used by KServe to pull the model from S3 ─────
+U=nychhc-demo-s3-rw
+if aws iam get-user --user-name "$U" --profile "$AWS_PROFILE" >/dev/null 2>&1; then
+  log "Delete demo IAM user $U"
+  for k in $(aws iam list-access-keys --user-name "$U" --profile "$AWS_PROFILE" --query 'AccessKeyMetadata[].AccessKeyId' --output text 2>/dev/null); do
+    aws iam delete-access-key --user-name "$U" --access-key-id "$k" --profile "$AWS_PROFILE" 2>/dev/null || true; done
+  aws iam delete-user-policy --user-name "$U" --policy-name s3-models-read --profile "$AWS_PROFILE" 2>/dev/null || true
+  aws iam delete-user --user-name "$U" --profile "$AWS_PROFILE" 2>/dev/null || true
+fi
+# Demo-owned model artifacts in the shared bucket (our prefix only).
+aws s3 rm "s3://ai-demo-data-lake/models/nychhc/" --recursive --profile "$AWS_PROFILE" --region "$AWS_REGION" 2>/dev/null || true
+
 # ── 4. Terraform destroy — isolated state ⇒ only demo-owned AWS resources ──────
 log "Terraform destroy (state key: nychhc/terraform.tfstate)"
 terraform -chdir="$TF_DIR" init -input=false -reconfigure >/dev/null
