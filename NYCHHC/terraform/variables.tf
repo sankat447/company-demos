@@ -23,9 +23,15 @@ variable "name_prefix" {
 }
 
 variable "ecr_repository_name" {
-  description = "ECR repo for the copilot image. Demo-owned; removed on destroy."
+  description = "ECR repo for the copilot (backend) image. Demo-owned; removed on destroy."
   type        = string
   default     = "nychhc/copilot"
+}
+
+variable "ecr_frontend_repository_name" {
+  description = "ECR repo for the Streamlit frontend image. Demo-owned; removed on destroy."
+  type        = string
+  default     = "nychhc/frontend"
 }
 
 variable "ecr_image_retention_count" {

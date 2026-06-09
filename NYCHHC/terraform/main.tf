@@ -23,6 +23,18 @@ resource "aws_ecr_repository" "copilot" {
   tags = { Name = var.ecr_repository_name }
 }
 
+resource "aws_ecr_repository" "frontend" {
+  name                 = var.ecr_frontend_repository_name
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = { Name = var.ecr_frontend_repository_name }
+}
+
 resource "aws_ecr_lifecycle_policy" "copilot" {
   repository = aws_ecr_repository.copilot.name
 

@@ -17,8 +17,9 @@ log "Terraform apply (state key: nychhc/terraform.tfstate)"
 terraform -chdir="$TF_DIR" init -input=false -reconfigure >/dev/null
 terraform -chdir="$TF_DIR" apply -auto-approve -input=false
 ECR_URL="$(terraform -chdir="$TF_DIR" output -raw ecr_repository_url)"
+ECR_FE_URL="$(terraform -chdir="$TF_DIR" output -raw ecr_frontend_repository_url)"
 ACCOUNT="$(terraform -chdir="$TF_DIR" output -raw account_id)"
-ok "ECR: $ECR_URL"
+ok "ECR: $ECR_URL , $ECR_FE_URL"
 
 # Manifest pins account 406337554361 — warn if the live account differs.
 grep -q "$ACCOUNT" "$DEMO_DIR/gitops/manifests/30-backend-deployment.yaml" \
@@ -32,7 +33,11 @@ aws ecr get-login-password --profile "$AWS_PROFILE" --region "$AWS_REGION" \
 "$CLI" build -t "${ECR_URL}:${IMAGE_TAG}" -t "${ECR_URL}:latest" "$DEMO_DIR/backend"
 "$CLI" push "${ECR_URL}:${IMAGE_TAG}"
 "$CLI" push "${ECR_URL}:latest"
-ok "Image pushed"
+log "Build + push frontend → ${ECR_FE_URL}:${IMAGE_TAG}"
+"$CLI" build -t "${ECR_FE_URL}:${IMAGE_TAG}" -t "${ECR_FE_URL}:latest" "$DEMO_DIR/frontend"
+"$CLI" push "${ECR_FE_URL}:${IMAGE_TAG}"
+"$CLI" push "${ECR_FE_URL}:latest"
+ok "Images pushed (backend + frontend)"
 
 # ── 3. Namespace + Aurora Secret (bootstrapped from SSM; NOT in git, L6) ──────
 log "Namespace + Aurora secret"
@@ -66,16 +71,13 @@ oc -n openshift-gitops annotate application/nychhc-demo \
   argocd.argoproj.io/refresh=hard --overwrite >/dev/null 2>&1 || true
 
 # ── 6. Wait for rollout + smoke test ──────────────────────────────────────────
-log "Wait for backend rollout"
-oc -n "$NS" rollout status deploy/nychhc-copilot --timeout=300s || warn "rollout slow — check ArgoCD"
-ROUTE="$(oc -n "$NS" get route nychhc-copilot -o jsonpath='{.spec.host}' 2>/dev/null || true)"
-if [[ -n "$ROUTE" ]]; then
-  log "Smoke test https://$ROUTE/health"
-  curl -sk "https://$ROUTE/health" | head -c 300 || true; echo
-  ok "Deployed. Route: https://$ROUTE"
-else
-  warn "Route not ready yet — re-check with: oc -n $NS get route"
-fi
+log "Wait for rollouts"
+oc -n "$NS" rollout status deploy/nychhc-copilot --timeout=300s || warn "backend rollout slow — check ArgoCD"
+oc -n "$NS" rollout status deploy/nychhc-frontend --timeout=300s || warn "frontend rollout slow — check ArgoCD"
+BE_ROUTE="$(oc -n "$NS" get route nychhc-copilot -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+FE_ROUTE="$(oc -n "$NS" get route nychhc-frontend -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+[[ -n "$BE_ROUTE" ]] && { log "Smoke test https://$BE_ROUTE/health"; curl -sk "https://$BE_ROUTE/health" | head -c 200 || true; echo; }
+[[ -n "$FE_ROUTE" ]] && ok "Demo UI: https://$FE_ROUTE" || warn "Frontend route not ready — oc -n $NS get route"
 
 cat <<EOF
 

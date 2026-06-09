@@ -16,6 +16,8 @@ from .agent import EchoCopilot, build_react_copilot
 from .config import Mode, get_settings
 from .disclaimer import DISCLAIMER
 from .api.routes import router
+from .api.data_routes import router as data_router
+from .tools.providers import build_providers
 
 
 def _build_copilot(settings):
@@ -29,6 +31,7 @@ def _build_copilot(settings):
 async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.settings = settings
+    app.state.providers = build_providers(settings)  # backs the data API (dashboard)
     app.state.copilot = _build_copilot(settings)
     yield
 
@@ -48,6 +51,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router)
+    app.include_router(data_router)
     return app
 
 

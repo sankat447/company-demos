@@ -70,7 +70,7 @@ NYCHHC/
 ├── scripts/                   lib.sh (deploy/destroy helpers) ✅
 ├── deploy.sh / destroy.sh     Scoped: stand on / tear down only demo objects ✅
 ├── models/                    No-Show + Coverage-Forecast → MLflow → KServe ✅
-├── frontend/                  Streamlit role UIs (NYC H+H branded) ⏳
+├── frontend/                  Streamlit role UIs (NYC H+H branded) + copilot chat ✅
 ├── ingestion/                 RAG: scrape → embed → upsert pgvector; full Faker seed ⏳
 ├── keycloak/                  nychhc-demo realm export (4 roles) ⏳
 ├── grafana/                   dashboard.json ⏳

@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nychhc-frontend
+  namespace: nychhc-demo
+  labels:
+    app: nychhc-frontend
+    demo: nychhc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nychhc-frontend
+  template:
+    metadata:
+      labels:
+        app: nychhc-frontend
+        demo: nychhc
+    spec:
+      serviceAccountName: nychhc-copilot-sa
+      containers:
+        - name: frontend
+          image: 406337554361.dkr.ecr.us-east-1.amazonaws.com/nychhc/frontend:0.1.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8501
+          env:
+            - name: NYCHHC_BACKEND_URL
+              value: "http://nychhc-copilot.nychhc-demo.svc:8080"
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

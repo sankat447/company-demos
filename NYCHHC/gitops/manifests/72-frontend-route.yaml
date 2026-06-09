@@ -1,0 +1,18 @@
+# The clinician-facing entry point (NYC H+H branded). Edge TLS; outside the mesh.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: nychhc-frontend
+  namespace: nychhc-demo
+  labels:
+    app: nychhc-frontend
+    demo: nychhc
+spec:
+  to:
+    kind: Service
+    name: nychhc-frontend
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

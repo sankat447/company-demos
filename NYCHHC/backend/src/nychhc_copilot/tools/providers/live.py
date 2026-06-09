@@ -46,6 +46,9 @@ class LiveAurora(AuroraProvider):
             with conn.cursor() as cur:
                 cur.execute(f"SET statement_timeout = {int(self.statement_timeout_ms)}")
                 cur.execute("SET TRANSACTION READ ONLY")
+                # Demo tables live in the `workforce` schema; resolve unqualified
+                # names there so the LLM's SCHEMA_DOC SQL works without prefixes.
+                cur.execute("SET search_path TO workforce, public")
                 cur.execute(stripped)
                 cols = [d.name for d in cur.description] if cur.description else []
                 rows = [list(r) for r in cur.fetchall()]

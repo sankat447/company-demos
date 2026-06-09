@@ -22,6 +22,9 @@ dist/
 kubeconfig
 .vault-token
 
+# Local dev convenience (machine-specific paths)
+.claude/launch.json
+
 # Local data / artifacts
 *.log
 .ipynb_checkpoints/

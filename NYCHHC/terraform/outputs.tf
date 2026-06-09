@@ -7,6 +7,11 @@ output "ecr_repository_name" {
   value = aws_ecr_repository.copilot.name
 }
 
+output "ecr_frontend_repository_url" {
+  description = "Push the frontend image here."
+  value       = aws_ecr_repository.frontend.repository_url
+}
+
 output "account_id" {
   value = local.account_id
 }
