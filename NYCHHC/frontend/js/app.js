@@ -1,6 +1,7 @@
 import { get, post, streamChat } from "./api.js";
 
 const TODAY = "2026-06-09";
+const GRAFANA_DASH = "https://grafana-rhoai-monitoring.apps.ai-demo.iisdemolab.click/d/nychhc-workforce";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const bClass = (t) => (t === "RED" ? "b-red" : t === "AMBER" ? "b-amber" : "b-green");
@@ -100,6 +101,7 @@ async function renderDashboard(host) {
   const mix = k.risk_mix || { RED: 0, AMBER: 0, GREEN: 0 };
   const tile = (lab, val, sub) => `<div class="kpi"><span class="rail"></span><div class="lab">${lab}</div><div class="val">${val}</div><div class="delta">${sub}</div></div>`;
   host.innerHTML = `
+    <div class="toolbar" style="justify-content:flex-end;margin-bottom:6px"><a class="btn" href="${GRAFANA_DASH}" target="_blank" rel="noopener">Open in Grafana ↗</a></div>
     <div class="kpis">
       ${tile("Coverage today", `${k.coverage_pct}<small>%</small>`, "vs plan")}
       ${tile("Open shifts · 7d", k.open_shifts_7d, "smart-fill ready")}
