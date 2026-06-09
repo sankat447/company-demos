@@ -107,3 +107,58 @@ FROM workforce.providers p
 CROSS JOIN generate_series(1, 35) AS g
 WHERE p.dept_id IN (1,2,3) AND p.provider_id <= 6
   AND NOT EXISTS (SELECT 1 FROM workforce.appointments);
+
+-- ============================================================================
+--  Phase 2 — rich Med-Surg 4W unit snapshot for the wireframe UI.
+--  Seeded verbatim from the approved wireframe (ROSTER/RISK/PTO/BAL) so the
+--  live data API returns the exact realistic synthetic data. No PHI.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS workforce.roster (
+  id serial PRIMARY KEY, ini text, color text, name text, role text, license text,
+  phone text, shift text, weekly_hours numeric, status text,
+  pto_balance_pct int, pto_balance_hours int);
+CREATE TABLE IF NOT EXISTS workforce.risk_today (
+  id serial PRIMARY KEY, tier text, patient_name text, syn_id text, mrn text,
+  phone text, appt_time text, provider text, risk_pct int, factors jsonb, action text);
+CREATE TABLE IF NOT EXISTS workforce.pto_queue (
+  id serial PRIMARY KEY, ini text, color text, provider_name text, type text,
+  dates text, coverage_gap boolean, status text);
+
+INSERT INTO workforce.roster (ini,color,name,role,license,phone,shift,weekly_hours,status,pto_balance_pct,pto_balance_hours)
+SELECT * FROM (VALUES
+  ('MA','#3a0b5e','Dr. Marcus Adebayo','Hospitalist · MD','NY-MD-887214','(212) 555-0142','Days',40.0,'On shift',78,156),
+  ('PV','#6a1f9e','Priya Venkatesan, RN','Charge Nurse · RN','NY-RN-553090','(212) 555-0118','Days',36.0,'On shift',54,108),
+  ('YT','#0f9e8e','Yuki Tanaka, NP','Nurse Practitioner','NY-NP-310455','(212) 555-0156','Evening',32.0,'On shift',66,132),
+  ('JO','#b8730a','James O''Sullivan, RN','Staff Nurse · RN','NY-RN-771265','(646) 555-0173','Nights',36.0,'Available',31,62),
+  ('AM','#c62828','Aisha Mohammed, RN','Staff Nurse · RN','NY-RN-664120','(718) 555-0109','Evening',40.0,'On shift',NULL,NULL),
+  ('HK','#6a1f9e','Hannah Kim, RN','Staff Nurse · RN','NY-RN-449871','(212) 555-0127','Nights',44.5,'OT watch',12,24),
+  ('DO','#0f9e8e','David Okonkwo, RN','Float Pool · RN','NY-RN-902331','(646) 555-0164','Days',24.0,'Available',NULL,NULL),
+  ('SR','#3a0b5e','Sofia Rossi, RN','Staff Nurse · RN','NY-RN-128744','(212) 555-0135','Evening',32.0,'On shift',NULL,NULL),
+  ('CM','#564f6b','Carlos Mendez','Patient Care Tech','NY-PCT-20418','(347) 555-0188','Days',40.0,'On shift',NULL,NULL),
+  ('LN','#564f6b','Linh Nguyen','Patient Care Tech','NY-PCT-20655','(718) 555-0191','Nights',36.0,'On shift',NULL,NULL)
+) v WHERE NOT EXISTS (SELECT 1 FROM workforce.roster);
+
+INSERT INTO workforce.risk_today (tier,patient_name,syn_id,mrn,phone,appt_time,provider,risk_pct,factors,action)
+SELECT * FROM (VALUES
+  ('RED','Robert Castellano','#3 · SYN-00003','SYN-4471','(212) 555-0103','9:00 AM','Dr. Adebayo',71,'["3 prior no-shows","No reminder confirmed","Rain forecast"]'::jsonb,'Call + overbook'),
+  ('RED','Gloria Fitzpatrick','#22 · SYN-00022','SYN-5108','(646) 555-0122','10:30 AM','Y. Tanaka, NP',74,'["3 prior no-shows","Transit > 45 min"]'::jsonb,'Call + overbook'),
+  ('RED','Darnell Brooks','#27 · SYN-00027','SYN-6033','(347) 555-0127','2:15 PM','Dr. Adebayo',75,'["3 prior no-shows","First visit","No text on file"]'::jsonb,'Call patient'),
+  ('AMBER','Anthony Russo','#21 · SYN-00021','SYN-4990','(718) 555-0121','11:00 AM','Y. Tanaka, NP',54,'["2 prior no-shows"]'::jsonb,'Send text reminder'),
+  ('AMBER','Mei-Ling Chen','#16 · SYN-00016','SYN-4612','(212) 555-0116','1:00 PM','Dr. Adebayo',52,'["2 prior no-shows","Afternoon slot"]'::jsonb,'Send text reminder'),
+  ('AMBER','Grace Abara','#34 · SYN-00034','SYN-7120','(646) 555-0134','3:30 PM','Y. Tanaka, NP',35,'["Reschedule last week"]'::jsonb,'Send text reminder'),
+  ('AMBER','Fatima Al-Rashid','#15 · SYN-00015','SYN-4580','(718) 555-0115','8:30 AM','Dr. Adebayo',31,'["Baseline"]'::jsonb,'Monitor'),
+  ('GREEN','Samuel Greenberg','#4 · SYN-00004','SYN-4419','(212) 555-0104','8:00 AM','Dr. Adebayo',14,'["Baseline","Confirmed"]'::jsonb,'No action'),
+  ('GREEN','Olivia Park','#9 · SYN-00009','SYN-4503','(646) 555-0109','9:45 AM','Y. Tanaka, NP',15,'["Baseline","Confirmed"]'::jsonb,'No action'),
+  ('GREEN','Henry Nwosu','#10 · SYN-00010','SYN-4527','(347) 555-0110','12:00 PM','Dr. Adebayo',30,'["Baseline"]'::jsonb,'No action'),
+  ('GREEN','Isabella Romano','#28 · SYN-00028','SYN-6041','(212) 555-0128','1:45 PM','Y. Tanaka, NP',17,'["Baseline","Confirmed"]'::jsonb,'No action'),
+  ('GREEN','Wei Zhang','#33 · SYN-00033','SYN-7098','(718) 555-0133','4:00 PM','Dr. Adebayo',18,'["Baseline"]'::jsonb,'No action')
+) v WHERE NOT EXISTS (SELECT 1 FROM workforce.risk_today);
+
+INSERT INTO workforce.pto_queue (ini,color,provider_name,type,dates,coverage_gap,status)
+SELECT * FROM (VALUES
+  ('JO','#b8730a','James O''Sullivan, RN','Vacation','Jun 16–20',true,'pend'),
+  ('SR','#3a0b5e','Sofia Rossi, RN','CME / Education','Jun 24–25',false,'pend'),
+  ('AM','#c62828','Aisha Mohammed, RN','Sick','Jun 9 (today)',true,'ok'),
+  ('CM','#564f6b','Carlos Mendez · PCT','Vacation','Jul 1–5',false,'ok'),
+  ('HK','#6a1f9e','Hannah Kim, RN','Personal','Jun 30',false,'no')
+) v WHERE NOT EXISTS (SELECT 1 FROM workforce.pto_queue);

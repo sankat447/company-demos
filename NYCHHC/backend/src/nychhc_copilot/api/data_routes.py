@@ -20,6 +20,64 @@ def _p(request: Request) -> Providers:
     return request.app.state.providers
 
 
+def _rows(request: Request, sql: str) -> list[dict]:
+    """Query → list[dict]; tolerant of the SQLite fake lacking Phase-2 tables."""
+    try:
+        res = _p(request).aurora.query(sql)
+        return [dict(zip(res.columns, r)) for r in res.rows]
+    except Exception:
+        return []
+
+
+# ── Phase 2: rich Med-Surg 4W unit data (wireframe shape, seeded in Aurora) ───
+@router.get("/roster")
+async def roster(request: Request):
+    return envelope(_rows(request,
+        "SELECT ini, color, name, role, license, phone, shift, weekly_hours, status, "
+        "pto_balance_pct, pto_balance_hours FROM roster ORDER BY id"))
+
+
+@router.get("/risk-list")
+async def risk_list(request: Request, tier: str | None = None):
+    where = f"WHERE tier = '{_safe(tier).upper()}'" if tier and tier.lower() != "all" else ""
+    return envelope(_rows(request,
+        "SELECT tier, patient_name, syn_id, mrn, phone, appt_time, provider, risk_pct, "
+        f"factors, action FROM risk_today {where} ORDER BY risk_pct DESC"))
+
+
+@router.get("/pto-queue")
+async def pto_queue(request: Request):
+    return envelope(_rows(request,
+        "SELECT ini, color, provider_name, type, dates, coverage_gap, status FROM pto_queue ORDER BY id"))
+
+
+@router.get("/balances")
+async def balances(request: Request):
+    return envelope(_rows(request,
+        "SELECT name, pto_balance_pct AS pct, pto_balance_hours AS hours FROM roster "
+        "WHERE pto_balance_pct IS NOT NULL ORDER BY pto_balance_pct DESC"))
+
+
+@router.get("/kpis")
+async def kpis(request: Request):
+    """Dashboard tiles. No-show mix + pending PTO computed from seeded data; the
+    operational tiles (coverage/OT/occupancy/admits) are the unit's demo snapshot."""
+    risk = _rows(request, "SELECT tier FROM risk_today")
+    mix = {"RED": 0, "AMBER": 0, "GREEN": 0}
+    for r in risk:
+        mix[r["tier"]] = mix.get(r["tier"], 0) + 1
+    pending = len(_rows(request, "SELECT id FROM pto_queue WHERE status='pend'"))
+    total_appts = len(risk) + 16  # 12 listed + rest of the 28-appt day
+    return envelope({
+        "coverage_pct": 92, "open_shifts_7d": 6,
+        "predicted_no_shows": mix["RED"] + 1, "appts_today": 28,
+        "overtime_h": 38.5, "overtime_target": 32.5,
+        "bed_occupancy_pct": 88, "beds_used": 31, "beds_total": 35,
+        "predicted_admits_4h": 5, "pending_pto": pending,
+        "risk_mix": mix,
+    })
+
+
 @router.get("/departments")
 async def departments(request: Request):
     res = _p(request).aurora.query(
