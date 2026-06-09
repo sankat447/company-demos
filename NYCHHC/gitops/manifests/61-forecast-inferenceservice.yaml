@@ -1,6 +1,6 @@
-# Coverage-Forecast predictor (DR-08) — CPU sklearn on KServe. See 60-* for notes.
-# Client POSTs {"instances": [[dept_id, day_of_week]]} →
-#   http://forecast-predictor.nychhc-demo.svc.cluster.local/v1/models/forecast:predict
+# Coverage-Forecast predictor (DR-08) — CPU sklearn on KServe via nychhc-sklearn.
+# Client POSTs {"instances": [[dept_id, day_of_week]]} to
+#   http://forecast-predictor.nychhc-demo.svc.cluster.local:8080/v1/models/forecast:predict
 # → {"predictions": [required_staff]}.
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
@@ -18,12 +18,11 @@ spec:
     model:
       modelFormat:
         name: sklearn
-      protocolVersion: v1
-      storageUri: s3://ai-demo-data-lake/models/nychhc/forecast/
+      runtime: nychhc-sklearn
       resources:
         requests:
           cpu: 100m
-          memory: 512Mi
+          memory: 256Mi
         limits:
-          cpu: "1"
-          memory: 1Gi
+          cpu: 500m
+          memory: 512Mi

@@ -3,3 +3,4 @@ artifacts/**/model.joblib
 mlruns/
 __pycache__/
 *.pyc
+serving/models/*.joblib

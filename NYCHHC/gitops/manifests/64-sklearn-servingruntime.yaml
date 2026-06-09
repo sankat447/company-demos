@@ -1,0 +1,32 @@
+# Demo-owned sklearn ServingRuntime (the cluster ships none). Version-matched
+# predictor image with the no-show + forecast models baked in (no S3 at runtime).
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: nychhc-sklearn
+  namespace: nychhc-demo
+  labels:
+    demo: nychhc
+spec:
+  supportedModelFormats:
+    - name: sklearn
+      autoSelect: true
+  containers:
+    - name: kserve-container
+      image: 406337554361.dkr.ecr.us-east-1.amazonaws.com/nychhc/copilot:sklearn
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      readinessProbe:
+        httpGet:
+          path: /
+          port: 8080
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi

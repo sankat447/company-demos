@@ -1,13 +1,8 @@
-# No-Show predictor (DR-06) — CPU sklearn on KServe.
-# RawDeployment mode: no Knative scale-to-zero / mesh sidecar — simplest for our
-# non-mesh namespace (avoids the PD Knative-revision-thrash + mesh-mTLS pain).
-# protocolVersion v1 => the client POSTs {"instances": [[...]]} to
-#   http://noshow-predictor.nychhc-demo.svc.cluster.local/v1/models/noshow:predict
-# and reads {"predictions": [...]}.
-#
-# storageUri: the joblib is published to the data lake under the demo prefix by
-# models/publish.sh. KServe needs S3 read creds for it — via a storage secret on
-# serviceAccountName (the platform's kserve storage-config, or a demo secret).
+# No-Show predictor (DR-06) — CPU sklearn on KServe, served by our nychhc-sklearn
+# ServingRuntime (model baked into the image, version-matched). RawDeployment.
+# Client POSTs {"instances": [[lead,prior,age_ord,dept]]} to
+#   http://noshow-predictor.nychhc-demo.svc.cluster.local:8080/v1/models/noshow:predict
+# → {"predictions": [p_no_show]}.
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
@@ -19,17 +14,16 @@ metadata:
     serving.kserve.io/deploymentMode: RawDeployment
 spec:
   predictor:
-    serviceAccountName: nychhc-copilot-sa
+    serviceAccountName: nychhc-copilot-sa   # ECR image pull
     minReplicas: 1
     model:
       modelFormat:
         name: sklearn
-      protocolVersion: v1
-      storageUri: s3://ai-demo-data-lake/models/nychhc/noshow/
+      runtime: nychhc-sklearn
       resources:
         requests:
           cpu: 100m
-          memory: 512Mi
+          memory: 256Mi
         limits:
-          cpu: "1"
-          memory: 1Gi
+          cpu: 500m
+          memory: 512Mi
