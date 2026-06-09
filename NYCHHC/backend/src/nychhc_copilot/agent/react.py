@@ -7,6 +7,7 @@ tools are the workforce tool surface. Streams the assistant's answer tokens.
 
 from __future__ import annotations
 
+import re
 from typing import Any, AsyncIterator
 
 from langchain.agents import create_agent
@@ -35,6 +36,23 @@ Operating rules:
 """
 
 
+def _clean(text: str) -> str:
+    """Strip tool-call/JSON artifacts some models leak into the final content."""
+    if not text:
+        return ""
+    # Remove <tool_call>...</tool_call> blocks and any stray tags.
+    text = re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL)
+    text = re.sub(r"</?tool_call>", "", text)
+    # Drop a leading bare JSON tool-call object if the model emitted one.
+    text = re.sub(r'^\s*\{"name":.*?\}\s*', "", text, flags=re.DOTALL)
+    # Unwrap a single surrounding ``` / ```json code fence (keep inner content,
+    # so markdown tables render as tables, not as a code block).
+    fenced = re.match(r"^\s*```[a-zA-Z]*\s*\n(.*)\n```\s*$", text, flags=re.DOTALL)
+    if fenced:
+        text = fenced.group(1)
+    return text.strip()
+
+
 class ReActCopilot(Copilot):
     def __init__(self, model: Any, tools: list, *, recursion_limit: int = 12) -> None:
         self._model = model
@@ -49,12 +67,16 @@ class ReActCopilot(Copilot):
     async def stream(self, turn: Turn) -> AsyncIterator[str]:
         agent = create_agent(self._model, self._tools, system_prompt=self._system_prompt(turn.role))
         config = {"recursion_limit": self._recursion_limit}
-        async for msg, _meta in agent.astream(
-            {"messages": [HumanMessage(turn.message)]},
-            stream_mode="messages",
-            config=config,
-        ):
-            # Stream only assistant text. Skip tool-call turns (empty content) and
-            # ToolMessages (which are not AIMessage instances).
-            if isinstance(msg, AIMessage) and isinstance(msg.content, str) and msg.content:
-                yield msg.content
+        # Run the full agent (tool calls + final answer), then return ONLY the final
+        # assistant message — cleaned of tool-call JSON / code-fence artifacts that
+        # some models (e.g. granite's tool parser) leak into content. Pseudo-stream it
+        # word-by-word so the UI keeps its typing feel without mixing in JSON.
+        result = await agent.ainvoke({"messages": [HumanMessage(turn.message)]}, config=config)
+        final = ""
+        for m in reversed(result.get("messages", [])):
+            if isinstance(m, AIMessage) and isinstance(m.content, str) and m.content.strip():
+                final = m.content
+                break
+        final = _clean(final) or "I couldn't produce an answer — please try rephrasing."
+        for word in final.split(" "):
+            yield word + " "
