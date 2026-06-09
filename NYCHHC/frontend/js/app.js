@@ -321,7 +321,6 @@ function renderCopilot(host) {
 }
 
 /* ---------------- boot ---------------- */
-$("#brandLogo").innerHTML = ICONS.logo;
 $("#viewIcon").innerHTML = ICONS.dashboard;
 document.querySelectorAll(".role-opt").forEach((r) => r.addEventListener("click", () => applyRole(r.dataset.role)));
 applyRole("Scheduler");

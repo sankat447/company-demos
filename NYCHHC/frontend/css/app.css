@@ -161,6 +161,8 @@ tbody tr:hover{background:var(--paper)}
 /* ---- SVG icons / logo / co-brand ---- */
 .brand .logo{display:grid;place-items:center}
 .brand .logo svg{width:22px;height:22px;color:#fff}
+.brandimg{width:100%;border-radius:12px;display:block;box-shadow:var(--shadow)}
+.wm-sub{font-size:11px;font-weight:600;color:var(--ink-3);margin-top:8px;letter-spacing:.04em;text-transform:uppercase}
 .tab svg,.viewline svg{width:17px;height:17px;vertical-align:-3px}
 .role-opt .dot{transition:all .15s}
 .cobrand{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
