@@ -49,7 +49,9 @@ def build_providers(settings: Settings) -> Providers:
     fallback_models = FakeModels(FakeAurora()) if settings.models_fallback_enabled else None
     models: ModelProvider
     if settings.noshow_model_url and settings.forecast_model_url:
-        models = LiveModels(settings.noshow_model_url, settings.forecast_model_url, fallback=fallback_models)
+        # Live models fetch features from the live Aurora, fall back to the fake on error.
+        models = LiveModels(settings.noshow_model_url, settings.forecast_model_url,
+                            aurora=aurora, fallback=fallback_models)
     else:
         models = fallback_models or FakeModels(FakeAurora())
     workflow: WorkflowProvider = LiveWorkflow(settings.n8n_webhook_url) if settings.n8n_webhook_url else FakeWorkflow()

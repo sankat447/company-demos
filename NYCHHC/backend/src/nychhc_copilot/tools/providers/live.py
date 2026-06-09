@@ -53,33 +53,61 @@ class LiveAurora(AuroraProvider):
         return QueryResult(columns=cols, rows=rows, sql=stripped)
 
 
-class LiveModels(ModelProvider):
-    """Calls the two KServe endpoints. Falls back to `fallback` on any error (D5)."""
+# Age-band → ordinal must match models/common.AGE_BANDS (the training contract).
+_AGE_ORD = {"0-17": 0, "18-39": 1, "40-64": 2, "65+": 3}
 
-    def __init__(self, noshow_url: str, forecast_url: str,
+
+class LiveModels(ModelProvider):
+    """Calls the two KServe endpoints (protocol v1: {"instances"}→{"predictions"}).
+
+    A KServe model can't resolve appt_id→features, so we fetch features from Aurora
+    here and POST vectors. Falls back to `fallback` on any error (D5).
+    """
+
+    def __init__(self, noshow_url: str, forecast_url: str, aurora: AuroraProvider,
                  fallback: ModelProvider | None = None, timeout_s: float = 10.0) -> None:
         self.noshow_url = noshow_url
         self.forecast_url = forecast_url
+        self.aurora = aurora
         self.fallback = fallback
         self.timeout_s = timeout_s
 
-    def _post(self, url: str, payload: dict) -> dict:
+    def _predict(self, url: str, instances: list[list[float]]) -> list[float]:
         import httpx  # lazy
 
         with httpx.Client(timeout=self.timeout_s) as client:
-            r = client.post(url, json=payload)
+            r = client.post(url, json={"instances": instances})
             r.raise_for_status()
-            return r.json()
+            return [float(p) for p in r.json().get("predictions", [])]
 
     def no_show_scores(self, appt_ids: list[int]) -> list[RiskScore]:
+        if not appt_ids:
+            return []
         try:
-            # KServe v1: {"instances": [[appt_id], ...]} → server joins features itself.
-            data = self._post(self.noshow_url, {"instances": [[int(a)] for a in appt_ids]})
+            ids = ",".join(str(int(a)) for a in appt_ids)
+            res = self.aurora.query(
+                "SELECT appt_id, lead_time_days, prior_noshows, age_band, dept_id "
+                f"FROM workforce.appointments WHERE appt_id IN ({ids})"
+            )
+            # Feature order MUST match models/common.NOSHOW_FEATURES.
+            instances, ordered_ids, feats = [], [], []
+            for appt_id, lead, prior, age_band, dept in res.rows:
+                instances.append([float(lead or 0), float(prior or 0),
+                                  float(_AGE_ORD.get(age_band, 2)), float(dept)])
+                ordered_ids.append(appt_id)
+                feats.append((prior, lead))
+            preds = self._predict(self.noshow_url, instances)
             out = []
-            for appt_id, pred in zip(appt_ids, data.get("predictions", [])):
-                p = float(pred if not isinstance(pred, dict) else pred.get("score", 0.0))
+            for appt_id, p, (prior, lead) in zip(ordered_ids, preds, feats):
+                p = max(0.0, min(1.0, p))
                 band = "red" if p >= 0.6 else "amber" if p >= 0.3 else "green"
-                out.append(RiskScore(appt_id=appt_id, score=round(p, 3), band=band, source="model"))
+                drivers = []
+                if (prior or 0) >= 2:
+                    drivers.append(f"{prior} prior no-shows")
+                if (lead or 0) > 10:
+                    drivers.append(f"{lead}-day lead time")
+                out.append(RiskScore(appt_id=appt_id, score=round(p, 3), band=band,
+                                     drivers=drivers or ["baseline"], source="model"))
             return out
         except Exception:
             if self.fallback is not None:
@@ -87,13 +115,22 @@ class LiveModels(ModelProvider):
             raise
 
     def coverage_forecast(self, dept_id: int, horizon_days: int) -> list[ForecastPoint]:
+        from datetime import date, timedelta
+
         try:
-            data = self._post(self.forecast_url, {"instances": [[int(dept_id), int(horizon_days)]]})
-            return [
-                ForecastPoint(dept_id=dept_id, date=p["date"], block=p.get("block", "day"),
-                              required=float(p["required"]), projected=float(p["projected"]))
-                for p in data.get("predictions", [])
-            ]
+            today = date.today()
+            days = [today + timedelta(days=d) for d in range(horizon_days)]
+            # Model predicts required staff from [dept_id, day_of_week].
+            required = self._predict(self.forecast_url, [[float(dept_id), float(d.weekday())] for d in days])
+            pts = []
+            for day, req in zip(days, required):
+                scheduled = self.aurora.query(
+                    f"SELECT COUNT(*) FROM workforce.shifts WHERE dept_id={int(dept_id)} "
+                    f"AND shift_date='{day.isoformat()}' AND block='day' AND status='scheduled'"
+                ).rows[0][0]
+                pts.append(ForecastPoint(dept_id=dept_id, date=day.isoformat(), block="day",
+                                         required=round(float(req)), projected=float(scheduled)))
+            return pts
         except Exception:
             if self.fallback is not None:
                 return self.fallback.coverage_forecast(dept_id, horizon_days)

@@ -1,0 +1,18 @@
+[project]
+name = "nychhc-models"
+version = "0.1.0"
+description = "NYCHHC demo predictive models — no-show + coverage forecast (SYNTHETIC DATA)"
+requires-python = ">=3.11"
+dependencies = [
+    "scikit-learn>=1.5",
+    "numpy>=1.26",
+    "joblib>=1.4",
+]
+
+[project.optional-dependencies]
+# MLflow logging (used in-cluster against rhoai-mlflow). Optional for local training.
+mlflow = ["mlflow>=2.16"]
+dev = ["pytest>=8.3"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

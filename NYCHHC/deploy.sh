@@ -49,6 +49,16 @@ log "Apply schema + seed (schemas: workforce, rag)"
 run_sql_stdin "$DSN" < "$DEMO_DIR/db/schema.sql"
 ok "Schema + seed applied"
 
+# ── 4b. Train + publish predictive models to S3 (KServe storageUri targets) ───
+# Skip with SKIP_MODELS=1 (e.g. iterating on the app only).
+if [[ "${SKIP_MODELS:-0}" != "1" ]]; then
+  log "Train + publish predictive models → s3://ai-demo-data-lake/models/nychhc/"
+  ( cd "$DEMO_DIR/models" && AWS_PROFILE="$AWS_PROFILE" AWS_REGION="$AWS_REGION" ./publish.sh ) \
+    || warn "model publish failed — backend will use the rules fallback (D5)"
+else
+  warn "SKIP_MODELS=1 — backend will use the rules fallback until models are published"
+fi
+
 # ── 5. Register the demo's ArgoCD Application (no edit to platform app-of-apps)─
 log "Apply ArgoCD Application"
 oc apply -f "$DEMO_DIR/gitops/application.yaml"

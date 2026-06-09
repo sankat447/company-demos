@@ -1,0 +1,10 @@
+{
+  "mae": 0.1762,
+  "r2": 0.9592,
+  "n_train": 409,
+  "n_test": 137,
+  "features": [
+    "dept_id",
+    "day_of_week"
+  ]
+}

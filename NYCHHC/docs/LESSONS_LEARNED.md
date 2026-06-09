@@ -47,6 +47,21 @@ Captured as we build. Newest first. (Carry-over platform lessons L1–L10 live i
   census/ratio formula — otherwise every day reads "understaffed" and the
   "next Tuesday specifically" beat collapses. Engineer exactly one gap.
 
+## Predictive models (DR-06/08)
+
+- **A KServe model can't resolve `appt_id`→features.** The serving model only sees
+  the vector it's POSTed. So `LiveModels` fetches features from Aurora first, then
+  sends vectors — and the training feature order (`models/common.NOSHOW_FEATURES`)
+  is a hard contract with the client's vector assembly.
+- **Serve plain sklearn regressors, no custom pickled classes.** A custom wrapper
+  class would need to be importable in the serving image (fragile). Training a
+  regressor on the 0/1 no-show label gives a probability-like `.predict` natively.
+- **sklearn version skew breaks unpickling server-side.** Train with the same
+  sklearn the KServe runtime ships, or the joblib won't load. Pin in CI.
+- **RawDeployment, not Knative serverless, for our KServe models.** Avoids the PD
+  Knative-revision-thrash + mesh-mTLS issues in a non-mesh namespace; predictor svc
+  is a plain ClusterIP `{name}-predictor`.
+
 ## Deployment (Terraform, scoped to demo)
 
 - **Verify SSM paths against the module, not an agent summary.** An exploration of
