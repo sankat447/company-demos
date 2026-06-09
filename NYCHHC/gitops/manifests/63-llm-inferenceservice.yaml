@@ -38,6 +38,9 @@ spec:
         - --served-model-name=granite-2b
         - --max-model-len=4096
         - --gpu-memory-utilization=0.92
+        # Required for the LangChain agent's function-calling (Copilot tools).
+        - --enable-auto-tool-choice
+        - --tool-call-parser=granite
       resources:
         requests:
           cpu: "2"
