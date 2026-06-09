@@ -20,7 +20,7 @@ const TABS = {
   schedule: { label: "Schedule", icon: ICONS.calendar },
   risk: { label: "No-Show Risk", icon: ICONS.risk },
   pto: { label: "PTO", icon: ICONS.pto },
-  copilot: { label: "Copilot", icon: ICONS.chat },
+  copilot: { label: "Assistant", icon: ICONS.chat },
 };
 
 /* ---------------- role / persona ---------------- */
@@ -293,15 +293,15 @@ const inline = (s) => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/
 /* ---------------- copilot ---------------- */
 function renderCopilot(host) {
   host.innerHTML = `<div class="chatwrap">
-    <div class="chat"><div class="chat-h"><div class="bot">${ICONS.chat}</div><div class="nm">Workforce Copilot<small>Med-Surg 4W · granite on KServe (rules fallback) · synthetic</small></div></div>
+    <div class="chat"><div class="chat-h"><div class="bot">${ICONS.chat}</div><div class="nm">Workforce Assistant<small>Med-Surg 4W · granite on KServe (rules fallback) · synthetic</small></div></div>
       <div class="chat-log" id="chatLog"><div class="msg bot"><div class="ic">${ICONS.chat}</div><div class="bubble">Hi — I can book, modify, or cancel appointments, run PTO impact, and summarise the unit — all from chat. Ask <b>"how is everything?"</b> for a status table, or try a suggestion. <span style="color:var(--ink-3);font-size:12px">All data is synthetic.</span></div></div></div>
-      <div class="chat-in"><input id="chatInput" placeholder="Ask the Workforce Copilot…"><button class="btn primary" id="chatSend">Send</button></div></div>
+      <div class="chat-in"><input id="chatInput" placeholder="Ask the Workforce Assistant…"><button class="btn primary" id="chatSend">Send</button></div></div>
     <div class="chips"><div class="side-label">Suggested</div>
       <button class="chip" data-q="How is everything? Give me a status table.">How is everything?</button>
       <button class="chip" data-q="Which cardiologists have openings and the soonest slot?">Cardiologists with openings</button>
       <button class="chip" data-q="Put Dr. Tanaka on PTO from 2026-06-16 to 2026-06-20 and show the impact">Dr. Tanaka PTO Jun 16–20 impact</button>
       <button class="chip" data-q="Cancel the appointment for Anthony Russo">Cancel Anthony Russo</button>
-      <div class="modelnote">The Copilot routes to the same scheduling actions the UI uses (one source of truth). After a chat action, the tabs reflect the change.</div></div></div>`;
+      <div class="modelnote">The assistant routes to the same scheduling actions the UI uses (one source of truth). After a chat action, the tabs reflect the change.</div></div></div>`;
   const log = $("#chatLog");
   const push = (role, html) => { const m = document.createElement("div"); m.className = "msg " + (role === "me" ? "me" : "bot"); m.innerHTML = `<div class="ic">${role === "me" ? "🧑" : ICONS.chat}</div><div class="bubble">${html}</div>`; log.appendChild(m); log.scrollTop = log.scrollHeight; return m.querySelector(".bubble"); };
   const send = async (q) => {
@@ -312,7 +312,7 @@ function renderCopilot(host) {
     try {
       for await (const chunk of streamChat(q, ROLE)) { acc += chunk; bubble.innerHTML = mdToHtml(acc); log.scrollTop = log.scrollHeight; }
       if (!acc) bubble.innerHTML = "<span style='color:var(--alert)'>No response — the LLM may still be warming up.</span>";
-    } catch (e) { bubble.innerHTML = `<span style='color:var(--alert)'>Copilot error: ${esc(e.message)}</span>`; }
+    } catch (e) { bubble.innerHTML = `<span style='color:var(--alert)'>Assistant error: ${esc(e.message)}</span>`; }
     _provCache = null;
   };
   $("#chatSend").onclick = () => { const i = $("#chatInput"); send(i.value); i.value = ""; };
