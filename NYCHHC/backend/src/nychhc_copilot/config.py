@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     fallback_model: str = "bedrock-claude-3-haiku"  # Bedrock via Portkey (IRSA)
     llm_temperature: float = 0.1
     llm_request_timeout_s: float = 60.0
+    llm_max_tokens: int = 600   # cap so a small model can't ramble into a fake transcript
 
     # --- data plane (populated in the data-wiring step) ---
     aurora_dsn: str = ""        # from SSM /ai-demo/aurora/endpoint (L7)

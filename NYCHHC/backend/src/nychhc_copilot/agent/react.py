@@ -31,23 +31,30 @@ Operating rules:
 - For status/overview questions (e.g. "how is everything"), call `unit_status` and
   present the result as a **markdown table**. Prefer markdown tables whenever you
   return multiple rows of structured data (doctors, impacted appointments, etc.).
+- Answer ONLY the user's current question, using real values from tools. Do NOT
+  invent example data, JSON, or extra "user:"/"assistant:" turns. Stop after your answer.
 
 {schema}
 """
 
 
 def _clean(text: str) -> str:
-    """Strip tool-call/JSON artifacts some models leak into the final content."""
+    """Keep only the first clean answer; strip tool-call/JSON/fence artifacts that
+    small models leak (granite sometimes role-plays extra user/assistant turns)."""
     if not text:
         return ""
-    # Remove <tool_call>...</tool_call> blocks and any stray tags.
+    # 1. Truncate at the first fabricated next turn ("user:", "assistant:", ...).
+    m = re.search(r"\n\s*(?:user|assistant|human)\s*:", text, flags=re.IGNORECASE)
+    if m:
+        text = text[: m.start()]
+    # 2. Remove tool-call markers + fenced JSON tool-arg dumps.
     text = re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL)
     text = re.sub(r"</?tool_call>", "", text)
-    # Drop a leading bare JSON tool-call object if the model emitted one.
-    text = re.sub(r'^\s*\{"name":.*?\}\s*', "", text, flags=re.DOTALL)
-    # Unwrap a single surrounding ``` / ```json code fence (keep inner content,
-    # so markdown tables render as tables, not as a code block).
-    fenced = re.match(r"^\s*```[a-zA-Z]*\s*\n(.*)\n```\s*$", text, flags=re.DOTALL)
+    text = re.sub(r"```(?:json)?\s*\{.*?\}\s*```", "", text, flags=re.DOTALL)
+    text = re.sub(r'^\s*\{["a-zA-Z].*?\}\s*$', "", text, flags=re.DOTALL | re.MULTILINE)
+    # 3. Unwrap a single surrounding code fence so a markdown table renders as a table.
+    text = text.strip()
+    fenced = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", text, flags=re.DOTALL)
     if fenced:
         text = fenced.group(1)
     return text.strip()

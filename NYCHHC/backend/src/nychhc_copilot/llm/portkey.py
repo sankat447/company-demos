@@ -51,6 +51,9 @@ def build_chat_model(settings: Settings, model: str | None = None) -> ChatOpenAI
         timeout=settings.llm_request_timeout_s,
         max_retries=1,
         streaming=True,
+        max_tokens=settings.llm_max_tokens,
+        # Halt if a small model starts fabricating the next dialogue turn.
+        stop=["\nuser:", "\nUser:", "\nassistant:", "\nHuman:"],
         **kwargs,
     )
 
