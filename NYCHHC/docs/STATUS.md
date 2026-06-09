@@ -9,6 +9,9 @@
 - **Demo UI (frontend):** https://nychhc-frontend-nychhc-demo.apps.ai-demo.iisdemolab.click
 - **Backend API:** https://nychhc-copilot-nychhc-demo.apps.ai-demo.iisdemolab.click
   (`/health`, `/api/data/*`, `/api/sched/*`, `/api/chat` SSE)
+- **Grafana dashboard:** https://grafana-rhoai-monitoring.apps.ai-demo.iisdemolab.click/d/nychhc-workforce
+  (`admin`/`Demo1234#`) — provisioned by deploy.sh, removed by destroy.sh. Reads the
+  Aurora `workforce` schema via a scoped `nychhc-aurora` Postgres datasource (folder "NYCHHC").
 - Branch: `feature/nychhc-v1` on `github.com/sankat447/company-demos` (path `NYCHHC/`).
 - Cluster: `ai-demo` OCP, AWS acct `406337554361`, `us-east-1`, SSO profile `rhoai-demo`.
   KUBECONFIG: `~/GitHub/ai-demo-stack-aws/environments/demo/ocp-install-dir/ai-demo/auth/kubeconfig`.
