@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .agent import EchoCopilot
+from .agent import EchoCopilot, build_react_copilot
 from .config import Mode, get_settings
 from .disclaimer import DISCLAIMER
 from .api.routes import router
@@ -21,8 +21,8 @@ from .api.routes import router
 def _build_copilot(settings):
     if settings.mode is Mode.echo:
         return EchoCopilot(token_delay_s=0.02)  # small delay → visible streaming in the demo
-    # Mode.live → real LangChain ReAct copilot (added in the agent-wiring step).
-    raise RuntimeError("live mode not wired yet — run with NYCHHC_MODE=echo")
+    # Mode.live → real LangChain ReAct copilot (Portkey → vLLM, workforce tools).
+    return build_react_copilot(settings)
 
 
 @asynccontextmanager

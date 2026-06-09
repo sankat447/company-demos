@@ -13,8 +13,10 @@ dependencies = [
 [project.optional-dependencies]
 # Layered in as we wire real services (kept out of the echo-mode core).
 agent = [
-    "langchain>=0.3",
+    "langchain>=1.0",
+    "langgraph>=1.0",
     "langchain-openai>=0.2",   # OpenAI-compatible client → pointed at Portkey
+    "mcp>=1.2",                # MCP server tool surface (+add component)
     "httpx>=0.27",
 ]
 data = [

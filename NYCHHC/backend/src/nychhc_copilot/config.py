@@ -33,10 +33,16 @@ class Settings(BaseSettings):
     service_name: str = "nychhc-workforce-copilot"
 
     # --- LLM routing (Lesson L5: ALL calls via Portkey, never a direct model URL) ---
+    # base_url accepts EITHER the cluster svc (mesh-internal) OR Portkey's Route
+    # (HTTPS). Flipping this is how we sidestep the STRICT-mTLS-from-outside-mesh
+    # trap (ARCHITECTURE.md D1) without a code change.
     portkey_base_url: str = "http://portkey.ai-demo.svc:8787"
-    portkey_virtual_key: str = ""  # sourced from Vault in live mode (L6)
+    portkey_api_key: str = "dummy"   # gateway/admin key; from Vault in live (L6)
+    portkey_virtual_key: str = ""    # provider virtual key; from Vault in live (L6)
     primary_model: str = "llama-3-1-8b"  # vLLM on KServe
     fallback_model: str = "bedrock-claude-3-haiku"  # Bedrock via Portkey (IRSA)
+    llm_temperature: float = 0.1
+    llm_request_timeout_s: float = 60.0
 
     # --- data plane (populated in the data-wiring step) ---
     aurora_dsn: str = ""        # from SSM /ai-demo/aurora/endpoint (L7)
@@ -49,6 +55,9 @@ class Settings(BaseSettings):
     forecast_model_url: str = ""
     # When True and an endpoint is unreachable, degrade to LLM+rules (confirmed design).
     models_fallback_enabled: bool = True
+
+    # --- workflow (DR-05/07/09 human-in-the-loop + alerts) ---
+    n8n_webhook_url: str = ""  # n8n webhook for schedule-change approval routing
 
     # --- telemetry (Lesson L9) ---
     otel_endpoint: str = "otel-collector.observability.svc:4317"

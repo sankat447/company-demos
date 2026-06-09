@@ -28,6 +28,25 @@ Captured as we build. Newest first. (Carry-over platform lessons L1–L10 live i
   is split across `event: token` frames. Assert against the *reconstructed* answer
   (parse token events), not the raw SSE text.
 
+## Live agent layer (LangChain 1.x)
+
+- **Docstring-by-concatenation isn't a docstring.** `def f(): "lit" + VAR` leaves
+  `f.__doc__` = None, so both `StructuredTool.from_function` and FastMCP `@tool`
+  raise "Function must have a docstring." Use a literal docstring and pass the
+  dynamic schema text via the tool's `description=` instead. (Hit it twice.)
+- **LangChain 1.0 moved the agent factory.** `langgraph.prebuilt.create_react_agent`
+  is deprecated → use `from langchain.agents import create_agent`.
+- **Testing the ReAct loop offline** needs a model with `bind_tools`.
+  `GenericFakeChatModel` lacks it (and chokes on empty-content tool-call turns).
+  A tiny `BaseChatModel` subclass that scripts `AIMessage`s and returns `self` from
+  `bind_tools` drives a *real* tool call through `create_agent` with no LLM. See
+  `tests/test_agent.py`.
+- **Stream only `AIMessage` chunks** from `astream(stream_mode="messages")` — skip
+  empty (tool-call) turns and `ToolMessage`s so tool output doesn't leak to the user.
+- **Demo-data realism:** required-staff must equal the *normal roster*, not a
+  census/ratio formula — otherwise every day reads "understaffed" and the
+  "next Tuesday specifically" beat collapses. Engineer exactly one gap.
+
 ## Platform parity — inherit from police-department (AWS + OpenShift host)
 
 This demo deploys onto the same `ai-demo` OCP cluster, mirroring the

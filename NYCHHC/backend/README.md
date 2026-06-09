@@ -32,14 +32,32 @@ src/nychhc_copilot/
 ├── config.py        # settings; echo defaults, live endpoints (Portkey/Aurora/...)
 ├── disclaimer.py    # L10 — single source of the mandatory banner + envelope()
 ├── main.py          # FastAPI app; selects copilot by NYCHHC_MODE
-├── agent/           # Copilot interface + EchoCopilot (real ReAct agent lands here)
+├── llm/             # Portkey gateway client (L5) — primary + fallback
+├── agent/           # Copilot interface · EchoCopilot · ReActCopilot (LangChain 1.x)
+├── tools/           # query_workforce_db / no_show_risk / coverage_forecast /
+│   └── providers/   #   propose_schedule_change — fake (SQLite) + live (psycopg/httpx)
+├── mcp_server.py    # same tools re-exposed over MCP for external consumers (+add)
 └── api/             # routes (/health, /api/capabilities, /api/chat SSE) + schemas
 ```
 
 ## Modes
 
 - `NYCHHC_MODE=echo` (default) — EchoCopilot, no external deps.
-- `NYCHHC_MODE=live` — real agent (Portkey → vLLM, MCP tools). *Wired in later steps.*
+- `NYCHHC_MODE=live` — LangChain ReAct agent (Portkey → vLLM). With no Aurora DSN set
+  it still runs against the **offline fakes** (SQLite + canned models), so you can
+  drive the full agent locally; set the real endpoints to hit the cluster.
+
+The two predictive models degrade gracefully: if a KServe endpoint is unreachable,
+the model provider falls back to the rules model (confirmed design D5).
+
+## MCP server (external tool surface)
+
+```bash
+python -m nychhc_copilot.mcp_server     # stdio; exposes the 4 workforce tools
+```
+
+The in-process agent binds these tools directly (latency + demo reliability); the
+MCP server is the *same* logic for Open WebUI / other agents.
 
 ## Build (in-cluster image)
 
