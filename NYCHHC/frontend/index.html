@@ -13,7 +13,7 @@
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo">H+</div>
+      <div class="logo" id="brandLogo"></div>
       <div class="wm">NYC Health + Hospitals<small>Workforce &amp; Patient-Flow</small></div>
     </div>
     <div>
@@ -26,7 +26,11 @@
     </div>
     <div><div class="side-label">Department</div><div class="select">Med-Surg 4W</div></div>
     <div class="synthetic"><span class="pip"></span> Synthetic data · no PHI · fictional</div>
-    <div class="me"><div class="avatar">DR</div><div><b>Dana Reyes</b><small style="color:var(--ink-3)">Staffing Coordinator</small></div></div>
+    <div class="me">
+      <div class="avatar" id="personaAvatar">DR</div>
+      <div><b id="personaName">Dana Reyes</b><small id="personaTitle" style="color:var(--ink-3)">Staffing Coordinator</small></div>
+    </div>
+    <div class="cobrand"><span>Built by</span><img src="assets/iis-logo.png" alt="IIS"></div>
   </aside>
 
   <main class="main">
@@ -35,15 +39,9 @@
       <p>Forecast demand, protect coverage, and act on no-show risk — one shift ahead.</p>
     </section>
     <div class="banner">⚠ FOR DEMONSTRATION ONLY — NOT FOR CLINICAL USE — SYNTHETIC DATA</div>
-    <div class="viewline">👤 <b id="viewRole">Scheduler view</b> — <span id="viewSub">coverage, no-show risk, and smart fills</span> · <span class="mono">Med-Surg 4W</span></div>
+    <div class="viewline"><span id="viewIcon"></span> <b id="viewRole">Scheduler view</b> — <span id="viewSub">coverage, no-show risk, and smart fills</span> · <span class="mono">Med-Surg 4W</span></div>
 
-    <nav class="tabs">
-      <button class="tab active" data-tab="dashboard">📊 Dashboard</button>
-      <button class="tab" data-tab="schedule">🗓️ Schedule</button>
-      <button class="tab" data-tab="risk">🚦 No-Show Risk</button>
-      <button class="tab" data-tab="pto">🌴 PTO</button>
-      <button class="tab" data-tab="copilot">💬 Copilot</button>
-    </nav>
+    <nav class="tabs" id="tabbar"></nav>
 
     <section class="panel show" id="dashboard"></section>
     <section class="panel" id="schedule"></section>

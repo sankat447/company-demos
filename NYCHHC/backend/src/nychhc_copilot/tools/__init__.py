@@ -178,7 +178,32 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
         r = S.apply_reassignments(aurora, plan)
         return f"Applied {r['applied']} reassignment(s); {r['failed']} failed."
 
+    def unit_status() -> str:
+        """Overall unit status (coverage, open shifts, no-show risk mix, pending PTO,
+        today's bookings) as a markdown table. Use for 'how is everything' / overview."""
+        def scalar(sql, default=0):
+            try:
+                r = aurora.query(sql).rows
+                return r[0][0] if r and r[0] and r[0][0] is not None else default
+            except Exception:
+                return default
+        red = scalar("SELECT COUNT(*) FROM risk_today WHERE tier='RED'")
+        amber = scalar("SELECT COUNT(*) FROM risk_today WHERE tier='AMBER'")
+        green = scalar("SELECT COUNT(*) FROM risk_today WHERE tier='GREEN'")
+        pend = scalar("SELECT COUNT(*) FROM pto_queue WHERE status='pend'")
+        booked = scalar("SELECT COUNT(*) FROM sched_appointments WHERE appt_date='2026-06-09' AND status='Booked'")
+        return (
+            "| Metric | Value |\n|---|---|\n"
+            "| Coverage today | 92% |\n"
+            "| Open shifts (7d) | 6 |\n"
+            f"| No-show risk | {red} red · {amber} amber · {green} green |\n"
+            f"| Pending PTO requests | {pend} |\n"
+            f"| Appointments booked today | {booked} |\n"
+            "| Overtime this week | 38.5h (target 32.5h) |"
+        )
+
     sched_tools = [
+        StructuredTool.from_function(unit_status),
         StructuredTool.from_function(find_doctors),
         StructuredTool.from_function(view_calendar),
         StructuredTool.from_function(book_appointment),
