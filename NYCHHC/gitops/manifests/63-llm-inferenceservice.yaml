@@ -1,0 +1,44 @@
+# Demo-owned LLM for the conversational copilot (DR-11) — real RHOAI GPU vLLM serving.
+# Granite 3.1 8B Instruct (ungated, IBM/Red Hat) pulled from HuggingFace at startup
+# (no gated-Llama token, no 16GB S3 staging). RawDeployment to avoid Knative/mesh
+# complexity in our non-mesh namespace. Runs on the shared GPU node (g5.xlarge / A10G
+# 24GB) that deploy/ops scaled up (annotation-guarded).
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: nychhc-llm
+  namespace: nychhc-demo
+  labels:
+    demo: nychhc
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    minReplicas: 1
+    nodeSelector:
+      nvidia.com/gpu.present: "true"
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/gpu
+        operator: Exists
+        effect: NoSchedule
+    model:
+      modelFormat:
+        name: vLLM
+      runtime: nychhc-vllm
+      args:
+        - --model=ibm-granite/granite-3.1-8b-instruct
+        - --served-model-name=granite-8b
+        - --max-model-len=4096          # proven on A10G; fits VRAM + KV cache
+        - --gpu-memory-utilization=0.92
+      resources:
+        requests:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "4"
+          memory: 14Gi              # g5.xlarge has 16Gi node RAM — leave headroom
+          nvidia.com/gpu: "1"

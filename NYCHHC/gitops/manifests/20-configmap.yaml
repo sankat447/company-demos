@@ -10,15 +10,16 @@ metadata:
 data:
   NYCHHC_MODE: "live"
 
-  # LLM routing (L5). Use Portkey's external Route (verified present) rather than the
-  # in-cluster svc, to sidestep the mesh STRICT-mTLS trap for our non-mesh namespace
-  # (ARCHITECTURE.md D1). Switch to http://portkey.ai-demo.svc:8787 if we join the mesh.
-  NYCHHC_PORTKEY_BASE_URL: "https://portkey-ai-demo.apps.ai-demo.iisdemolab.click"
-  NYCHHC_PRIMARY_MODEL: "llama-3-1-8b"
-  NYCHHC_FALLBACK_MODEL: "bedrock-claude-3-haiku"
-  # The Portkey Route uses the cluster's self-signed ingress cert — skip TLS verify
-  # for that internal route (demo only; see docs/COMPLIANCE.md).
-  NYCHHC_PORTKEY_VERIFY_SSL: "false"
+  # LLM routing. Points at our OWN RHOAI GPU vLLM (granite-8b) served in-namespace
+  # via KServe (manifests 62/63) — OpenAI-compatible at the predictor svc. The
+  # platform's shared Portkey is the headless OSS gateway with no provider config,
+  # and its vLLM is down (stale image + no model), so we serve our own. Production
+  # would route this through Portkey for unified observability (L5) — documented as
+  # the prod path once Portkey has a provider config.
+  NYCHHC_PORTKEY_BASE_URL: "http://nychhc-llm-predictor.nychhc-demo.svc.cluster.local:8080"
+  NYCHHC_PRIMARY_MODEL: "granite-8b"
+  NYCHHC_FALLBACK_MODEL: ""           # no fallback alias; single local model
+  NYCHHC_PORTKEY_VERIFY_SSL: "true"   # plain-http in-cluster svc; TLS verify N/A
 
   # Predictive models — KServe RawDeployment predictor svcs, v1 predict path.
   # If a model isn't up yet (artifact not published), the client falls back to the
