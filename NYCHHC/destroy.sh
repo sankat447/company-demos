@@ -33,6 +33,15 @@ if oc get ns "$NS" >/dev/null 2>&1; then
   oc delete ns "$NS" --wait=true --ignore-not-found
 fi
 
+# ── 3b. Revert any worker MachineSet we scaled up for this demo (guarded) ─────
+# Only touches MachineSets annotated by us; scales back to 1 (their original).
+for ms in $(oc -n openshift-machine-api get machinesets \
+    -o jsonpath='{range .items[?(@.metadata.annotations.nychhc-demo\.iisl\.com/scaled-up-by=="nychhc-demo")]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+  log "Scaling $ms back to 1 (demo scaled it up)"
+  oc -n openshift-machine-api scale machineset "$ms" --replicas=1 || warn "scale-back failed for $ms"
+  oc -n openshift-machine-api annotate machineset "$ms" nychhc-demo.iisl.com/scaled-up-by- 2>/dev/null || true
+done
+
 # ── 4. Terraform destroy — isolated state ⇒ only demo-owned AWS resources ──────
 log "Terraform destroy (state key: nychhc/terraform.tfstate)"
 terraform -chdir="$TF_DIR" init -input=false -reconfigure >/dev/null
