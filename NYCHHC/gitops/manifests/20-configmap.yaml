@@ -10,11 +10,10 @@ metadata:
 data:
   NYCHHC_MODE: "live"
 
-  # LLM routing (L5). Default to the in-cluster Portkey svc. If the mesh's STRICT
-  # mTLS blocks this non-mesh caller (ARCHITECTURE.md D1), switch this to Portkey's
-  # external Route (https://portkey-ai-demo.apps.ai-demo.iisdemolab.click) — no code
-  # change needed; the client accepts either.
-  NYCHHC_PORTKEY_BASE_URL: "http://portkey.ai-demo.svc:8787"
+  # LLM routing (L5). Use Portkey's external Route (verified present) rather than the
+  # in-cluster svc, to sidestep the mesh STRICT-mTLS trap for our non-mesh namespace
+  # (ARCHITECTURE.md D1). Switch to http://portkey.ai-demo.svc:8787 if we join the mesh.
+  NYCHHC_PORTKEY_BASE_URL: "https://portkey-ai-demo.apps.ai-demo.iisdemolab.click"
   NYCHHC_PRIMARY_MODEL: "llama-3-1-8b"
   NYCHHC_FALLBACK_MODEL: "bedrock-claude-3-haiku"
 

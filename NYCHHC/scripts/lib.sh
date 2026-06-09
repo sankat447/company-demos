@@ -28,9 +28,14 @@ preflight() {
   log "Preflight: tools + auth"
   for t in aws terraform oc jq; do need "$t"; done
   # No local docker/podman needed — images build in-cluster via OpenShift BuildConfig.
-  # AWS SSO (1h TTL) — refresh if stale.
-  aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null 2>&1 \
-    || { log "AWS SSO login ($AWS_PROFILE)"; aws sso login --profile "$AWS_PROFILE"; }
+  # AWS SSO (≈1h TTL): the script owns the login (like the platform deploy.sh) — it
+  # triggers an interactive `aws sso login` when the session is missing/expired.
+  if ! aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null 2>&1; then
+    log "AWS SSO session missing/expired — launching login for profile '$AWS_PROFILE'"
+    aws sso login --profile "$AWS_PROFILE"
+    aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null 2>&1 \
+      || die "AWS SSO login did not complete"
+  fi
   oc whoami >/dev/null 2>&1 || die "not logged into the cluster (set KUBECONFIG / oc login)"
   ok "Preflight passed ($(oc whoami) @ $(oc whoami --show-server 2>/dev/null))"
 }
