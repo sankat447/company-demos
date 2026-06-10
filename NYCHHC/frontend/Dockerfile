@@ -8,6 +8,7 @@ COPY index.html ./
 COPY css ./css
 COPY js ./js
 COPY assets ./assets
+COPY demoer ./demoer
 
 EXPOSE 8501
 # Simple static server (demo-grade). Serves index.html at /.
