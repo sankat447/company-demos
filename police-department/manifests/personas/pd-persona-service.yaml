@@ -1,0 +1,188 @@
+# =============================================================================
+#  Persona FastAPI service: Deployment + Service.
+#  Image is built by hand from police-department/personas/Dockerfile and
+#  pushed to the platform's ECR (e.g. ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/
+#  ai-demo/pd-personas:0.1.0). The exact image reference is set as an env
+#  override (PD_PERSONAS_IMAGE) by bootstrap/03_apply_argocd.sh — we keep
+#  a sensible default here so dry-runs work locally.
+# =============================================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pd-persona
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+    app.kubernetes.io/name: pd-persona
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pd-persona
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pd-persona
+        app.kubernetes.io/part-of: police-department
+        # Required by the OSSM-managed NetworkPolicy
+        # `istio-expose-route-data-science-smcp` so the OpenShift router
+        # (in openshift-ingress) is allowed to reach this pod. Without it,
+        # the Route returns HAProxy 503.
+        maistra.io/expose-route: "true"
+      annotations:
+        sidecar.istio.io/inject: "true"
+    spec:
+      serviceAccountName: pd-persona-sa
+      containers:
+      - name: pd-persona
+        image: image-registry.openshift-image-registry.svc:5000/pd-personas/pd-persona:0.2.0
+        # Always pull because we re-tag new builds at :0.2.0 in-place (oc tag).
+        # IfNotPresent left the node pinned to the first sha forever, ignoring
+        # subsequent rebuilds. Use sha-pinned image refs if you want the
+        # cheaper IfNotPresent semantics back.
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: LOG_LEVEL
+          value: INFO
+        - name: PORTKEY_URL
+          value: "http://portkey.ai-demo.svc.cluster.local:8787/v1/chat/completions"
+        - name: PORTKEY_MODEL
+          value: "llama-3-1-8b"
+        - name: PORTKEY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pd-portkey-key
+              key: api_key
+              optional: true
+        # Anthropic Messages API key — only used when pd-llm-mode = "claude".
+        # Stored as a Secret in pd-personas (NOT in git). Set via:
+        #   oc -n pd-personas create secret generic pd-anthropic-key \
+        #     --from-literal=api_key="sk-ant-api03-..."
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pd-anthropic-key
+              key: api_key
+              optional: true
+        - name: REDIS_HOST
+          value: "redis.ai-demo.svc.cluster.local"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: endpoint
+        - name: PGDATABASE
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: database
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: password
+        # AWS credentials for the chat UI's S3 upload endpoint. Uses the same
+        # pd-s3-creds Secret as the Tekton tasks; supports SSO/STS session
+        # tokens (optional: true keeps the manifest valid when the key is
+        # absent).
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: { name: pd-s3-creds, key: access_key_id, optional: true }
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: { name: pd-s3-creds, key: secret_access_key, optional: true }
+        - name: AWS_SESSION_TOKEN
+          valueFrom:
+            secretKeyRef: { name: pd-s3-creds, key: session_token, optional: true }
+        - name: AWS_REGION
+          valueFrom:
+            secretKeyRef: { name: pd-s3-creds, key: region, optional: true }
+        - name: PD_S3_BUCKET
+          value: "ai-demo-data-lake"
+        - name: PD_EL_URL
+          value: "http://el-pd-perception.pd-cctv.svc.cluster.local:8080/"
+        # Mode selector — read on every chat request from the mounted ConfigMap.
+        - name: PD_LLM_MODE_FILE
+          value: "/etc/pd-llm-mode/mode"
+        - name: PD_LLM_MODE_DEFAULT
+          value: "mock"
+        volumeMounts:
+        - name: llm-mode
+          mountPath: /etc/pd-llm-mode
+          readOnly: true
+        readinessProbe:
+          # /healthz is a liveness-style ping that returns 200 even when the
+          # downstream Llama InferenceService is scaled to zero. Using /readyz
+          # here would couple persona pod readiness to KServe cold-start state
+          # and 503 every Route call until first-token. Re-introduce a deeper
+          # /readyz check only after Llama has a steady warm replica.
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          failureThreshold: 4
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        resources:
+          # Right-sized for an idle FastAPI service on a CPU-tight cluster.
+          # Burst limit gives room for occasional langgraph / retrieval work.
+          requests:
+            cpu: "100m"
+            memory: "768Mi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+      volumes:
+      - name: llm-mode
+        configMap:
+          name: pd-llm-mode
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pd-persona
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  selector:
+    app.kubernetes.io/name: pd-persona
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8000
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: pd-persona
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+  annotations:
+    haproxy.router.openshift.io/timeout: "180s"
+spec:
+  to:
+    kind: Service
+    name: pd-persona
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

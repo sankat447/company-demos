@@ -1,0 +1,35 @@
+# =============================================================================
+#  pd-gpu-time-slicing — NVIDIA time-slicing config (1 physical GPU → 4 vGPUs).
+#
+#  Why: yolo-detect + faces-and-plates + vlm-caption (local) all request
+#  `nvidia.com/gpu: 1`. Without time-slicing, only one runs at a time on a
+#  single-GPU node; pipeline serialises and takes ~3× longer. With this
+#  config, the device-plugin advertises 4 vGPUs that share the same
+#  physical GPU (compute time-sliced, memory shared) — pipeline tasks run
+#  in parallel.
+#
+#  These two objects MUST exist in the gpu-operator-resources namespace
+#  AND the ClusterPolicy must reference the ConfigMap. The provision
+#  script applies both at step 11.
+#
+#  Trade-off: memory is NOT sliced. All 4 vGPUs share the same VRAM.
+#  Stack 4 GPU-requesting pods and you'll OOM if combined memory > VRAM.
+#  For the demo's 3 simultaneous tasks (vLLM + yolo + faces) at ~14 +
+#  ~1.5 + ~1.5 = ~17 GB, an A10G 24 GB has just enough headroom.
+# =============================================================================
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: time-slicing-config-all
+  namespace: gpu-operator-resources
+  labels:
+    app.kubernetes.io/part-of: police-department
+data:
+  any: |-
+    version: v1
+    sharing:
+      timeSlicing:
+        resources:
+        - name: nvidia.com/gpu
+          replicas: 4

@@ -1,0 +1,82 @@
+# =============================================================================
+#  Task 03 — whisper-asr (CPU-only, runs in parallel with vlm-caption)
+#  Uses faster-whisper "medium" model. Output: transcript.json with word-level
+#  timestamps to the shared workspace.
+#
+#  CPU-only by design — must NOT request a GPU (the GPU is reserved for the
+#  VLM and Llama). On a 30s clip whisper-medium takes ~25s on c5.2xlarge.
+# =============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pd-task-whisper-asr
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-id
+    type: string
+  - name: model-size
+    type: string
+    default: "medium"
+  workspaces:
+  - name: shared
+  steps:
+  - name: transcribe
+    image: docker.io/onerahmet/openai-whisper-asr-webservice:v1.5.0
+    # The above image bundles ffmpeg + whisper. Use it as a CLI by overriding entrypoint.
+    command: ["/bin/bash", "-c"]
+    args:
+    - |
+      set -euo pipefail
+      cd "$(workspaces.shared.path)/$(params.clip-id)"
+      # The onerahmet/openai-whisper-asr-webservice:v1.5.0 image ships an
+      # incomplete faster_whisper install (missing transitive deps like
+      # `requests`). Force-reinstall with deps so the import works.
+      pip install --quiet --no-cache-dir --upgrade --force-reinstall \
+        faster-whisper==1.0.3 requests urllib3
+      python3 - <<'PY'
+      import json
+      import av  # bundled by faster_whisper / PyAV
+      from faster_whisper import WhisperModel
+      # Pre-flight: does this clip have an audio track? Surveillance cameras
+      # frequently record silent video; faster_whisper's PyAV decoder raises
+      # IndexError when there's no audio stream. Probe with PyAV directly
+      # (ffprobe is not present in this image) and skip transcription if
+      # there's no audio so the pipeline still progresses.
+      try:
+          container = av.open("clip.mp4")
+          has_audio = any(s.type == "audio" for s in container.streams)
+          container.close()
+      except Exception as e:
+          has_audio = False
+          print(f"[whisper] container probe failed: {e!r}")
+      if not has_audio:
+          out = {"language": "und", "duration": 0.0, "segments": [],
+                 "note": "clip has no audio track; transcription skipped"}
+          with open("transcript.json", "w") as f:
+              json.dump(out, f)
+          print("[whisper] no audio track; wrote empty transcript")
+          raise SystemExit(0)
+      model = WhisperModel("$(params.model-size)", device="cpu", compute_type="int8")
+      segments, info = model.transcribe("clip.mp4", word_timestamps=True)
+      out = {"language": info.language, "duration": info.duration, "segments": []}
+      for seg in segments:
+          out["segments"].append({
+              "id": seg.id, "start": seg.start, "end": seg.end, "text": seg.text,
+              "words": [{"start": w.start, "end": w.end, "word": w.word,
+                         "probability": w.probability} for w in (seg.words or [])]
+          })
+      with open("transcript.json", "w") as f:
+          json.dump(out, f)
+      print(f"[whisper] wrote transcript.json with {len(out['segments'])} segments")
+      PY
+    computeResources:
+      requests:
+        cpu: "25m"
+        memory: "1Gi"
+      limits:
+        cpu: "4"
+        memory: "6Gi"

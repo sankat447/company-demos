@@ -1,0 +1,53 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pd-pipeline
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sankat447/company-demos
+    targetRevision: feature/police-department-v1
+    path: police-department/manifests/pipeline
+    directory:
+      include: "pd-*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pd-cctv
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=false
+    - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+  # The watcher's cursor ConfigMap is mutated by the cluster (CronJob writes
+  # seen_keys + last_run_iso back). Without this, selfHeal reverts the cursor
+  # to git's empty values every reconcile and the watcher re-fires every clip
+  # in S3, producing duplicate PipelineRuns.
+  ignoreDifferences:
+    - group: ""
+      kind: ConfigMap
+      name: pd-s3-watcher-cursor
+      namespace: pd-cctv
+      jsonPointers:
+        - /data
+    # pd-vlm-mode is mutated live by the UI's /api/vlm-mode endpoint
+    # (operator flips local <-> claude-multimodal from the header
+    # dropdown). Without this, selfHeal would revert to the git default
+    # within seconds.
+    - group: ""
+      kind: ConfigMap
+      name: pd-vlm-mode
+      namespace: pd-cctv
+      jsonPointers:
+        - /data

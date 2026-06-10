@@ -1,0 +1,58 @@
+# =============================================================================
+#  RBAC for the S3 watcher CronJob — needs to read the cursor ConfigMap and
+#  patch it with the most recent processed key.
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pd-s3-watcher-sa
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pd-s3-watcher-role
+  namespace: pd-cctv
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["pd-s3-watcher-cursor"]
+  verbs: ["get", "patch", "update"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["pd-s3-creds"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pd-s3-watcher-rolebinding
+  namespace: pd-cctv
+subjects:
+- kind: ServiceAccount
+  name: pd-s3-watcher-sa
+  namespace: pd-cctv
+roleRef:
+  kind: Role
+  name: pd-s3-watcher-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-s3-watcher-cursor
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+  annotations:
+    # The watcher CronJob owns the `data` field at runtime (writes seen_keys
+    # and last_run_iso after every successful S3 list). We deliberately do
+    # NOT declare `data:` in this manifest: with ServerSideApply, declaring
+    # empty strings would let ArgoCD claim those fields and selfHeal would
+    # then revert the watcher's writes on every reconcile, retriggering all
+    # past clips. Letting the manifest carry no `data` means ArgoCD never
+    # lays claim to it and the cluster-side state survives sync cycles.
+    argocd.argoproj.io/sync-options: ServerSideApply=true

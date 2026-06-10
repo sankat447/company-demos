@@ -1,0 +1,116 @@
+# =============================================================================
+#  vLLM ServingRuntime tuned for multimodal (Qwen2.5-VL) on a T4 GPU.
+#
+#  Forked from ai-demo-stack-aws/gitops/config/inference/vllm-servingruntime.yaml
+#  with two diffs:
+#    1. namespace: pd-cctv (the platform's runtime is in ai-demo)
+#    2. args add --limit-mm-per-prompt image=8 (multimodal cap) and
+#       --gpu-memory-utilization=0.85 (was 0.90 — VLM keyframe decode needs
+#       headroom; with 0.90 we OOM on a 30s clip with 8 sampled frames).
+#
+#  Name remains "vllm-runtime" — KServe ServingRuntime is namespace-scoped, so
+#  there is no collision with the platform's runtime in ai-demo. Keeping the
+#  same name means InferenceService manifests can be lifted between namespaces
+#  with zero edits to the `runtime:` field.
+#
+#  Image tag: quay.io/modh/vllm now publishes per-accelerator tags. The bare
+#  rhoai-2.16 tag was retired; pullable tags are rhoai-{2.16,2.25}-{cuda,rocm,
+#  gaudi}. We pin to rhoai-2.25-cuda to match RHOAI 2.25.x on this cluster.
+#  Bump in lockstep with RHOAI operator upgrades; the platform repo's runtime
+#  in ai-demo MUST track the same tag (we do not edit that repo from here).
+# =============================================================================
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: vllm-runtime
+  namespace: pd-cctv
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: police-department
+  annotations:
+    openshift.io/display-name: "vLLM Runtime — Multimodal (Qwen2.5-VL on T4)"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    # Tag this ServingRuntime as derived from RHOAI's pre-installed
+    # vllm-cuda-runtime-template so the Dashboard's metrics integration
+    # treats it as a known runtime (not "custom") and surfaces vLLM
+    # metrics on the model card. See:
+    # https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/...
+    opendatahub.io/template-name: vllm-cuda-runtime-template
+    opendatahub.io/template-display-name: "vLLM NVIDIA GPU ServingRuntime for KServe"
+    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+    opendatahub.io/runtime-version: v0.10.1.1
+spec:
+  annotations:
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+  multiModel: false
+  supportedModelFormats:
+  - name: pytorch
+    version: "1"
+    autoSelect: true
+  - name: vllm
+    version: "1"
+    autoSelect: true
+  containers:
+  - name: kserve-container
+    image: quay.io/modh/vllm:rhoai-2.25-cuda
+    command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+    args:
+    - "--port=8080"
+    - "--model=/mnt/models"
+    - "--served-model-name={{.Name}}"
+    - "--dtype=float16"
+    # 8192 — Qwen2.5-VL image tokens are ~1000-1280 PER FRAME (visual
+    # encoder tokens from the ViT). With limit-mm-per-prompt=4 frames:
+    #   ~360 text tokens + 4 frames × ~1280 = ~5120 visual + max_tokens
+    #   2048 completion ≈ 7500 tokens worst case.
+    # 4096 was still too small (vLLM warned: worst-case multimodal tokens
+    # = 32768). 8192 fits comfortably; A10G 24GB has plenty of KV cache
+    # headroom.
+    - "--max-model-len=8192"
+    - "--gpu-memory-utilization=0.85"
+    - "--enforce-eager"
+    # 4 (was 8) — A10G 24 GB has the model + KV cache + activations;
+    # cap multi-modal inputs to keep image-token allocation modest.
+    - "--limit-mm-per-prompt={\"image\":4}"
+    - "--max-num-seqs=4"
+    - "--trust-remote-code"
+    ports:
+    - containerPort: 8080
+      protocol: TCP
+    env:
+    - name: HF_HOME
+      value: /tmp/hf_home
+    - name: TRANSFORMERS_CACHE
+      value: /tmp/hf_home
+    - name: CUDA_VISIBLE_DEVICES
+      value: "0"
+    resources:
+      # g4dn.xlarge has 16 GiB total; OS+kubelet reserve leaves ~12.2 GiB
+      # allocatable per-node. The model weights live in GPU VRAM after load,
+      # so vLLM's host RAM footprint is just the brief load-phase peak +
+      # tokenizer + KV cache buffers. 8Gi requests / 11Gi limit fits.
+      #
+      # CPU requests are tiny because the GPU operator's daemonsets
+      # (driver, dcgm, device-plugin, container-toolkit, node-status-exporter
+      # plus their istio sidecars) reserve ~3400m of the node's 3500m
+      # allocatable CPU even at near-zero actual use. The predictor's real
+      # CPU work happens on the GPU; host CPU is just request marshalling.
+      # 100m / 4 CPU keeps it schedulable while still allowing burst.
+      requests:
+        cpu: "50m"
+        memory: "4Gi"
+        nvidia.com/gpu: "1"
+      limits:
+        cpu: "4"
+        memory: "11Gi"
+        nvidia.com/gpu: "1"
+    volumeMounts:
+    - name: shm
+      mountPath: /dev/shm
+  volumes:
+  - name: shm
+    emptyDir:
+      medium: Memory
+      sizeLimit: 2Gi

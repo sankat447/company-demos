@@ -1,0 +1,777 @@
+<!doctype html><!--[if lt IE 7]> <html class="no-js lt-ie9 lt-ie8 lt-ie7" lang="en" > <![endif]--><!--[if IE 7]>    <html class="no-js lt-ie9 lt-ie8" lang="en" >        <![endif]--><!--[if IE 8]>    <html class="no-js lt-ie9" lang="en" >               <![endif]--><!--[if gt IE 8]><!--><html class="no-js" lang="en"><!--<![endif]--><head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="author" content="International Integrated Solutions">
+    <meta name="description" content="">
+    <meta name="generator" content="HubSpot">
+    <title></title>
+    <link rel="shortcut icon" href="https://www.iistech.com/hubfs/apple-touch-icon.png">
+    
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <script src="/hs/hsstatic/jquery-libs/static-1.4/jquery/jquery-1.11.2.js"></script>
+<script src="/hs/hsstatic/jquery-libs/static-1.4/jquery-migrate/jquery-migrate-1.2.1.js"></script>
+<script>hsjQuery = window['jQuery'];</script>
+    <meta property="og:description" content="">
+    <meta property="og:title" content="">
+    <meta name="twitter:description" content="">
+    <meta name="twitter:title" content="">
+
+    
+
+    
+    <style>
+a.cta_button{-moz-box-sizing:content-box !important;-webkit-box-sizing:content-box !important;box-sizing:content-box !important;vertical-align:middle}.hs-breadcrumb-menu{list-style-type:none;margin:0px 0px 0px 0px;padding:0px 0px 0px 0px}.hs-breadcrumb-menu-item{float:left;padding:10px 0px 10px 10px}.hs-breadcrumb-menu-divider:before{content:'›';padding-left:10px}.hs-featured-image-link{border:0}.hs-featured-image{float:right;margin:0 0 20px 20px;max-width:50%}@media (max-width: 568px){.hs-featured-image{float:none;margin:0;width:100%;max-width:100%}}.hs-screen-reader-text{clip:rect(1px, 1px, 1px, 1px);height:1px;overflow:hidden;position:absolute !important;width:1px}
+</style>
+
+<link rel="stylesheet" href="https://www.iistech.com/hubfs/hub_generated/module_assets/1/6400479625/1741937131242/module_Header_Search_Form_Iistech_October2018_Theme.min.css">
+<link rel="stylesheet" href="https://7052064.fs1.hubspotusercontent-na1.net/hubfs/7052064/hub_generated/module_assets/1/-2712622/1776191961145/module_search_input.min.css">
+
+<style>
+  #hs_cos_wrapper_module_1527704161563128 .hs-search-field__bar>form { border-radius:px; }
+
+#hs_cos_wrapper_module_1527704161563128 .hs-search-field__bar>form>label {}
+
+#hs_cos_wrapper_module_1527704161563128 .hs-search-field__bar>form>.hs-search-field__input { border-radius:px; }
+
+#hs_cos_wrapper_module_1527704161563128 .hs-search-field__button { border-radius:px; }
+
+#hs_cos_wrapper_module_1527704161563128 .hs-search-field__button:hover,
+#hs_cos_wrapper_module_1527704161563128 .hs-search-field__button:focus {}
+
+#hs_cos_wrapper_module_1527704161563128 .hs-search-field__button:active {}
+
+#hs_cos_wrapper_module_1527704161563128 .hs-search-field--open .hs-search-field__suggestions { border-radius:px; }
+
+#hs_cos_wrapper_module_1527704161563128 .hs-search-field--open .hs-search-field__suggestions a {}
+
+#hs_cos_wrapper_module_1527704161563128 .hs-search-field--open .hs-search-field__suggestions a:hover {}
+
+</style>
+
+    
+  <script data-search_input-config="config_module_1527704161563128" type="application/json">
+  {
+    "autosuggest_results_message": "Results for \u201C[[search_term]]\u201D",
+    "autosuggest_no_results_message": "There are no autosuggest results for \u201C[[search_term]]\u201D",
+    "sr_empty_search_field_message": "There are no suggestions because the search field is empty.",
+    "sr_autosuggest_results_message": "There are currently [[number_of_results]] auto-suggested results for [[search_term]]. Navigate to the results list by pressing the down arrow key, or press return to search for all results.",
+    "sr_search_field_aria_label": "This is a search field with an auto-suggest feature attached.",
+    "sr_search_button_aria_label": "Search"
+  }
+  </script>
+
+  <script id="hs-search-input__valid-content-types" type="application/json">
+    [
+      
+        "SITE_PAGE",
+      
+        "LANDING_PAGE",
+      
+        "BLOG_POST",
+      
+        "LISTING_PAGE",
+      
+        "KNOWLEDGE_ARTICLE",
+      
+        "HS_CASE_STUDY"
+      
+    ]
+  </script>
+
+
+    
+<!--  Added by GoogleTagManager integration -->
+<script>
+var _hsp = window._hsp = window._hsp || [];
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+
+var useGoogleConsentModeV2 = true;
+var waitForUpdateMillis = 1000;
+
+
+
+var hsLoadGtm = function loadGtm() {
+    if(window._hsGtmLoadOnce) {
+      return;
+    }
+
+    if (useGoogleConsentModeV2) {
+
+      gtag('set','developer_id.dZTQ1Zm',true);
+
+      gtag('consent', 'default', {
+      'ad_storage': 'denied',
+      'analytics_storage': 'denied',
+      'ad_user_data': 'denied',
+      'ad_personalization': 'denied',
+      'wait_for_update': waitForUpdateMillis
+      });
+
+      _hsp.push(['useGoogleConsentModeV2'])
+    }
+
+    (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-WZQ2QTMK');
+
+    window._hsGtmLoadOnce = true;
+};
+
+_hsp.push(['addPrivacyConsentListener', function(consent){
+  if(consent.allowed || (consent.categories && consent.categories.analytics)){
+    hsLoadGtm();
+  }
+}]);
+
+</script>
+
+<!-- /Added by GoogleTagManager integration -->
+
+    <link rel="canonical" href="https://www.iistech.com/404">
+
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-KHT9RBK');</script>
+<!-- End Google Tag Manager -->
+
+<!-- Global site tag (gtag.js) - Google Ads: 655947972 -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=AW-655947972"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'AW-655947972');
+</script>
+<meta property="og:url" content="https://www.iistech.com/404">
+<meta name="twitter:card" content="summary">
+<meta http-equiv="content-language" content="en">
+<link rel="stylesheet" href="//7052064.fs1.hubspotusercontent-na1.net/hubfs/7052064/hub_generated/template_assets/DEFAULT_ASSET/1776191867567/template_layout.min.css">
+
+
+<link rel="stylesheet" href="https://www.iistech.com/hubfs/hub_generated/template_assets/1/6394259943/1741936699850/template_Iistech_October2018-style.css">
+
+
+
+
+</head>
+<body class="error-template one-column   hs-content-id-0 hs-site-page page " style="">
+<!--  Added by GoogleTagManager integration -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-WZQ2QTMK" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+
+<!-- /Added by GoogleTagManager integration -->
+
+    <div class="header-container-wrapper">
+    <div class="header-container container-fluid">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-1">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-global_group " style="" data-widget-type="global_group" data-x="0" data-w="12">
+<div class="" data-global-widget-path="generated_global_groups/6396641429.html"><div class="row-fluid-wrapper row-depth-1 row-number-1 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell custom-header" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-2 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell custom-header-top" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-3 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell page-center" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-4 ">
+<div class="row-fluid ">
+<div class="span3 widget-span widget-type-custom_widget custom-logo" style="" data-widget-type="custom_widget" data-x="0" data-w="3">
+<div id="hs_cos_wrapper_module_1540549945502393" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module"><div class="header-logo">
+  <a href="https://www.iistech.com/?hsLang=en">
+    <svg width="50px" height="37" viewbox="0 0 68 37" xmlns="http://www.w3.org/2000/svg">
+      <title>Logo</title>
+      <path d="M61.74865 15.35805c2.1105 1.3905 2.86 3.337 2.2205 5.9745-.487 2.0155-1.011 4.027-1.6025 6.0155-1.609 5.406-6.835 9.267-12.4725 9.269-5.4915.001-10.983.02-16.475-.009-3.7795-.019-6.3325-2.099-6.998-5.804-.2135-1.19-.034-2.451-.034-3.778h1.4865c7.647 0 15.295.0025 22.9415-.002 1.492-.0005 2.276-.5885 2.58-1.8965.2645-1.1405-.116-1.6465-1.3025-1.6515-3.4405-.0125-6.882.012-10.3235-.0115-1.942-.0135-3.9085.0865-5.8205-.179-4.739-.6585-7.0585-4.2165-5.9275-8.829.04-.1625.0685-.3275.1215-.586 3.3815 0 6.6475-.001 9.913.001 5.666.003 11.3315-.0025 16.998.02 1.703.0075 3.271.529 4.695 1.4665zM65.8588 3.0409c1.437 1.736 1.9905 4.159 1.518 6.6475-.166.8645-.786.8645-1.239.8645h-.0415c-2.3445-.0055-4.688-.0065-7.0325-.0065l-28.249.001.075-.289c.7375-2.8365 2.3825-5.1825 5.0285-7.1735 2.3105-1.7395 4.812-2.585 7.648-2.585l.1285.0005c5.58.0515 11.0755.0535 16.3575.0055h.083c2.337 0 4.37.9 5.7235 2.535zM6.58165 13.90855c2.98-.054 5.9605-.035 9.059-.035-2.031 7.6325-4.0325 15.162-6.0355 22.691h-9.605c.7925-2.937 1.567-5.7975 2.3355-8.66 1.183-4.4025 2.352-8.808 3.5605-13.2035.0865-.3145.446-.787.6855-.7925zm12.86625 0c2.979-.054 5.96-.035 9.0565-.035-2.0305 7.6325-4.033 15.163-6.035 22.691h-9.605c.792-2.9375 1.567-5.7995 2.336-8.662 1.1825-4.402 2.3515-8.8075 3.5605-13.2025.086-.3155.4465-.787.687-.7915zM15.36145.51405l4.068.0025-.4525 1.7345c-.261 1.004-.5135 1.9735-.7715 2.941l-.1875.7045c-.3315 1.2465-.6745 2.535-1.0585 3.7915-.1005.3295-.525.822-.9035.8275-1.852.0295-3.705.0325-5.274.0325l-4.027-.0025 1.3455-4.9915c.3655-1.3685.744-2.783 1.152-4.167.0985-.3335.52-.833.901-.8405 1.8365-.029 3.663-.0325 5.208-.0325zm12.81105-.001l4.0955.0025-.069.2865c-.0615.2545-.1195.499-.1755.737-.115.487-.2235.945-.3455 1.4l-.219.814c-.518 1.9295-1.0535 3.925-1.624 5.875-.101.3435-.5585.8775-.9605.886-1.7865.031-3.5565.035-5.0535.035l-4.207-.0035 1.753-6.508c.062-.231.122-.462.1815-.6935.172-.6645.3495-1.3515.5815-2.012.124-.352.5685-.782.9335-.788 1.8035-.0275 3.595-.031 5.109-.031z" fill="white" fill-rule="evenodd"></path>
+    </svg>
+  </a>
+</div></div>
+
+</div><!--end widget-span -->
+<div class="span7 widget-span widget-type-custom_widget custom-menu-primary" style="" data-widget-type="custom_widget" data-x="3" data-w="7">
+<div id="hs_cos_wrapper_module_151811933987828" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module widget-type-menu" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module">
+<span id="hs_cos_wrapper_module_151811933987828_" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_menu" style="" data-hs-cos-general-type="widget" data-hs-cos-type="menu"><div id="hs_menu_wrapper_module_151811933987828_" class="hs-menu-wrapper active-branch flyouts hs-menu-flow-horizontal" role="navigation" data-sitemap-name="default" data-menu-id="10766491188" aria-label="Navigation Menu">
+ <ul role="menu">
+  <li class="hs-menu-item hs-menu-depth-1 hs-item-has-children" role="none"><a href="https://www.iistech.com/what-we-do" aria-haspopup="true" aria-expanded="false" role="menuitem">What We Do</a>
+   <ul role="menu" class="hs-menu-children-wrapper">
+    <li class="hs-menu-item hs-menu-depth-2 hs-item-has-children" role="none"><a href="javascript:;" role="menuitem"></a>
+     <ul role="menu" class="hs-menu-children-wrapper">
+      <li class="hs-menu-item hs-menu-depth-3 hs-item-has-children" role="none"><a href="javascript:;" role="menuitem"></a>
+       <ul role="menu" class="hs-menu-children-wrapper">
+        <li class="hs-menu-item hs-menu-depth-4 hs-item-has-children" role="none"><a href="https://www.iistech.com/solutions/data-center-modernization" role="menuitem">DATA CENTER MODERNIZATION</a>
+         <ul role="menu" class="hs-menu-children-wrapper">
+          <li class="hs-menu-item hs-menu-depth-5 hs-item-has-children" role="none"><a href="https://www.iistech.com/solutions/data-center-modernization" role="menuitem">Support and administration of existing systems, while incorporating new, software-defined and automated technologies.</a>
+           <ul role="menu" class="hs-menu-children-wrapper">
+            <li class="hs-menu-item hs-menu-depth-6" role="none"><a href="https://www.iistech.com/solutions/data-center-modernization" role="menuitem">Explore</a></li>
+           </ul></li>
+         </ul></li>
+        <li class="hs-menu-item hs-menu-depth-4 hs-item-has-children" role="none"><a href="https://www.iistech.com/oracle-performance-tuning" role="menuitem">Oracle Performance Tuning</a>
+         <ul role="menu" class="hs-menu-children-wrapper">
+          <li class="hs-menu-item hs-menu-depth-5 hs-item-has-children" role="none"><a href="https://www.iistech.com/oracle-performance-tuning" role="menuitem">Double the performance of any Oracle workload, or our service is provided free.</a>
+           <ul role="menu" class="hs-menu-children-wrapper">
+            <li class="hs-menu-item hs-menu-depth-6" role="none"><a href="https://www.iistech.com/oracle-performance-tuning" role="menuitem">Explore</a></li>
+           </ul></li>
+         </ul></li>
+       </ul></li>
+      <li class="hs-menu-item hs-menu-depth-3 hs-item-has-children" role="none"><a href="javascript:;" role="menuitem"></a>
+       <ul role="menu" class="hs-menu-children-wrapper">
+        <li class="hs-menu-item hs-menu-depth-4 hs-item-has-children" role="none"><a href="javascript:;" role="menuitem">Solutions</a>
+         <ul role="menu" class="hs-menu-children-wrapper">
+          <li class="hs-menu-item hs-menu-depth-5 hs-item-has-children" role="none"><a href="https://www.iistech.com/solutions/application-modernization" role="menuitem">Application Modernization</a>
+           <ul role="menu" class="hs-menu-children-wrapper">
+            <li class="hs-menu-item hs-menu-depth-6" role="none"><a href="https://www.iistech.com/solutions/application-modernization" role="menuitem">Improve the performance and value</a></li>
+           </ul></li>
+          <li class="hs-menu-item hs-menu-depth-5 hs-item-has-children" role="none"><a href="https://www.iistech.com/solutions/digital-workplace" role="menuitem">Digital Workplace Experience</a>
+           <ul role="menu" class="hs-menu-children-wrapper">
+            <li class="hs-menu-item hs-menu-depth-6" role="none"><a href="https://www.iistech.com/solutions/digital-workplace" role="menuitem">Adapt your IT</a></li>
+           </ul></li>
+         </ul></li>
+       </ul></li>
+      <li class="hs-menu-item hs-menu-depth-3 hs-item-has-children" role="none"><a href="javascript:;" role="menuitem"></a>
+       <ul role="menu" class="hs-menu-children-wrapper">
+        <li class="hs-menu-item hs-menu-depth-4 hs-item-has-children" role="none"><a href="javascript:;" role="menuitem">Practice Areas</a>
+         <ul role="menu" class="hs-menu-children-wrapper">
+          <li class="hs-menu-item hs-menu-depth-5" role="none"><a href="https://www.iistech.com/what-we-do/infrastructure" role="menuitem">Infrastructure</a></li>
+          <li class="hs-menu-item hs-menu-depth-5" role="none"><a href="https://www.iistech.com/what-we-do/consulting-services" role="menuitem">Consulting Services</a></li>
+          <li class="hs-menu-item hs-menu-depth-5" role="none"><a href="https://www.iistech.com/what-we-do/hybrid-cloud/" role="menuitem">Hybrid Cloud</a></li>
+          <li class="hs-menu-item hs-menu-depth-5" role="none"><a href="https://www.iistech.com/what-we-do/security/" role="menuitem">Security</a></li>
+          <li class="hs-menu-item hs-menu-depth-5" role="none"><a href="https://www.iistech.com/what-we-do/mobility/" role="menuitem">Mobility</a></li>
+          <li class="hs-menu-item hs-menu-depth-5" role="none"><a href="https://www.iistech.com/what-we-do/our-approach" role="menuitem">See Our Approach </a></li>
+         </ul></li>
+       </ul></li>
+     </ul></li>
+   </ul></li>
+  <li class="hs-menu-item hs-menu-depth-1 hs-item-has-children" role="none"><a href="https://www.iistech.com/about-us" aria-haspopup="true" aria-expanded="false" role="menuitem">About Us</a>
+   <ul role="menu" class="hs-menu-children-wrapper">
+    <li class="hs-menu-item hs-menu-depth-2" role="none"><a href="https://www.iistech.com/our-people" role="menuitem">Our People</a></li>
+    <li class="hs-menu-item hs-menu-depth-2" role="none"><a href="https://www.iistech.com/about-us" role="menuitem">Company</a></li>
+   </ul></li>
+  <li class="hs-menu-item hs-menu-depth-1" role="none"><a href="https://www.iistech.com/technology-partners" role="menuitem">Partners</a></li>
+  <li class="hs-menu-item hs-menu-depth-1 hs-item-has-children" role="none"><a href="https://www.iistech.com/perspectives" aria-haspopup="true" aria-expanded="false" role="menuitem">Perspectives</a>
+   <ul role="menu" class="hs-menu-children-wrapper">
+    <li class="hs-menu-item hs-menu-depth-2" role="none"><a href="https://www.iistech.com/blog" role="menuitem">Blog</a></li>
+    <li class="hs-menu-item hs-menu-depth-2" role="none"><a href="https://www.iistech.com/perspectives/articles#article-filter" role="menuitem">Articles</a></li>
+    <li class="hs-menu-item hs-menu-depth-2" role="none"><a href="https://www.iistech.com/perspectives/case-studies#cstudy-filter" role="menuitem">Case Studies</a></li>
+    <li class="hs-menu-item hs-menu-depth-2" role="none"><a href="https://www.iistech.com/perspectives/reports#report-filter" role="menuitem">Reports</a></li>
+    <li class="hs-menu-item hs-menu-depth-2" role="none"><a href="https://www.iistech.com/perspectives/webinars#web-filter" role="menuitem">Webinars</a></li>
+    <li class="hs-menu-item hs-menu-depth-2" role="none"><a href="https://www.iistech.com/perspectives/videos#video-filter" role="menuitem">Videos</a></li>
+    <li class="hs-menu-item hs-menu-depth-2" role="none"><a href="https://www.iistech.com/perspectives" role="menuitem">View All Perspectives</a></li>
+   </ul></li>
+ </ul>
+</div></span></div>
+
+</div><!--end widget-span -->
+<div class="span2 widget-span widget-type-custom_widget custom-header-search-icon" style="" data-widget-type="custom_widget" data-x="10" data-w="2">
+<div id="hs_cos_wrapper_module_1540550447765415" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module"><div id="header-search-button-container">
+  <svg width="22" height="21" viewbox="0 0 25 24" xmlns="http://www.w3.org/2000/svg">
+    <title>Search</title>
+    <path d="M9.63152134 17.7205604c-4.30499817 0-7.80736957-3.562287-7.80736957-7.95153352 0-4.3892465 3.5023714-7.9515335 7.80736957-7.9515335 4.30499816 0 7.80736956 3.562287 7.80736956 7.9515335 0 4.38924652-3.5023714 7.95153352-7.80736956 7.95153352zm7.98066396-2.4899659c1.0488873-1.5630443 1.6508574-3.4350625 1.6508574-5.46156762C19.2630427 4.38015903 14.939803 0 9.63152134 0 4.3232397 0 0 4.38015903 0 9.76902688c0 5.38886782 4.3232397 9.76902692 9.63152134 9.76902692 2.66326156 0 5.08938346-1.108671 6.83144836-2.8898145L23.7048522 24 25 22.7277546l-7.3878147-7.4971601z" fill="white" fill-rule="evenodd"></path>
+  </svg>
+  <svg class="bottomTriangle" width="10px" height="5px"><polygon fill="white" points="0,5 10,5 5,0"></polygon></svg>
+</div></div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+<div class="row-fluid-wrapper row-depth-1 row-number-5 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-custom_widget " style="" data-widget-type="custom_widget" data-x="0" data-w="12">
+<div id="hs_cos_wrapper_module_154078430017096" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module"><div class="searchPortal">
+  <form action="https://www.iistech.com/search?" method="get" value="">
+    <div class="searchField">
+      <div class="search-palcholder">search</div>
+      <input type="text" id="undefined-search-undefined-13228" name="q">
+      <div>
+        <hr class="first-hr" aria-hidden="true">
+        <hr class="last-hr" aria-hidden="true">
+      </div>
+    </div>
+    <div class="x">
+      <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" viewbox="0 0 60 60" width="24px" height="24px" enable-background="new 0 0 60 60"><path stroke="#3d4759" stroke-width="2" d="M30.277,30.44L50.11,10.608c0.137-0.137,0.137-0.358,0-0.495s-0.357-0.137-0.494,0L29.782,29.945L9.949,10.112 c-0.137-0.137-0.358-0.137-0.495,0s-0.137,0.358,0,0.495L29.287,30.44L9.454,50.273c-0.137,0.137-0.137,0.357,0,0.494 c0.068,0.068,0.158,0.103,0.248,0.103s0.179-0.034,0.248-0.103l19.832-19.832l19.834,19.832c0.068,0.068,0.157,0.103,0.247,0.103 s0.179-0.034,0.247-0.103c0.137-0.137,0.137-0.357,0-0.494L30.277,30.44z"></path></svg>
+    </div>
+  </form>
+</div></div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+</div>
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+    </div><!--end header -->
+</div><!--end header wrapper -->
+
+<div class="body-container-wrapper">
+    <div class="body-container container-fluid">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-1">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell page-center content-wrapper" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-2">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell main-content" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-3">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-custom_widget custom_error_message" style="" data-widget-type="custom_widget" data-x="0" data-w="12">
+<div id="hs_cos_wrapper_module_1518121563704257" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module widget-type-rich_text" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module"><span id="hs_cos_wrapper_module_1518121563704257_" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_rich_text" style="" data-hs-cos-general-type="widget" data-hs-cos-type="rich_text"><h1>Page not found</h1>
+<h2>Error 404</h2>
+<p>Sorry, the page you were looking for at this URL was not found.</p></span></div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+<div class="row-fluid-wrapper row-depth-1 row-number-4">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-custom_widget " style="" data-widget-type="custom_widget" data-x="0" data-w="12">
+<div id="hs_cos_wrapper_module_1527704161563128" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module">
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="hs-search-field">
+    <div class="hs-search-field__bar hs-search-field__bar--button-inline  ">
+      <form data-hs-do-not-collect="true" class="hs-search-field__form" action="/hs-search-results">
+
+        <label class="hs-search-field__label show-for-sr" for="module_1527704161563128-input">This is a search field with an auto-suggest feature attached.</label>
+
+        <input role="combobox" aria-expanded="false" aria-controls="autocomplete-results" aria-label="This is a search field with an auto-suggest feature attached." type="search" class="hs-search-field__input" id="module_1527704161563128-input" name="q" autocomplete="off" aria-autocomplete="list" placeholder="Search">
+
+        
+          
+            <input type="hidden" name="type" value="SITE_PAGE">
+          
+        
+          
+        
+          
+            <input type="hidden" name="type" value="BLOG_POST">
+          
+        
+          
+            <input type="hidden" name="type" value="LISTING_PAGE">
+          
+        
+          
+        
+          
+        
+
+        
+
+        <button class="hs-search-field__button " aria-label="Search">
+          <span id="hs_cos_wrapper_module_1527704161563128_" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_icon" style="" data-hs-cos-general-type="widget" data-hs-cos-type="icon"><svg version="1.0" xmlns="http://www.w3.org/2000/svg" viewbox="0 0 512 512" aria-hidden="true"><g id="search1_layer"><path d="M505 442.7L405.3 343c-4.5-4.5-10.6-7-17-7H372c27.6-35.3 44-79.7 44-128C416 93.1 322.9 0 208 0S0 93.1 0 208s93.1 208 208 208c48.3 0 92.7-16.4 128-44v16.3c0 6.4 2.5 12.5 7 17l99.7 99.7c9.4 9.4 24.6 9.4 33.9 0l28.3-28.3c9.4-9.4 9.4-24.6.1-34zM208 336c-70.7 0-128-57.2-128-128 0-70.7 57.2-128 128-128 70.7 0 128 57.2 128 128 0 70.7-57.2 128-128 128z" /></g></svg></span>
+           </button>
+        <div class="hs-search-field__suggestions-container ">
+          <ul id="autocomplete-results" role="listbox" aria-label="term" class="hs-search-field__suggestions">
+            
+              <li role="option" tabindex="-1" aria-posinset="1" aria-setsize="0" class="results-for show-for-sr">There are no suggestions because the search field is empty.</li>
+            
+          </ul>
+        </div>
+      </form>
+    </div>
+    <div id="sr-messenger" class="hs-search-sr-message-container show-for-sr" role="status" aria-live="polite" aria-atomic="true">
+    </div>
+</div>
+
+</div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+    </div><!--end body -->
+</div><!--end body wrapper -->
+
+<div class="footer-container-wrapper">
+    <div class="footer-container container-fluid">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-1">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-global_group " style="" data-widget-type="global_group" data-x="0" data-w="12">
+<div class="" data-global-widget-path="generated_global_groups/6394259946.html"><div class="row-fluid-wrapper row-depth-1 row-number-1 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell custom-footer" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-2 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell custom-footer-inner" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-3 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell page-center" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-4 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-custom_widget custom-footer-form-heading" style="" data-widget-type="custom_widget" data-x="0" data-w="12">
+<div id="hs_cos_wrapper_module_1540809906218177" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module widget-type-rich_text" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module"><span id="hs_cos_wrapper_module_1540809906218177_" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_rich_text" style="" data-hs-cos-general-type="widget" data-hs-cos-type="rich_text"><h2>Subscribe below to get our blog posts sent directly to your inbox.</h2></span></div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+<div class="row-fluid-wrapper row-depth-1 row-number-5 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-custom_widget custom-footer-form" style="" data-widget-type="custom_widget" data-x="0" data-w="12">
+<div id="hs_cos_wrapper_module_1540809879939172" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module widget-type-form" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module">
+
+
+	
+
+
+
+	<span id="hs_cos_wrapper_module_1540809879939172_" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_form" style="" data-hs-cos-general-type="widget" data-hs-cos-type="form">
+<div id="hs_form_target_module_1540809879939172"></div>
+
+
+
+
+
+
+
+
+</span>
+</div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+<div class="row-fluid-wrapper row-depth-1 row-number-6 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-custom_widget custom-footer-form-text" style="" data-widget-type="custom_widget" data-x="0" data-w="12">
+<div id="hs_cos_wrapper_module_1540809933402187" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module widget-type-rich_text" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module"><span id="hs_cos_wrapper_module_1540809933402187_" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_rich_text" style="" data-hs-cos-general-type="widget" data-hs-cos-type="rich_text"></span></div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+<div class="row-fluid-wrapper row-depth-1 row-number-7 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell custom-footer-top" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-8 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-cell page-center" style="" data-widget-type="cell" data-x="0" data-w="12">
+
+<div class="row-fluid-wrapper row-depth-1 row-number-9 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-custom_widget custom-footer-menu" style="" data-widget-type="custom_widget" data-x="0" data-w="12">
+<div id="hs_cos_wrapper_module_1540547533953221" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module widget-type-simple_menu" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module"><span id="hs_cos_wrapper_module_1540547533953221_" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_simple_menu" style="" data-hs-cos-general-type="widget" data-hs-cos-type="simple_menu"><div id="hs_menu_wrapper_module_1540547533953221_" class="hs-menu-wrapper active-branch flyouts hs-menu-flow-horizontal" role="navigation" data-sitemap-name="" data-menu-id="" aria-label="Navigation Menu">
+ <ul role="menu">
+  <li class="hs-menu-item hs-menu-depth-1" role="none"><a href="https://www.iistech.com/termsofservice" role="menuitem" target="_self">Terms of Service</a></li>
+  <li class="hs-menu-item hs-menu-depth-1" role="none"><a href="https://www.iistech.com/privacypolicy" role="menuitem" target="_self">Privacy</a></li>
+  <li class="hs-menu-item hs-menu-depth-1" role="none"><a href="https://www.iistech.com/newsroom" role="menuitem" target="_self">Newsroom</a></li>
+  <li class="hs-menu-item hs-menu-depth-1" role="none"><a href="https://www.iistech.com/contact" role="menuitem" target="_self">Contact Us</a></li>
+ </ul>
+</div></span></div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+<div class="row-fluid-wrapper row-depth-1 row-number-10 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-custom_widget " style="" data-widget-type="custom_widget" data-x="0" data-w="12">
+<div id="hs_cos_wrapper_module_1540547521402210" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module"><div class="socialMedia">
+  <a target="_blank" href="http://www.linkedin.com/company/434478?trk=tyah">
+    <svg viewbox="0 0 512 512" fill="white" width="32px" height="32px">
+      <path d="M186.4 142.4c0 19-15.3 34.5-34.2 34.5 -18.9 0-34.2-15.4-34.2-34.5 0-19 15.3-34.5 34.2-34.5C171.1 107.9 186.4 123.4 186.4 142.4zM181.4 201.3h-57.8V388.1h57.8V201.3zM273.8 201.3h-55.4V388.1h55.4c0 0 0-69.3 0-98 0-26.3 12.1-41.9 35.2-41.9 21.3 0 31.5 15 31.5 41.9 0 26.9 0 98 0 98h57.5c0 0 0-68.2 0-118.3 0-50-28.3-74.2-68-74.2 -39.6 0-56.3 30.9-56.3 30.9v-25.2H273.8z"></path>
+    </svg>
+  </a>
+  <a target="_blank" href="https://www.facebook.com/pages/International-Integrated-Solutions-IIS/540109749376818">
+    <svg viewbox="0 0 512 512" fill="white" width="32px" height="32px">
+      <path d="M211.9 197.4h-36.7v59.9h36.7V433.1h70.5V256.5h49.2l5.2-59.1h-54.4c0 0 0-22.1 0-33.7 0-13.9 2.8-19.5 16.3-19.5 10.9 0 38.2 0 38.2 0V82.9c0 0-40.2 0-48.8 0 -52.5 0-76.1 23.1-76.1 67.3C211.9 188.8 211.9 197.4 211.9 197.4z"></path>
+    </svg>
+  </a>
+  <a target="_blank" href="https://twitter.com/IISTech">
+    <svg viewbox="0 0 512 512" fill="white" width="32px" height="32px">
+      <path d="M419.6 168.6c-11.7 5.2-24.2 8.7-37.4 10.2 13.4-8.1 23.8-20.8 28.6-36 -12.6 7.5-26.5 12.9-41.3 15.8 -11.9-12.6-28.8-20.6-47.5-20.6 -42 0-72.9 39.2-63.4 79.9 -54.1-2.7-102.1-28.6-134.2-68 -17 29.2-8.8 67.5 20.1 86.9 -10.7-0.3-20.7-3.3-29.5-8.1 -0.7 30.2 20.9 58.4 52.2 64.6 -9.2 2.5-19.2 3.1-29.4 1.1 8.3 25.9 32.3 44.7 60.8 45.2 -27.4 21.4-61.8 31-96.4 27 28.8 18.5 63 29.2 99.8 29.2 120.8 0 189.1-102.1 185-193.6C399.9 193.1 410.9 181.7 419.6 168.6z"></path>
+    </svg>
+  </a>
+  <a target="_blank" href="https://www.youtube.com/channel/UCR8AM87cMPa-MIctMI0ohPQ">
+    <svg viewbox="0 0 512 512" fill="white" width="32px">
+      <path d="M422.6 193.6c-5.3-45.3-23.3-51.6-59-54 -50.8-3.5-164.3-3.5-215.1 0 -35.7 2.4-53.7 8.7-59 54 -4 33.6-4 91.1 0 124.8 5.3 45.3 23.3 51.6 59 54 50.9 3.5 164.3 3.5 215.1 0 35.7-2.4 53.7-8.7 59-54C426.6 284.8 426.6 227.3 422.6 193.6zM222.2 303.4v-94.6l90.7 47.3L222.2 303.4z"></path>
+    </svg>
+  </a>
+</div></div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+<div class="row-fluid-wrapper row-depth-1 row-number-11 ">
+<div class="row-fluid ">
+<div class="span12 widget-span widget-type-custom_widget custom-footer-copyright" style="" data-widget-type="custom_widget" data-x="0" data-w="12">
+<div id="hs_cos_wrapper_module_1540547333819192" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_module widget-type-rich_text" style="" data-hs-cos-general-type="widget" data-hs-cos-type="module"><span id="hs_cos_wrapper_module_1540547333819192_" class="hs_cos_wrapper hs_cos_wrapper_widget hs_cos_wrapper_type_rich_text" style="" data-hs-cos-general-type="widget" data-hs-cos-type="rich_text"><p>Copyright © 2018 International Integrated Solutions, Ltd. All rights reserved.</p></span></div>
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+</div>
+</div><!--end widget-span -->
+</div><!--end row-->
+</div><!--end row-wrapper -->
+
+    </div><!--end footer -->
+</div><!--end footer wrapper -->
+
+    
+<!-- HubSpot performance collection script -->
+<script defer src="/hs/hsstatic/content-cwv-embed/static-1.1293/embed.js"></script>
+<script src="https://www.iistech.com/hubfs/hub_generated/template_assets/1/6394259942/1741936699490/template_Iistech_October2018-main.js"></script>
+<script>
+var hsVars = hsVars || {}; hsVars['language'] = 'en';
+</script>
+
+<script src="/hs/hsstatic/cos-i18n/static-1.53/bundles/project.js"></script>
+<script src="/hs/hsstatic/keyboard-accessible-menu-flyouts/static-1.17/bundles/project.js"></script>
+<script src="https://7052064.fs1.hubspotusercontent-na1.net/hubfs/7052064/hub_generated/module_assets/1/-2712622/1776191961145/module_search_input.min.js"></script>
+
+    <!--[if lte IE 8]>
+    <script charset="utf-8" src="https://js.hsforms.net/forms/v2-legacy.js"></script>
+    <![endif]-->
+
+<script data-hs-allowed="true" src="/_hcms/forms/v2.js"></script>
+
+    <script data-hs-allowed="true">
+        var options = {
+            portalId: '4956608',
+            formId: 'e2779185-842d-45cd-b692-d732e6fc691c',
+            formInstanceId: '4561',
+            
+            pageId: 'null',
+            
+            region: 'na1',
+            
+            
+            
+            
+            
+            
+            inlineMessage: "Thanks for submitting the form.",
+            
+            
+            rawInlineMessage: "Thanks for submitting the form.",
+            
+            
+            hsFormKey: "d2edb212dbb6323829dfd741ab8d7c8b",
+            
+            
+            css: '',
+            target: '#hs_form_target_module_1540809879939172',
+            
+            
+            
+            
+            
+            
+            
+            contentType: "standard-page",
+            
+            
+            
+            formsBaseUrl: '/_hcms/forms/',
+            
+            
+            
+            formData: {
+                cssClass: 'hs-form stacked hs-custom-form'
+            }
+        };
+
+        options.getExtraMetaDataBeforeSubmit = function() {
+            var metadata = {};
+            
+
+            if (hbspt.targetedContentMetadata) {
+                var count = hbspt.targetedContentMetadata.length;
+                var targetedContentData = [];
+                for (var i = 0; i < count; i++) {
+                    var tc = hbspt.targetedContentMetadata[i];
+                     if ( tc.length !== 3) {
+                        continue;
+                     }
+                     targetedContentData.push({
+                        definitionId: tc[0],
+                        criterionId: tc[1],
+                        smartTypeId: tc[2]
+                     });
+                }
+                metadata["targetedContentMetadata"] = JSON.stringify(targetedContentData);
+            }
+
+            return metadata;
+        };
+
+        hbspt.forms.create(options);
+    </script>
+
+
+<!-- Start of HubSpot Analytics Code -->
+<script type="text/javascript">
+var _hsq = _hsq || [];
+_hsq.push(["setContentType", "standard-page"]);
+_hsq.push(["setCanonicalUrl", "https:\/\/www.iistech.com\/404"]);
+_hsq.push(["setPageId", ""]);
+_hsq.push(["setContentMetadata", {
+    "contentPageId": null,
+    "legacyPageId": null,
+    "contentFolderId": null,
+    "contentGroupId": null,
+    "abTestId": null,
+    "languageVariantId": null,
+    "languageCode": "en",
+    
+    
+}]);
+</script>
+
+<script type="text/javascript" id="hs-script-loader" async defer src="/hs/scriptloader/4956608.js"></script>
+<!-- End of HubSpot Analytics Code -->
+
+
+<script type="text/javascript">
+var hsVars = {
+    render_id: "ca3f6fd2-707b-4652-8443-4de4867617cf",
+    ticks: 1776195159551,
+    page_id: 0,
+    
+    content_group_id: 0,
+    portal_id: 4956608,
+    app_hs_base_url: "https://app.hubspot.com",
+    cp_hs_base_url: "https://cp.hubspot.com",
+    language: "en",
+    analytics_page_type: "standard-page",
+    scp_content_type: "",
+    
+    analytics_page_id: "null",
+    category_id: 1,
+    folder_id: 0,
+    is_hubspot_user: false
+}
+</script>
+
+
+<script defer src="/hs/hsstatic/HubspotToolsMenu/static-1.640/js/index.js"></script>
+
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-KHT9RBK" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+
+<style type="text/css">
+  .header__container-inner-wrapper .header__logo{margin:0p; padding:0px;}
+  .footer .footer__container .footer__top-section{padding-bottom:0px;}
+  .footer .footer__container .footer__top-section .footer__logo{margin-bottom:0px;}
+  
+  .footer .footer__container .footer__bottom-section{border-top:none!important;}
+  .footer .footer__container .footer__bottom-section .span3{width:49%; font-size:12px;}
+  .footer .footer__container .footer__bottom-section .span3 span{font-size:13px !important;}
+
+  .footer .footer__container .footer__bottom-section .span9{width:49%; font-size:12px; margin:0px!important;}
+  .footer .footer__container .footer__bottom-section .span9 div{text-align:right;}
+  .footer .footer__container .footer__bottom-section .span9 span {font-size:13px !important;}  
+
+  .footer .footer__container .footer__bottom-section .span9 span a{font-size:13px !important;}
+  .footer .footer__container{padding:18px 20px 0px!important;}
+    .footer .footer__container .footer__top-section, .footer .footer__container .footer__follow-me{display:none; visibility:hidden;}
+
+  @media (max-width: 767px) {
+  .footer .footer__container .footer__bottom-section .span3{width:100%; }
+
+  .footer .footer__container .footer__bottom-section .span9{width:100%;}
+  .footer .footer__container .footer__bottom-section .span9 div{text-align:center;}
+
+
+
+  
+  }
+
+
+
+</style>
+
+
+
+    
+    <!-- Generated by the HubSpot Template Builder - template version 1.03 -->
+
+</body></html>

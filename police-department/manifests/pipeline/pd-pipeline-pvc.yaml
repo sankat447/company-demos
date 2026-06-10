@@ -1,0 +1,20 @@
+# =============================================================================
+#  Workspace PVC shared between pipeline tasks. Holds the downloaded clip,
+#  extracted keyframes, transcript, detection JSON for the join task to read.
+#  ReadWriteMany is required because tasks run on different pods.
+# =============================================================================
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pd-pipeline-workspace
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  accessModes:
+  - ReadWriteMany
+  storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="Helvetica, Arial, sans-serif">
+  <!-- IIS Tech brand palette: #256092 primary blue, #3d4759 slate -->
+  <defs>
+    <linearGradient id="hdrG2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#256092"/>
+      <stop offset="100%" stop-color="#3d4759"/>
+    </linearGradient>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#256092"/>
+    </marker>
+    <marker id="arr2S" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3d4759"/>
+    </marker>
+    <filter id="sh2" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="720" fill="#f7f9fc"/>
+
+  <!-- Header -->
+  <rect x="0" y="0" width="1280" height="78" fill="url(#hdrG2)"/>
+  <text x="40" y="44" fill="#ffffff" font-size="24" font-weight="700">Police Department · CCTV Video Intelligence</text>
+  <text x="40" y="68" fill="#cbd5e1" font-size="14">Technical architecture — components and data flow on Red Hat OpenShift AI</text>
+  <text x="1240" y="50" fill="#ffffff" font-size="16" font-weight="700" text-anchor="end">IIS Technology</text>
+
+  <!-- OpenShift cluster boundary -->
+  <rect x="60" y="120" width="1180" height="525" rx="14" fill="#ffffff" stroke="#256092" stroke-width="2.5" stroke-dasharray="6 4"/>
+  <text x="80" y="146" fill="#256092" font-size="13" font-weight="700">OpenShift AI Cluster</text>
+  <text x="220" y="146" fill="#94a3b8" font-size="12">(KServe · Tekton · Knative · Istio mesh · pgvector)</text>
+
+  <!-- Investigator (top-right) -->
+  <g filter="url(#sh2)">
+    <rect x="1050" y="170" width="170" height="80" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="1135" y="195" text-anchor="middle" fill="#3d4759" font-size="13" font-weight="700">Investigator</text>
+    <text x="1135" y="213" text-anchor="middle" fill="#3d4759" font-size="11">browser · video player</text>
+    <text x="1135" y="231" text-anchor="middle" fill="#94a3b8" font-size="10">click timestamp → seek</text>
+    <text x="1135" y="245" text-anchor="middle" fill="#94a3b8" font-size="10">approve / escalate</text>
+  </g>
+
+  <!-- Route -->
+  <g filter="url(#sh2)">
+    <rect x="90" y="170" width="170" height="80" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="175" y="195" text-anchor="middle" fill="#3d4759" font-size="12" font-weight="700">OpenShift Route</text>
+    <text x="175" y="213" text-anchor="middle" fill="#94a3b8" font-size="10">edge TLS · Istio sidecar</text>
+    <text x="175" y="232" text-anchor="middle" fill="#94a3b8" font-size="10">https://pd-persona-…</text>
+  </g>
+
+  <!-- Persona Service -->
+  <g filter="url(#sh2)">
+    <rect x="290" y="170" width="200" height="80" rx="8" fill="#eef3fa" stroke="#256092" stroke-width="1.5"/>
+    <text x="390" y="194" text-anchor="middle" fill="#256092" font-size="13" font-weight="700">Persona Service</text>
+    <text x="390" y="212" text-anchor="middle" fill="#3d4759" font-size="11">FastAPI · 4 personas</text>
+    <text x="390" y="228" text-anchor="middle" fill="#3d4759" font-size="11">renders chat UI · serves /api/*</text>
+    <text x="390" y="244" text-anchor="middle" fill="#94a3b8" font-size="10">pd-personas namespace</text>
+  </g>
+
+  <!-- KServe predictor (top-right area inside cluster) -->
+  <g filter="url(#sh2)">
+    <rect x="540" y="170" width="240" height="80" rx="8" fill="#ffffff" stroke="#256092" stroke-width="1.5"/>
+    <text x="660" y="194" text-anchor="middle" fill="#256092" font-size="13" font-weight="700">KServe · vLLM</text>
+    <text x="660" y="212" text-anchor="middle" fill="#3d4759" font-size="11">Qwen-VL 7B (multimodal)</text>
+    <text x="660" y="228" text-anchor="middle" fill="#94a3b8" font-size="10">Knative scale-to-zero · GPU time-sliced</text>
+    <text x="660" y="244" text-anchor="middle" fill="#94a3b8" font-size="10">A10G 24 GB · 4 vGPUs</text>
+  </g>
+
+  <!-- MLflow (top-right) -->
+  <g filter="url(#sh2)">
+    <rect x="810" y="170" width="220" height="80" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5" stroke-dasharray="2 2"/>
+    <text x="920" y="194" text-anchor="middle" fill="#3d4759" font-size="13" font-weight="700">MLflow</text>
+    <text x="920" y="212" text-anchor="middle" fill="#3d4759" font-size="11">per-clip bundle.json</text>
+    <text x="920" y="228" text-anchor="middle" fill="#94a3b8" font-size="10">experiment tracking</text>
+    <text x="920" y="244" text-anchor="middle" fill="#94a3b8" font-size="10">rhoai-mlflow namespace</text>
+  </g>
+
+  <!-- Tekton pipeline panel -->
+  <g filter="url(#sh2)">
+    <rect x="90" y="285" width="1130" height="200" rx="10" fill="#ffffff" stroke="#256092" stroke-width="1.5"/>
+    <text x="105" y="307" fill="#256092" font-size="13" font-weight="700">Tekton perception pipeline · pd-cctv namespace · ~2–3 min/clip warm</text>
+    <text x="780" y="307" fill="#94a3b8" font-size="11">EFS RWX workspace · time-sliced GPU</text>
+
+    <!-- pull-clip -->
+    <rect x="105" y="325" width="120" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="165" y="346" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">pull-clip</text>
+    <text x="165" y="362" text-anchor="middle" fill="#94a3b8" font-size="10">S3 → EFS</text>
+    <text x="165" y="375" text-anchor="middle" fill="#94a3b8" font-size="10">~15s</text>
+
+    <!-- 4 parallel tasks (two columns × two rows) -->
+    <rect x="245" y="325" width="160" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="325" y="343" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">vlm-caption</text>
+    <text x="325" y="358" text-anchor="middle" fill="#94a3b8" font-size="10">scene narrative (vehicle,</text>
+    <text x="325" y="372" text-anchor="middle" fill="#94a3b8" font-size="10">suspects, action) · ~30–90s</text>
+
+    <rect x="245" y="385" width="160" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="325" y="403" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">whisper-asr</text>
+    <text x="325" y="418" text-anchor="middle" fill="#94a3b8" font-size="10">audio transcript</text>
+    <text x="325" y="432" text-anchor="middle" fill="#94a3b8" font-size="10">~30s · CPU</text>
+
+    <rect x="425" y="325" width="160" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="505" y="343" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">yolo-detect</text>
+    <text x="505" y="358" text-anchor="middle" fill="#94a3b8" font-size="10">objects &amp; persons</text>
+    <text x="505" y="372" text-anchor="middle" fill="#94a3b8" font-size="10">~30–60s · GPU</text>
+
+    <rect x="425" y="385" width="160" height="55" rx="6" fill="#ffffff" stroke="#3d4759"/>
+    <text x="505" y="403" text-anchor="middle" fill="#3d4759" font-size="11" font-weight="700">faces-and-plates</text>
+    <text x="505" y="418" text-anchor="middle" fill="#94a3b8" font-size="10">YOLOv8-face · easyOCR</text>
+    <text x="505" y="432" text-anchor="middle" fill="#94a3b8" font-size="10">~30–120s · GPU</text>
+
+    <!-- structure-and-write join -->
+    <rect x="615" y="355" width="200" height="60" rx="6" fill="#eef3fa" stroke="#256092"/>
+    <text x="715" y="375" text-anchor="middle" fill="#256092" font-size="11" font-weight="700">structure-and-write</text>
+    <text x="715" y="391" text-anchor="middle" fill="#94a3b8" font-size="10">BGE-small embed · pgvector insert</text>
+    <text x="715" y="404" text-anchor="middle" fill="#94a3b8" font-size="10">~25s</text>
+
+    <!-- Aurora pgvector inside the pipeline panel (right side) -->
+    <rect x="850" y="325" width="220" height="115" rx="8" fill="#eef3fa" stroke="#256092" stroke-width="1.5"/>
+    <text x="960" y="350" text-anchor="middle" fill="#256092" font-size="13" font-weight="700">Aurora · pgvector</text>
+    <text x="960" y="370" text-anchor="middle" fill="#3d4759" font-size="10">narrations · entities · events</text>
+    <text x="960" y="385" text-anchor="middle" fill="#3d4759" font-size="10">faces · plates · custody_log</text>
+    <text x="960" y="404" text-anchor="middle" fill="#94a3b8" font-size="10">RDS · 384-dim BGE embeddings</text>
+    <text x="960" y="421" text-anchor="middle" fill="#94a3b8" font-size="10">browse via CloudBeaver</text>
+    <text x="960" y="436" text-anchor="middle" fill="#94a3b8" font-size="10">(rhoai-tools)</text>
+
+    <!-- arrows: pull-clip fan-out -->
+    <line x1="225" y1="352" x2="245" y2="352" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <line x1="225" y1="352" x2="245" y2="412" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <line x1="225" y1="352" x2="425" y2="352" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <line x1="225" y1="352" x2="425" y2="412" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <!-- 4 tasks → structure-and-write -->
+    <line x1="585" y1="352" x2="615" y2="380" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <line x1="585" y1="412" x2="615" y2="390" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+    <!-- structure → Aurora -->
+    <line x1="815" y1="385" x2="850" y2="385" stroke="#3d4759" stroke-width="1.8" marker-end="url(#arr2S)"/>
+  </g>
+
+  <!-- vlm-caption invokes KServe (annotated dashed line) -->
+  <line x1="325" y1="325" x2="600" y2="250" stroke="#256092" stroke-width="1.2" stroke-dasharray="3 3"/>
+  <text x="430" y="290" font-size="10" fill="#94a3b8">vlm-caption → KServe predictor</text>
+
+  <!-- structure-and-write also pushes to MLflow -->
+  <line x1="815" y1="365" x2="900" y2="250" stroke="#3d4759" stroke-width="1" stroke-dasharray="2 2" marker-end="url(#arr2S)"/>
+
+  <!-- ─── Bottom row: S3, HITL Queue ──────────────────────────────────────── -->
+  <g filter="url(#sh2)">
+    <rect x="90" y="510" width="220" height="115" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="200" y="535" text-anchor="middle" fill="#3d4759" font-size="13" font-weight="700">S3 (data lake)</text>
+    <text x="200" y="557" text-anchor="middle" fill="#3d4759" font-size="10">clips/police-department/</text>
+    <text x="200" y="572" text-anchor="middle" fill="#3d4759" font-size="10">processed/police-department/</text>
+    <text x="200" y="587" text-anchor="middle" fill="#3d4759" font-size="10">models/police-department/</text>
+    <text x="200" y="606" text-anchor="middle" fill="#94a3b8" font-size="10">long-lived IAM, bucket-scoped</text>
+    <text x="200" y="620" text-anchor="middle" fill="#94a3b8" font-size="10">presigned video URLs</text>
+  </g>
+
+  <g filter="url(#sh2)">
+    <rect x="380" y="510" width="220" height="115" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="490" y="535" text-anchor="middle" fill="#3d4759" font-size="13" font-weight="700">HITL Queue</text>
+    <text x="490" y="557" text-anchor="middle" fill="#3d4759" font-size="10">Redis-parked answers</text>
+    <text x="490" y="572" text-anchor="middle" fill="#3d4759" font-size="10">human approve / escalate</text>
+    <text x="490" y="591" text-anchor="middle" fill="#94a3b8" font-size="10">Aurora AFTER INSERT triggers</text>
+    <text x="490" y="606" text-anchor="middle" fill="#94a3b8" font-size="10">→ custody_log (append-only)</text>
+    <text x="490" y="620" text-anchor="middle" fill="#94a3b8" font-size="10">claims with confidence</text>
+  </g>
+
+  <g filter="url(#sh2)">
+    <rect x="670" y="510" width="240" height="115" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="790" y="535" text-anchor="middle" fill="#3d4759" font-size="13" font-weight="700">GitOps · ArgoCD</text>
+    <text x="790" y="557" text-anchor="middle" fill="#3d4759" font-size="10">manifests/inference, pipeline,</text>
+    <text x="790" y="572" text-anchor="middle" fill="#3d4759" font-size="10">personas, hitl, monitoring</text>
+    <text x="790" y="591" text-anchor="middle" fill="#94a3b8" font-size="10">selfHeal=false on stateful</text>
+    <text x="790" y="606" text-anchor="middle" fill="#94a3b8" font-size="10">objects · Prune=false on</text>
+    <text x="790" y="620" text-anchor="middle" fill="#94a3b8" font-size="10">bootstrap-managed Secrets</text>
+  </g>
+
+  <g filter="url(#sh2)">
+    <rect x="980" y="510" width="240" height="115" rx="8" fill="#ffffff" stroke="#3d4759" stroke-width="1.5"/>
+    <text x="1100" y="535" text-anchor="middle" fill="#3d4759" font-size="13" font-weight="700">Monitoring</text>
+    <text x="1100" y="557" text-anchor="middle" fill="#3d4759" font-size="10">Prometheus rules · Grafana</text>
+    <text x="1100" y="572" text-anchor="middle" fill="#3d4759" font-size="10">GPU mutex enforcement</text>
+    <text x="1100" y="591" text-anchor="middle" fill="#94a3b8" font-size="10">Knative janitor (CronJob)</text>
+    <text x="1100" y="606" text-anchor="middle" fill="#94a3b8" font-size="10">prunes orphan revisions</text>
+    <text x="1100" y="620" text-anchor="middle" fill="#94a3b8" font-size="10">every 5 min</text>
+  </g>
+
+  <!-- Wires connecting bottom row -->
+  <line x1="200" y1="510" x2="200" y2="380" stroke="#3d4759" stroke-width="1.5" stroke-dasharray="3 2" marker-end="url(#arr2S)"/>
+  <text x="208" y="455" font-size="10" fill="#94a3b8">presigned GET for video player</text>
+  <line x1="490" y1="510" x2="490" y2="445" stroke="#3d4759" stroke-width="1.5" stroke-dasharray="3 2" marker-end="url(#arr2S)"/>
+
+  <!-- Operator/investigator wires -->
+  <line x1="260" y1="210" x2="290" y2="210" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+  <line x1="490" y1="210" x2="540" y2="210" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+  <line x1="1050" y1="210" x2="490" y2="210" stroke="#3d4759" stroke-width="1.5" marker-end="url(#arr2S)"/>
+
+  <!-- Footer -->
+  <rect x="0" y="660" width="1280" height="60" fill="#3d4759"/>
+  <text x="40" y="685" fill="#ffffff" font-size="12" font-weight="700">All compute, storage, and inference run inside the OpenShift cluster · Frames never leave the cluster · GitOps-managed</text>
+  <text x="40" y="705" fill="#cbd5e1" font-size="11">All persistent state in Aurora · S3 · MLflow · long-lived bucket-scoped IAM credentials · Knative scale-to-zero between clips</text>
+  <text x="1240" y="700" fill="#ffffff" font-size="12" font-weight="700" text-anchor="end">www.iistech.com</text>
+</svg>

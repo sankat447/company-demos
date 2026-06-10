@@ -1,0 +1,324 @@
+# =============================================================================
+#  Task — vlm-caption (mode-switchable: local Qwen-VL vs Anthropic Claude)
+#
+#  Two passes on the clip:
+#    1. extract-keyframes (ffmpeg) — sample N frames, scale to W px, JPEG.
+#       N and W come from pd-vlm-mode ConfigMap (or per-PipelineRun override).
+#    2. caption (Python) — base64-encode the frames, dispatch:
+#         mode=local              -> POST to in-cluster Qwen-VL InferenceService
+#                                    (cluster-internal Knative Route, no egress).
+#         mode=claude-multimodal  -> POST to api.anthropic.com Messages API with
+#                                    a forensic system prompt. The frames go
+#                                    out only at this single ingestion-time
+#                                    call; chat-time persona reasoning never
+#                                    re-sends them.
+#
+#  Output (both modes): caption.json wrapped in OpenAI chat-completion shape so
+#  the downstream structure-and-write task doesn't care which model produced
+#  the narrative. The inner content is the same {prose, entities, events,
+#  claims} JSON.
+#
+#  Mode resolution priority:
+#    1. PipelineRun param vlm-mode-override (set by per-upload UI checkbox).
+#    2. /etc/pd-vlm-mode/mode (ConfigMap default; flipped via UI dropdown
+#       or `oc patch cm pd-vlm-mode --type=merge -p '{"data":{"mode":...}}'`).
+#    3. "local".
+#
+#  GPU MUTEX (read this carefully):
+#    Both this service and llama-3-1-8b request nvidia.com/gpu: 1 (in local
+#    mode), and the GPU MachineSet has maxReplicas: 1. claude-multimodal mode
+#    needs no GPU at all — vlm-caption pod runs on any worker with internet.
+# =============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pd-task-vlm-caption
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-id
+    type: string
+  - name: vlm-mode-override
+    type: string
+    default: ""
+    description: |
+      "" (default) -> read mode from /etc/pd-vlm-mode/mode ConfigMap.
+      "local" -> force local Qwen-VL.
+      "claude-multimodal" -> force Anthropic Claude multimodal.
+      Set by the upload UI's "Deep analysis" checkbox per clip.
+  - name: frames-override
+    type: string
+    default: ""
+    description: |
+      Override the keyframe count from ConfigMap. Empty = use CM default
+      (16 for claude-multimodal, capped to 4 for local). Must be ≤ 30
+      (Anthropic Messages API has a 100-image hard cap; we keep margin).
+  workspaces:
+  - name: shared
+  steps:
+  - name: extract-keyframes
+    image: docker.io/jrottenberg/ffmpeg:6.1-alpine
+    volumeMounts:
+    - name: vlm-mode-cm
+      mountPath: /etc/pd-vlm-mode
+      readOnly: true
+    script: |
+      #!/bin/sh
+      set -eu
+      cd "$(workspaces.shared.path)/$(params.clip-id)"
+
+      # Effective mode: param override > ConfigMap > "local".
+      MODE="$(params.vlm-mode-override)"
+      [ -z "$MODE" ] && MODE="$(cat /etc/pd-vlm-mode/mode 2>/dev/null || echo local)"
+
+      # Effective frames + resolution + jpeg quality.
+      F_OVERRIDE="$(params.frames-override)"
+      F_CM="$(cat /etc/pd-vlm-mode/frames 2>/dev/null || echo 16)"
+      RES_CM="$(cat /etc/pd-vlm-mode/resolution 2>/dev/null || echo 1280)"
+      JPEG_CM="$(cat /etc/pd-vlm-mode/jpeg_quality 2>/dev/null || echo 2)"
+
+      if [ -n "$F_OVERRIDE" ]; then
+        FRAMES="$F_OVERRIDE"
+      else
+        FRAMES="$F_CM"
+      fi
+      # local mode caps at 4 (vLLM --limit-mm-per-prompt={"image":4}).
+      if [ "$MODE" = "local" ] && [ "$FRAMES" -gt 4 ] 2>/dev/null; then
+        FRAMES=4
+      fi
+      # claude-multimodal: stay well under the API's 100-image cap.
+      if [ "$MODE" = "claude-multimodal" ] && [ "$FRAMES" -gt 30 ] 2>/dev/null; then
+        FRAMES=30
+      fi
+
+      # Clear stale keyframes — the shared workspace is RWX EFS and persists
+      # across PipelineRuns. If a previous run extracted N=8 and we now
+      # extract N=4, the old frame_005..008.jpg would remain and the caption
+      # step's glob picks up too many.
+      rm -rf frames
+      mkdir -p frames
+
+      duration=$(ffprobe -v error -show_entries format=duration \
+                  -of default=noprint_wrappers=1:nokey=1 clip.mp4 | awk '{printf "%d", $1}')
+      [ "$duration" -lt 1 ] && duration=1
+      step=$(( duration / FRAMES ))
+      [ "$step" -lt 1 ] && step=1
+
+      echo "[extract-keyframes] mode=$MODE frames=$FRAMES res=${RES_CM} jpeg_q=${JPEG_CM} dur=${duration}s step=${step}s"
+      ffmpeg -hide_banner -loglevel error -i clip.mp4 \
+             -vf "fps=1/${step},scale=${RES_CM}:-1" \
+             -frames:v "$FRAMES" \
+             -q:v "$JPEG_CM" \
+             frames/frame_%03d.jpg
+      ls frames/
+      # Stash the resolved mode + frame count for the next step (env vars
+      # don't survive across Tekton steps, but workspace files do).
+      printf '%s\n' "$MODE" > .vlm-mode
+      printf '%s\n' "$FRAMES" > .vlm-frames
+
+  - name: caption
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    # Local Qwen-VL endpoint (Knative Route, OpenShift Router → activator → vLLM).
+    - name: VLM_ENDPOINT
+      value: "https://pd-qwen25-vl-7b-predictor-pd-cctv.apps.ai-demo.iisdemolab.click/v1/chat/completions"
+    - name: VLM_MODEL
+      value: "pd-qwen25-vl-7b"
+    # Anthropic API for claude-multimodal mode.
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: pd-anthropic-key
+          key: api_key
+          optional: true
+    - name: ANTHROPIC_MODEL
+      value: "claude-sonnet-4-5"
+    volumeMounts:
+    - name: vlm-mode-cm
+      mountPath: /etc/pd-vlm-mode
+      readOnly: true
+    script: |
+      #!/usr/bin/env python3
+      import base64, json, os, sys, glob, urllib.request, urllib.error, ssl
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      frames_dir = f"{workspace}/{clip_id}/frames"
+      out_path  = f"{workspace}/{clip_id}/caption.json"
+      mode_path = f"{workspace}/{clip_id}/.vlm-mode"
+      try:
+          mode = open(mode_path).read().strip()
+      except FileNotFoundError:
+          mode = "local"
+
+      images_b64 = []
+      for fp in sorted(glob.glob(f"{frames_dir}/*.jpg")):
+          with open(fp, "rb") as f:
+              images_b64.append(base64.b64encode(f.read()).decode("ascii"))
+      print(f"[caption] mode={mode} frames={len(images_b64)}")
+
+      _ctx = ssl.create_default_context()
+      _ctx.check_hostname = False
+      _ctx.verify_mode = ssl.CERT_NONE
+
+      # ── Forensic system prompt (used by both modes) ─────────────────
+      # Asks for the same JSON shape so structure-and-write doesn't care.
+      # Claude's reasoning is much richer over this prompt; Qwen-VL 7B
+      # ignores most of the analytical asks and produces a generic
+      # description, which is fine — the prompt floor doesn't hurt it.
+      SYSTEM_PROMPT = (
+          "You are a forensic CCTV analyst writing a post-incident report from a "
+          "short surveillance clip. The user is supplying you with chronologically "
+          "ordered keyframes (frame_001 = clip start, each subsequent frame is "
+          "evenly spaced through the clip duration).\n\n"
+          "Produce a STRICT JSON object with EXACTLY these keys, no preamble, no "
+          "code fence, no extra text:\n"
+          "  {\n"
+          "    \"summary\": \"<one short sentence, ≤20 words, describing the most distinctive observation in this clip — used as the clip-card preview in the UI. Lead with WHAT happens, not what's missing. Examples: 'Three masked subjects load a burgundy Jeep Grand Cherokee at a parking-lot loading dock.' / 'Routine pedestrian traffic through a transit station stairwell over ~8 minutes.' / 'Person walks across an empty lot; no other activity.'>\",\n"
+          "    \"prose\": \"<markdown narrative — see structure below>\",\n"
+          "    \"entities\": [{\"kind\": \"vehicle|person|object\", \"label\": \"<descriptor>\"}, ...],\n"
+          "    \"events\": [{\"action\": \"<verb phrase>\", \"t_start_sec\": <float>, \"t_end_sec\": <float>, \"confidence\": <0..1>}, ...]\n"
+          "  }\n\n"
+          "PROSE STRUCTURE (markdown, in this order):\n"
+          "## Vehicle\n"
+          "- make, model, generation/year if recognisable; color; condition; plate "
+          "(quote any visible characters even if partial); notable accessories or modifications.\n"
+          "## What Happened — Timeline\n"
+          "- Chronological narrative across the keyframes. **All timestamps must be "
+          "  CLIP-RELATIVE seconds with the `s` suffix** — e.g. '0.0s', '8.5s', '64s'. "
+          "  These are the only format the UI turns into clickable seek-pills. "
+          "  IF the video has a camera-overlay wall-clock (e.g. '10:40:40 AM' burned in), "
+          "  you MAY mention it in plain prose as context — but ONLY along with the "
+          "  clip-relative time, like 'at 8.5s (10:40:48 on the camera overlay)'. Never "
+          "  use a bare wall-clock timestamp as your primary marker, and never use "
+          "  `m:ss` or `hh:mm:ss` formats as anchors.\n"
+          "- Mention what each keyframe shows and what changes between consecutive frames.\n"
+          "## Suspects / People\n"
+          "- A markdown table with columns: # | Clothing | Build | Notes/Role.\n"
+          "  One row per distinguishable person. Cap masks/face coverings explicitly.\n"
+          "  Never assert identity; describe only what is visible.\n"
+          "## Crime Type / Pattern\n"
+          "- One sentence naming the apparent activity (e.g. 'smash-and-grab', "
+          "  'package theft', 'argument outside premises'). Include modus-operandi if obvious.\n"
+          "## Evidence Items Left Behind\n"
+          "- Bullet list of physical items visible in final frames that may have "
+          "  forensic value (discarded clothing, tools, vehicle parts, debris).\n\n"
+          "HARD RULES:\n"
+          "- Never invent named identities. Never infer race/religion/gender beyond "
+          "  what's plainly visible.\n"
+          "- If a section has no observable content, write 'Not visible in the supplied frames.' "
+          "  rather than inventing.\n"
+          "- claims[] (separate from prose) is for chat-time grounding — list 3-8 short "
+          "  factual claims the persona service can quote, each with a confidence (0..1) and a "
+          "  frame_refs list of clip-relative timestamps.\n"
+      )
+
+      # The events array drives the Aurora pd_cctv.events table; the
+      # entities array drives pd_cctv.entities; both feed downstream chat
+      # context. claims[] is consumed by the persona service only.
+      USER_TEXT = (
+          f"Clip {clip_id}. {len(images_b64)} keyframes follow in chronological order. "
+          "Produce the JSON-only narration as instructed."
+      )
+
+      def _do_local_qwen():
+          # OpenAI-compat chat-completion against in-cluster Qwen-VL.
+          payload = {
+              "model": os.environ["VLM_MODEL"],
+              "max_tokens": 2048,
+              "temperature": 0.2,
+              "messages": [
+                  {"role": "system", "content": SYSTEM_PROMPT},
+                  {"role": "user", "content":
+                      [{"type": "text", "text": USER_TEXT}] +
+                      [{"type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b}"}}
+                       for b in images_b64],
+                  },
+              ],
+          }
+          data = json.dumps(payload).encode()
+          req = urllib.request.Request(
+              os.environ["VLM_ENDPOINT"],
+              data=data,
+              headers={"content-type": "application/json"},
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=300, context=_ctx) as resp:
+              return json.loads(resp.read())
+
+      def _do_claude_multimodal():
+          # Anthropic Messages API. Wrap the response back into an
+          # OpenAI-compat shape so structure-and-write doesn't branch.
+          api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+          if not api_key:
+              raise RuntimeError("claude-multimodal mode requires "
+                                 "ANTHROPIC_API_KEY (Secret pd-anthropic-key)")
+          content = [{"type": "text", "text": USER_TEXT}]
+          for b in images_b64:
+              content.append({
+                  "type": "image",
+                  "source": {"type": "base64",
+                             "media_type": "image/jpeg",
+                             "data": b},
+              })
+          payload = {
+              "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
+              "max_tokens": 4096,
+              "temperature": 0.2,
+              "system": SYSTEM_PROMPT,
+              "messages": [{"role": "user", "content": content}],
+          }
+          req = urllib.request.Request(
+              "https://api.anthropic.com/v1/messages",
+              data=json.dumps(payload).encode(),
+              headers={
+                  "content-type": "application/json",
+                  "x-api-key": api_key,
+                  "anthropic-version": "2023-06-01",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=300, context=_ctx) as resp:
+              ant = json.loads(resp.read())
+          text = "".join(b.get("text", "") for b in ant.get("content", [])
+                         if b.get("type") == "text")
+          # Wrap in OpenAI chat-completion shape so structure-and-write
+          # parses it identically to the Qwen-VL response.
+          return {
+              "id": ant.get("id"),
+              "model": ant.get("model"),
+              "choices": [{"index": 0,
+                           "message": {"role": "assistant", "content": text}}],
+              "usage": ant.get("usage"),
+              "_pd_source": "anthropic-multimodal",
+          }
+
+      try:
+          if mode == "claude-multimodal":
+              result = _do_claude_multimodal()
+          else:
+              result = _do_local_qwen()
+      except urllib.error.HTTPError as e:
+          body = e.read().decode("utf-8", "replace") if hasattr(e, "read") else str(e)
+          print(f"[caption] HTTP {e.code}: {body}", file=sys.stderr)
+          raise
+
+      with open(out_path, "w") as f:
+          json.dump(result, f)
+      print(f"[caption] wrote {out_path} ({os.path.getsize(out_path)} bytes)")
+    computeResources:
+      requests:
+        cpu: "100m"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+  volumes:
+  - name: vlm-mode-cm
+    configMap:
+      name: pd-vlm-mode
+      optional: true

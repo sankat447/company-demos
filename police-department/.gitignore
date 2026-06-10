@@ -1,0 +1,34 @@
+# Local-only artifacts
+.env
+.env.*
+# Keep committed templates (operators copy these to the real names)
+!.env.example
+!.env.demo.example
+!.env.*.example
+*.tar
+*.tar.gz
+*.zip
+
+# Smoke / test outputs
+.smoke-report.md
+.coverage
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Terraform local state (police-department/terraform/ is reference-only;
+# any actual tf state from experimentation should not be committed)
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfvars
+
+# Sample clips that operators upload locally
+tests/samples/*.mp4
+tests/samples/*.mov
+tests/samples/*.avi
+!tests/samples/README.md
+
+# Docker build cache
+personas/.docker-build-cache

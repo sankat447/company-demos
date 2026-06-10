@@ -1,2 +1,17 @@
 .DS_Store
 **/.DS_Store
+
+# Terraform — NEVER commit these
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+tfplan
+
+# Demo credentials — NEVER commit; .env.demo.example is the committed template
+police-department/scripts/.env.demo
+police-department/scripts/.env.demo.local
+**/.env.demo
+**/.env.demo.local

@@ -1,0 +1,89 @@
+# =============================================================================
+#  pd-results-prune CronJob
+#
+#  Tekton Results (the cluster's archival layer for PipelineRun history)
+#  keeps every run forever by default. During the demo's testing phase that
+#  pollutes the OpenShift Pipelines console with hours of stale rows that
+#  oc get pipelinerun no longer shows. This CronJob purges archived
+#  pd-cctv rows older than 20 minutes every 5 minutes.
+#
+#  Live runs (<20m old) keep their archived row so the console can still
+#  show progress. Anything older was a finished or timed-out run from a
+#  prior iteration and should not appear in the console anymore.
+#
+#  Once the demo is stable, replace this with the operator-level retention
+#  policy on tekton-results-config-results-retention-policy and let the
+#  retention agent do the same job cluster-wide. This CronJob is the
+#  "while we're iterating" knob.
+# =============================================================================
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pd-results-prune-creds
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+  annotations:
+    # ArgoCD selfHeal must NOT clear these — they are populated by
+    # bootstrap from the openshift-pipelines/tekton-results-postgres Secret.
+    argocd.argoproj.io/sync-options: ServerSideApply=true
+type: Opaque
+# Empty stringData — the bootstrap step populates this. See
+# bootstrap/01_secrets.sh.
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pd-results-prune
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  schedule: "*/5 * * * *"           # every 5 minutes
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: prune
+            image: docker.io/library/postgres:16
+            command: ["/bin/bash", "-c"]
+            args:
+            - |
+              set -euo pipefail
+              export PGHOST="tekton-results-postgres-service.openshift-pipelines.svc.cluster.local"
+              export PGPORT="5432"
+              export PGDATABASE="tekton-results"
+              psql -v ON_ERROR_STOP=1 <<'SQL'
+                BEGIN;
+                -- Purge archive rows older than 20 minutes for pd-cctv only.
+                DELETE FROM records
+                  WHERE parent = 'pd-cctv'
+                    AND created_time < NOW() - INTERVAL '20 minutes';
+                DELETE FROM results
+                  WHERE parent = 'pd-cctv'
+                    AND created_time < NOW() - INTERVAL '20 minutes';
+                COMMIT;
+                SELECT 'records remaining: ' || count(*) FROM records WHERE parent='pd-cctv';
+                SELECT 'results remaining: ' || count(*) FROM results WHERE parent='pd-cctv';
+              SQL
+            env:
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: pd-results-prune-creds
+                  key: user
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pd-results-prune-creds
+                  key: password
+            resources:
+              requests: { cpu: "10m",  memory: "32Mi" }
+              limits:   { cpu: "200m", memory: "128Mi" }

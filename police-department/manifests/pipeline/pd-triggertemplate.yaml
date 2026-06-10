@@ -1,0 +1,86 @@
+# =============================================================================
+#  pd-perception TriggerTemplate
+#  Materializes a PipelineRun with parameters bound from the incoming event.
+# =============================================================================
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: pd-perception-tt
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-s3-uri
+    description: s3://... URI of the clip
+  - name: clip-id
+    description: UUID for this clip
+  - name: uploaded-by
+    default: "s3-watcher"
+  - name: vlm-mode-override
+    description: |
+      Optional per-PipelineRun override of the pd-vlm-mode ConfigMap.
+      Empty string = inherit ConfigMap default (recommended for the
+      S3-watcher path). The UI sets this to "claude-multimodal" only
+      when the operator ticks the "Deep analysis" checkbox.
+    default: ""
+  - name: vlm-frames-override
+    description: Per-PipelineRun keyframe-count override; empty = ConfigMap default.
+    default: ""
+  resourcetemplates:
+  - apiVersion: tekton.dev/v1
+    kind: PipelineRun
+    metadata:
+      generateName: pd-perception-
+      namespace: pd-cctv
+      labels:
+        app.kubernetes.io/part-of: police-department
+        pd.cctv/clip-id: $(tt.params.clip-id)
+      # NOTE: The annotation `pipeline.tekton.dev/affinity-assistant: disabled`
+      # does NOT disable the assistant — Tekton interprets it as "use an
+      # assistant instance named 'disabled'" and emits a broken podAffinity
+      # rule that prevents pod scheduling. The actual disable is via the
+      # cluster-level TektonConfig:
+      #   oc patch tektonconfig config --type=merge -p \
+      #     '{"spec":{"pipeline":{"coschedule":"disabled"}}}'
+      # The Tekton operator then sets disable-affinity-assistant=true and
+      # coschedule=disabled in the openshift-pipelines/feature-flags
+      # ConfigMap. Restart the controller pod to pick up the change.
+    spec:
+      pipelineRef:
+        name: pd-perception
+      serviceAccountName: pd-pipeline-sa
+      # Toleration for the GPU node taint nvidia.com/gpu=present:NoSchedule.
+      # Applies to ALL task pods; only those requesting nvidia.com/gpu will
+      # actually schedule on the GPU node — tasks without the request still
+      # get placed on CPU workers by the scheduler.
+      taskRunTemplate:
+        podTemplate:
+          tolerations:
+          - key: nvidia.com/gpu
+            operator: Exists
+            effect: NoSchedule
+      timeouts:
+        # 20m was too tight for real 10-min CCTV clips: whisper-asr is
+        # roughly real-time on CPU, faces-and-plates downloads ~50 MB of
+        # easyocr models on first run, and structure-and-write embeds the
+        # narration with sentence-transformers. 60m gives comfortable
+        # headroom for the synthetic test clips (~3 min) and for real
+        # 10-15 min uploads.
+        pipeline: "60m"
+      params:
+      - name: clip-s3-uri
+        value: $(tt.params.clip-s3-uri)
+      - name: clip-id
+        value: $(tt.params.clip-id)
+      - name: uploaded-by
+        value: $(tt.params.uploaded-by)
+      - name: vlm-mode-override
+        value: $(tt.params.vlm-mode-override)
+      - name: vlm-frames-override
+        value: $(tt.params.vlm-frames-override)
+      workspaces:
+      - name: shared
+        persistentVolumeClaim:
+          claimName: pd-pipeline-workspace

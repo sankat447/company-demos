@@ -1,0 +1,27 @@
+# =============================================================================
+#  Dedicated Route to the HITL queue page.
+#  Same Service as /chat (the FastAPI app serves both), but a path-rewriting
+#  Route gives operators a clean URL: pd-hitl-...apps.<cluster>/queue
+# =============================================================================
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: pd-hitl
+  namespace: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+    app.kubernetes.io/component: hitl
+  annotations:
+    haproxy.router.openshift.io/timeout: "60s"
+    haproxy.router.openshift.io/rewrite-target: "/hitl"
+spec:
+  path: /
+  to:
+    kind: Service
+    name: pd-persona
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

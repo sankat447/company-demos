@@ -1,0 +1,246 @@
+# =============================================================================
+#  Task — faces-and-plates (CPU-only, parallel with vlm-caption + whisper-asr +
+#  yolo-detect).
+#
+#  Runs two passes on the same frame stream:
+#    1. Face detection — YOLOv8n-face (community model, single .pt download
+#       on first run; bundled if Tekton workspace caches the file).
+#    2. License-plate OCR — easyocr on full frame crops; we filter detections
+#       to plate-shaped boxes (4:1–6:1 aspect) and emit text + confidence.
+#
+#  Outputs (placed alongside detections.json on the shared workspace):
+#    - faces.json:  [{frame_idx, ts_sec, bbox, confidence}, ...]
+#    - plates.json: [{frame_idx, ts_sec, bbox, text, confidence}, ...]
+#
+#  Why one task and not two: cv2.VideoCapture iteration is the dominant
+#  cost; running it once and feeding two detectors is cheaper than reading
+#  the file twice. Both detectors share the same `stride` parameter.
+#
+#  Cost note: easyocr's first run pulls ~50MB of detection + recognition
+#  weights from its CDN — done once per pod, persists in the workspace if
+#  cached at /workspace/easyocr-cache.
+# =============================================================================
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: pd-task-faces-and-plates
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  params:
+  - name: clip-id
+    type: string
+  - name: stride
+    type: string
+    default: "30"
+    description: Run face/plate detection every Nth frame (30 = ~1 fps for 30fps source)
+  workspaces:
+  - name: shared
+  steps:
+  - name: extract
+    # GPU image: same ultralytics + carries CUDA stack. easyocr inside picks
+    # up CUDA when gpu=True is passed to Reader().
+    image: docker.io/ultralytics/ultralytics:8.3.0
+    env:
+    # Reach our own S3 bucket for the bundled face model — same creds the
+    # other Tekton tasks use (refreshed every ~12h with SSO STS).
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom:
+        secretKeyRef: { name: pd-s3-creds, key: access_key_id }
+    - name: AWS_SECRET_ACCESS_KEY
+      valueFrom:
+        secretKeyRef: { name: pd-s3-creds, key: secret_access_key }
+    - name: AWS_SESSION_TOKEN
+      valueFrom:
+        secretKeyRef: { name: pd-s3-creds, key: session_token, optional: true }
+    - name: AWS_REGION
+      valueFrom:
+        secretKeyRef: { name: pd-s3-creds, key: region, optional: true }
+    command: ["/bin/bash", "-c"]
+    args:
+    - |
+      set -euo pipefail
+      cd "$(workspaces.shared.path)/$(params.clip-id)"
+
+      # Workspace-wide cache (RWX EFS PVC) — populated once, reused by
+      # every PipelineRun. Saves ~60 s of easyocr model download per run
+      # plus avoids re-fetching yolov8n-face.pt.
+      WS_CACHE="$(workspaces.shared.path)/.cache"
+      mkdir -p "$WS_CACHE/models" "$WS_CACHE/easyocr"
+
+      # Install easyocr lazily (~50 MB wheel + model on first run). The
+      # ultralytics image already has cv2, numpy, torch.
+      pip install --quiet --no-input "easyocr==1.7.2" || {
+        echo "[faces-plates] easyocr install failed — writing empty plates.json and continuing"
+        echo '{"frames_total":0,"stride":30,"plates":[]}' > plates.json
+        SKIP_OCR=1
+      }
+
+      # yolov8n-face.pt — bundled in our own S3 bucket. Cache to the RWX
+      # workspace volume so subsequent runs hit local disk. Export so the
+      # python subprocess below can read it via os.environ.
+      export FACE_MODEL="$WS_CACHE/models/yolov8n-face.pt"
+      if [ ! -s "$FACE_MODEL" ]; then
+        echo "[faces-plates] fetching yolov8n-face.pt from s3..."
+        pip install --quiet --no-input "boto3" 2>/dev/null || true
+        python3 - <<'PY'
+      import os, boto3
+      from botocore.exceptions import BotoCoreError, ClientError
+      s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+      try:
+          s3.download_file(
+              "ai-demo-data-lake",
+              "models/police-department/yolov8n-face.pt",
+              os.environ["FACE_MODEL"],
+          )
+          size = os.path.getsize(os.environ["FACE_MODEL"])
+          print(f"[faces-plates] cached yolov8n-face.pt ({size} bytes)")
+      except (BotoCoreError, ClientError) as e:
+          print(f"[faces-plates] face model fetch failed: {e} — heuristic mode")
+      PY
+      fi
+      # Symlink the cached file into the working dir so the python loader
+      # below picks it up at the expected name.
+      if [ -s "$FACE_MODEL" ]; then
+        ln -sf "$FACE_MODEL" yolov8n-face.pt
+      fi
+
+      # Pass the workspace cache dir into the python script so easyocr
+      # writes its model weights there instead of the per-clip dir.
+      export EASYOCR_CACHE="$WS_CACHE/easyocr"
+
+      python3 - <<'PY'
+      import json, os, math
+      import cv2
+      import numpy as np
+      import torch
+      from ultralytics import YOLO
+
+      stride = int(os.environ.get("STRIDE", "30"))
+      skip_ocr = bool(os.environ.get("SKIP_OCR"))
+      device = "cuda" if torch.cuda.is_available() else "cpu"
+      print(f"[faces-plates] device={device} torch.cuda.device_count={torch.cuda.device_count()}")
+
+      # Face detector. yolov8n-face is a community-trained head; we fall
+      # back to the generic yolov8n + person class top-1/3 heuristic if
+      # the face model isn't reachable.
+      try:
+          face_model = YOLO("yolov8n-face.pt")
+          face_model.to(device)
+          face_mode = "yolov8n-face"
+      except Exception as e:
+          print(f"[faces-plates] yolov8n-face unavailable ({e}); falling back to person-bbox heuristic")
+          face_model = YOLO("yolov8n.pt")
+          face_model.to(device)
+          face_mode = "person-heuristic"
+
+      reader = None
+      if not skip_ocr:
+          try:
+              import easyocr
+              # Cache models on the workspace PVC (RWX EFS) so subsequent
+              # runs reuse the ~50 MB detection + recognition weights.
+              easyocr_cache = os.environ.get("EASYOCR_CACHE", "./easyocr-cache")
+              os.makedirs(easyocr_cache, exist_ok=True)
+              reader = easyocr.Reader(["en"], gpu=(device=="cuda"), verbose=False,
+                                      model_storage_directory=easyocr_cache,
+                                      download_enabled=True)
+          except Exception as e:
+              print(f"[faces-plates] easyocr init failed: {e}")
+              reader = None
+
+      cap = cv2.VideoCapture("clip.mp4")
+      fps = cap.get(cv2.CAP_PROP_FPS) or 30
+      faces, plates = [], []
+      idx = 0
+      processed = 0
+      while True:
+          ok, frame = cap.read()
+          if not ok:
+              break
+          if idx % stride == 0:
+              ts = round(idx / fps, 3)
+              # ── Faces ───────────────────────────────────────────────
+              fr = face_model(frame, verbose=False)[0]
+              for box, conf, cls in zip(
+                  fr.boxes.xyxy.cpu().numpy().tolist(),
+                  fr.boxes.conf.cpu().numpy().tolist(),
+                  fr.boxes.cls.cpu().numpy().astype(int).tolist(),
+              ):
+                  if face_mode == "person-heuristic":
+                      # Only keep "person" class (id 0 in COCO) and reduce
+                      # bbox to top 1/3 ≈ head region.
+                      if cls != 0:
+                          continue
+                      x1, y1, x2, y2 = box
+                      h = y2 - y1
+                      box = [x1, y1, x2, y1 + h / 3.0]
+                  faces.append({
+                      "frame_idx": int(idx), "ts_sec": float(ts),
+                      "bbox": [round(float(v), 1) for v in box],
+                      "confidence": round(float(conf), 3),
+                      "source": face_mode,
+                  })
+              # ── Plates (OCR) ────────────────────────────────────────
+              if reader is not None:
+                  try:
+                      results = reader.readtext(frame, detail=1, paragraph=False)
+                  except Exception as e:
+                      print(f"[faces-plates] easyocr.readtext failed at frame {idx}: {e}")
+                      results = []
+                  for poly, text, conf in results:
+                      if conf < 0.45:
+                          continue
+                      # Normalize quad to axis-aligned bbox
+                      xs = [p[0] for p in poly]; ys = [p[1] for p in poly]
+                      x1, x2 = min(xs), max(xs); y1, y2 = min(ys), max(ys)
+                      w, h = x2 - x1, y2 - y1
+                      if h <= 0 or w <= 0:
+                          continue
+                      ar = w / h
+                      # Plates are wider than tall; filter out short
+                      # bursts of text and over-square chunks of paragraph.
+                      if ar < 2.5 or ar > 7.0:
+                          continue
+                      norm = "".join(ch for ch in text.upper() if ch.isalnum() or ch == "-")
+                      if len(norm) < 4 or len(norm) > 10:
+                          continue
+                      plates.append({
+                          "frame_idx": int(idx), "ts_sec": float(ts),
+                          "bbox": [round(float(x1), 1), round(float(y1), 1),
+                                   round(float(x2), 1), round(float(y2), 1)],
+                          "text": str(norm),
+                          "confidence": round(float(conf), 3),
+                      })
+              processed += 1
+          idx += 1
+      cap.release()
+
+      # Coerce all numeric scalars to native Python — easyocr / cv2.cap.get
+      # return numpy types (int32, float64) that json.dump rejects.
+      with open("faces.json", "w") as f:
+          json.dump({"frames_total": int(idx), "stride": int(stride),
+                     "fps": float(fps), "face_mode": face_mode,
+                     "faces": faces}, f)
+      with open("plates.json", "w") as f:
+          json.dump({"frames_total": int(idx), "stride": int(stride),
+                     "fps": float(fps), "ocr_enabled": reader is not None,
+                     "plates": plates}, f)
+      print(f"[faces-plates] processed {processed} frames "
+            f"(every {stride}, mode={face_mode}); "
+            f"faces={len(faces)} plates={len(plates)}")
+      PY
+    env:
+    - name: STRIDE
+      value: $(params.stride)
+    computeResources:
+      requests:
+        cpu: "25m"
+        memory: "1Gi"
+        nvidia.com/gpu: "1"
+      limits:
+        cpu: "4"
+        memory: "6Gi"
+        nvidia.com/gpu: "1"

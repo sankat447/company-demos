@@ -1,0 +1,51 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pd-personas
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sankat447/company-demos
+    targetRevision: feature/police-department-v1
+    path: police-department/manifests/personas
+    directory:
+      include: "pd-*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pd-personas
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=false
+    - ServerSideApply=true
+  # Sensitive Secrets (pd-aurora-credentials, pd-portkey-key) are NOT in
+  # the git source — bootstrap/01_secrets.sh creates them with the
+  # argocd.argoproj.io/sync-options=Prune=false annotation so ArgoCD
+  # won't manage them. Same out-of-band pattern as pd-anthropic-key.
+  # Earlier we kept stubs in git with /data ignoreDifferences, but the
+  # ServerSideApply syncOption combined with selfHeal=true still blanked
+  # the values on the very first reconcile after each pd-personas spec
+  # generation; removing the manifest entirely is the durable fix.
+  ignoreDifferences:
+    # pd-s3-creds IS in git (no real secret in cluster otherwise) and
+    # gets re-stamped at session start with fresh STS, so /data still
+    # needs to be ignored.
+    - group: ""
+      kind: Secret
+      name: pd-s3-creds
+      namespace: pd-personas
+      jsonPointers:
+        - /data
+    # pd-llm-mode used to be a git-tracked ConfigMap with /data ignored
+    # here, but the same ServerSideApply + selfHeal race that hit
+    # pd-aurora-credentials reverted it back to "mock" mid-demo. Removed
+    # from git (manifests/personas/pd-llm-mode-configmap.yaml deleted)
+    # and the live cluster CMs are annotated argocd.../sync-options=Prune=false
+    # so this Application no longer touches them. Bootstrap (or the UI's
+    # /api/mode endpoint) is the canonical way to set the value.

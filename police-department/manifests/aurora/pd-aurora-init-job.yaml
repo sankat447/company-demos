@@ -1,0 +1,80 @@
+# =============================================================================
+#  pd-aurora-init Job — applies pd_cctv schema to the existing Aurora DB.
+#
+#  Pattern mirrored from ai-demo-stack-aws/gitops/jobs/pgvector-init.yaml:
+#    - PostSync hook (runs after the schema ConfigMap exists)
+#    - HookSucceeded delete policy (cleans itself up on success)
+#    - Reads endpoint + password from a Secret (pd-aurora-credentials)
+#    - postgres:16 image with psql
+#
+#  Idempotent: every SQL file uses IF NOT EXISTS / OR REPLACE / ON CONFLICT.
+#  --single-transaction --set ON_ERROR_STOP=on guarantees all-or-nothing apply.
+# =============================================================================
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pd-aurora-init
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: police-department
+        app.kubernetes.io/component: aurora-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: psql
+        image: docker.io/library/postgres:16
+        env:
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: endpoint
+        - name: PGDATABASE
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: database
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pd-aurora-credentials
+              key: password
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          echo "[pd-aurora-init] applying pd_cctv schema to ${PGHOST}/${PGDATABASE}..."
+          for f in /sql/01_schema.sql /sql/02_tables.sql /sql/03_indexes.sql \
+                   /sql/04_triggers_custody.sql /sql/05_views.sql /sql/06_seed.sql \
+                   /sql/07_faces_plates.sql /sql/08_operator_corrections.sql; do
+            echo "[pd-aurora-init] >> $f"
+            psql --single-transaction --set ON_ERROR_STOP=on -f "$f"
+          done
+          echo "[pd-aurora-init] verifying tables..."
+          psql -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='pd_cctv';" \
+            | tee /tmp/table_count.txt
+          test "$(cat /tmp/table_count.txt)" -ge 8
+          echo "[pd-aurora-init] done."
+        volumeMounts:
+        - name: sql
+          mountPath: /sql
+          readOnly: true
+      volumes:
+      - name: sql
+        configMap:
+          name: pd-aurora-schema

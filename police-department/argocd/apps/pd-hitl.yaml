@@ -1,0 +1,26 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pd-hitl
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sankat447/company-demos
+    targetRevision: feature/police-department-v1
+    path: police-department/manifests/hitl
+    directory:
+      include: "pd-*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pd-personas
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=false
+    - ServerSideApply=true

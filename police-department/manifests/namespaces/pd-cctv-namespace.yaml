@@ -1,0 +1,30 @@
+# =============================================================================
+#  Namespace: pd-cctv
+#  Houses inference (Qwen2.5-VL), Tekton pipeline runs, S3 watcher CronJob,
+#  and the Aurora schema-init Job. Joined to the platform Service Mesh via a
+#  per-namespace ServiceMeshMember resource (NOT by editing the platform's
+#  ServiceMeshMemberRoll).
+# =============================================================================
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+    app.kubernetes.io/component: cctv-pipeline
+    istio-injection: enabled
+    opendatahub.io/dashboard: "true"
+  annotations:
+    openshift.io/display-name: "Police Department — CCTV"
+    openshift.io/description: "Multimodal video-intelligence pipeline (police-department demo)"
+---
+apiVersion: maistra.io/v1
+kind: ServiceMeshMember
+metadata:
+  name: default
+  namespace: pd-cctv
+spec:
+  controlPlaneRef:
+    name: data-science-smcp
+    namespace: istio-system

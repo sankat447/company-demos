@@ -1,0 +1,26 @@
+# =============================================================================
+#  pd-kserve-sa — ServiceAccount that lets the KServe storage-initializer
+#  pull the model from S3.
+#
+#  KServe v0.13 storage-initializer recognises a Secret-style S3 credential
+#  by attaching a Secret to the ServiceAccount referenced by the predictor.
+#  The Secret carries:
+#    - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (long-lived IAM user keys
+#      ONLY — KServe does not honour AWS_SESSION_TOKEN, so SSO/STS temp
+#      creds will not work for the storage-initializer path)
+#    - KServe S3 annotations (s3-endpoint, s3-region, s3-usehttps, etc.)
+#
+#  The Secret is created out-of-band by bootstrap/01_secrets.sh so the IAM
+#  key never lands in git. The SA + reference live here so ArgoCD adopts
+#  the wiring (otherwise ArgoCD selfHeal reverts in-cluster patches).
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pd-kserve-sa
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+secrets:
+- name: pd-kserve-s3-creds

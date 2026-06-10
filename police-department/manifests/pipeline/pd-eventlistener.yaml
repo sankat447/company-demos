@@ -1,0 +1,42 @@
+# =============================================================================
+#  pd-perception EventListener
+#  Receives JSON payloads (POST) at the in-cluster Service URL and (via
+#  Tekton Triggers) creates a PipelineRun. Exposed externally via a Route
+#  for any out-of-cluster source (the in-cluster CronJob in Phase 6 uses
+#  the cluster-internal Service URL directly).
+# =============================================================================
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: pd-perception
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  serviceAccountName: pd-eventlistener-sa
+  triggers:
+  - name: clip-uploaded
+    bindings:
+    - ref: pd-perception-tb
+    template:
+      ref: pd-perception-tt
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: pd-perception-el
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+  annotations:
+    haproxy.router.openshift.io/timeout: "120s"
+spec:
+  to:
+    kind: Service
+    name: el-pd-perception
+  port:
+    targetPort: http-listener
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

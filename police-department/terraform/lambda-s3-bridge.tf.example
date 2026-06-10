@@ -1,0 +1,120 @@
+#####
+# REFERENCE-ONLY Terraform — NOT applied by default.
+#
+# Optional upgrade path: AWS Lambda + S3 EventBridge rule that converts
+# `s3://ai-demo-data-lake/clips/police-department/*` ObjectCreated events
+# into HTTP POSTs to the Tekton EventListener Route.
+#
+# Rename this file to `lambda-s3-bridge.tf` and follow `README.md` to apply.
+#
+# This file is intentionally NOT applied: the cluster's in-cluster CronJob
+# (`manifests/pipeline/pd-s3-watcher-cronjob.yaml`) handles bridging by
+# default. This Lambda is provided as documentation for customers needing
+# sub-second triggering.
+#####
+
+terraform {
+  required_version = ">= 1.6"
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 5.50" }
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+variable "aws_region" {
+  type    = string
+  default = "us-east-1"
+}
+
+variable "eventlistener_url" {
+  type        = string
+  description = "Public URL of the Tekton EventListener Route (https://pd-perception-el-...)"
+}
+
+variable "data_lake_bucket" {
+  type    = string
+  default = "ai-demo-data-lake"
+}
+
+variable "clip_prefix" {
+  type    = string
+  default = "clips/police-department/"
+}
+
+#####
+# IAM
+#####
+resource "aws_iam_role" "pd_lambda_role" {
+  name = "pd-cctv-s3-bridge-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "logs" {
+  role       = aws_iam_role.pd_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+#####
+# Lambda
+#####
+data "archive_file" "fn" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda-src"
+  output_path = "${path.module}/.build/pd-s3-bridge.zip"
+}
+
+resource "aws_lambda_function" "pd_s3_bridge" {
+  function_name    = "pd-cctv-s3-bridge"
+  role             = aws_iam_role.pd_lambda_role.arn
+  filename         = data.archive_file.fn.output_path
+  source_code_hash = data.archive_file.fn.output_base64sha256
+  runtime          = "python3.12"
+  handler          = "main.handler"
+  timeout          = 30
+
+  environment {
+    variables = {
+      EL_URL = var.eventlistener_url
+    }
+  }
+
+  tags = {
+    "app.kubernetes.io/part-of" = "police-department"
+    "demo"                       = "police-department"
+  }
+}
+
+#####
+# S3 -> Lambda notification
+#####
+resource "aws_lambda_permission" "allow_s3" {
+  statement_id  = "AllowExecutionFromS3"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.pd_s3_bridge.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = "arn:aws:s3:::${var.data_lake_bucket}"
+}
+
+resource "aws_s3_bucket_notification" "clip_uploads" {
+  bucket = var.data_lake_bucket
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.pd_s3_bridge.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = var.clip_prefix
+  }
+  depends_on = [aws_lambda_permission.allow_s3]
+}
+
+output "lambda_arn" {
+  value = aws_lambda_function.pd_s3_bridge.arn
+}

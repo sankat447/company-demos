@@ -1,0 +1,49 @@
+From: Police-Department demo handoff <noreply@anthropic.com>
+Subject: [PATCH] fix(inference): pin vllm-runtime to rhoai-2.25-cuda
+
+quay.io retired the bare rhoai-2.16 tag (HEAD https://quay.io/v2/modh/
+vllm/manifests/rhoai-2.16 -> 404). The replacement publishes per-
+accelerator variants; rhoai-2.25-cuda matches the RHOAI 2.25.x operator
+running on the ai-demo cluster's NVIDIA T4 GPU. Without this fix,
+llama-3-1-8b InferenceService stays Failed at revision creation, and
+every downstream consumer (Open WebUI chat, langchain server, the
+police-department demo's persona service) hits 503.
+
+The same one-line change has already shipped on the police-department
+demo's parallel ServingRuntime in pd-cctv as commit aabbf69 of
+sankat447/company-demos (feature/police-department-v1).
+
+To apply against ai-demo-stack-aws main:
+  cd /Users/sanjeevkumar/GitHub/ai-demo-stack-aws
+  git checkout -b fix/vllm-runtime-rhoai-2.25-cuda
+  git apply /Users/sanjeevkumar/GitHub/company-demos/police-department/docs/platform-vllm-runtime-rhoai-2.25-cuda.patch
+  git add gitops/config/inference/vllm-servingruntime.yaml
+  git commit -m "fix(inference): pin vllm-runtime to rhoai-2.25-cuda"
+  git push -u origin fix/vllm-runtime-rhoai-2.25-cuda
+  gh pr create --base main \
+    --title "fix(inference): pin vllm-runtime to rhoai-2.25-cuda" \
+    --body-file police-department/docs/PLATFORM_PR_PREP_vllm_image.md
+
+---
+ gitops/config/inference/vllm-servingruntime.yaml | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/gitops/config/inference/vllm-servingruntime.yaml b/gitops/config/inference/vllm-servingruntime.yaml
+index 0000000..0000001 100644
+--- a/gitops/config/inference/vllm-servingruntime.yaml
++++ b/gitops/config/inference/vllm-servingruntime.yaml
+@@ -23,7 +23,11 @@ spec:
+     autoSelect: true
+   containers:
+   - name: kserve-container
+-    image: quay.io/modh/vllm:rhoai-2.16
++    # quay.io retired the bare rhoai-2.16 tag and now publishes per-accelerator
++    # variants. rhoai-2.25-cuda matches the RHOAI 2.25.x operator on this
++    # cluster's NVIDIA T4 GPU; the bare tag is no longer pullable (HTTP 404).
++    # Bump in lockstep with RHOAI operator upgrades.
++    image: quay.io/modh/vllm:rhoai-2.25-cuda
+     command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+     args:
+     - "--port=8080"
+--
+2.x

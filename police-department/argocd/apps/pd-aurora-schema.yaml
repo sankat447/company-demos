@@ -1,0 +1,43 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pd-aurora-schema
+  namespace: openshift-gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sankat447/company-demos
+    targetRevision: feature/police-department-v1
+    path: police-department/manifests/aurora
+    directory:
+      include: "pd-*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pd-cctv
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=false
+    - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+  # The Aurora credentials Secret in git holds empty strings for endpoint and
+  # password — real values come from AWS SSM at bootstrap time and are written
+  # to the cluster via SSA. Without this, selfHeal blanks them on every
+  # reconcile and the persona/Tekton pods lose Postgres connectivity.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: pd-aurora-credentials
+      namespace: pd-cctv
+      jsonPointers:
+        - /data

@@ -1,0 +1,26 @@
+# =============================================================================
+#  Namespace: pd-personas
+#  Houses the LangGraph persona FastAPI service and the HITL review UI Route.
+# =============================================================================
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pd-personas
+  labels:
+    app.kubernetes.io/part-of: police-department
+    app.kubernetes.io/component: personas
+    istio-injection: enabled
+  annotations:
+    openshift.io/display-name: "Police Department — Personas"
+    openshift.io/description: "LangGraph persona agents + HITL approval UI (police-department demo)"
+---
+apiVersion: maistra.io/v1
+kind: ServiceMeshMember
+metadata:
+  name: default
+  namespace: pd-personas
+spec:
+  controlPlaneRef:
+    name: data-science-smcp
+    namespace: istio-system

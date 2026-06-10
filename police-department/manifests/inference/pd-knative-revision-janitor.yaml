@@ -1,0 +1,111 @@
+# =============================================================================
+#  pd-knative-revision-janitor — sweeps stale Knative Revisions every 5 min.
+#
+#  Without this, KServe + Knative leave behind orphaned Revisions whenever:
+#    - the InferenceService is recreated
+#    - a vLLM ServingRuntime arg change spawns a new revision while the old
+#      one is mid-shutdown
+#    - a revision hits ProgressDeadlineExceeded (boot too slow)
+#
+#  These zombie revisions hold pod-affinity / GPU resource claims and break
+#  routing for the LATEST revision. The fix is to delete them. Knative's
+#  built-in GC waits 24h+ by default — too long for a demo.
+#
+#  This Job:
+#    - Lists all revisions in pd-cctv
+#    - Deletes any whose Ready=False AND age > 10min AND not the
+#      LatestReadyRevisionName of their owning Configuration
+# =============================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pd-knative-janitor-sa
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pd-knative-janitor-role
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+rules:
+- apiGroups: ["serving.knative.dev"]
+  resources: ["revisions", "configurations"]
+  verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pd-knative-janitor-rb
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+subjects:
+- kind: ServiceAccount
+  name: pd-knative-janitor-sa
+  namespace: pd-cctv
+roleRef:
+  kind: Role
+  name: pd-knative-janitor-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pd-knative-revision-janitor
+  namespace: pd-cctv
+  labels:
+    app.kubernetes.io/part-of: police-department
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: pd-knative-janitor-sa
+          containers:
+          - name: janitor
+            image: registry.redhat.io/openshift4/ose-cli:latest
+            command: ["/bin/bash", "-c"]
+            args:
+            - |
+              set -eu
+              # Find the LatestReadyRevisionName of every Configuration.
+              # We must not touch these — they are the active serving revisions.
+              KEEP=$(oc -n pd-cctv get configurations.serving.knative.dev \
+                -o jsonpath='{range .items[*]}{.status.latestReadyRevisionName}{"\n"}{end}' \
+                | sort -u | grep -v '^$' || true)
+              echo "[janitor] keep-list:"
+              echo "$KEEP" | sed 's/^/  /'
+
+              # Walk every revision; prune those that are NOT keep-listed,
+              # have status Ready=False, and are older than 10 min.
+              now=$(date +%s)
+              for rev in $(oc -n pd-cctv get revisions.serving.knative.dev -o name 2>/dev/null); do
+                name=${rev#revision.serving.knative.dev/}
+                if echo "$KEEP" | grep -qx "$name"; then
+                  continue
+                fi
+                ready=$(oc -n pd-cctv get "$rev" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
+                created=$(oc -n pd-cctv get "$rev" -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null)
+                created_epoch=$(date -d "$created" +%s 2>/dev/null || echo $now)
+                age=$(( now - created_epoch ))
+                if [ "$ready" = "False" ] && [ $age -gt 600 ]; then
+                  echo "[janitor] prune: $name (Ready=$ready, age=${age}s)"
+                  oc -n pd-cctv delete "$rev" --ignore-not-found || true
+                else
+                  echo "[janitor] keep:  $name (Ready=$ready, age=${age}s)"
+                fi
+              done
+            resources:
+              requests: { cpu: "10m",  memory: "32Mi" }
+              limits:   { cpu: "200m", memory: "128Mi" }
