@@ -28,4 +28,4 @@ def build_react_copilot(settings):
     except Exception:
         pass
     tools = build_tools(providers)
-    return ReActCopilot(model, tools)
+    return ReActCopilot(model, tools, providers=providers)
