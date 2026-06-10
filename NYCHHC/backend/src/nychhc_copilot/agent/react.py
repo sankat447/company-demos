@@ -28,19 +28,23 @@ Operating rules:
 - You may PROPOSE schedule changes via `propose_schedule_change`, which routes to a
   human approver. NEVER claim a change was applied — it always needs approval.
 - Be concise. When you cite data, say which tool/table it came from.
-- For status/overview questions (e.g. "how is everything"), call `unit_status` and
-  present the result as a **markdown table**. Prefer markdown tables whenever you
-  return multiple rows of structured data (doctors, impacted appointments, etc.).
-- Answer ONLY the user's current question, using real values from tools. Do NOT
-  invent example data, JSON, or extra "user:"/"assistant:" turns. Stop after your answer.
+- Always reply in plain, **human-readable** language — a short sentence or a simple
+  bullet list (a small markdown table is fine for several rows). NEVER show SQL, code,
+  JSON, or tool mechanics, and NEVER apologize or explain how you got the answer.
+- Use the structured tools (find_doctors, unit_status, no_show_risk, coverage_forecast,
+  the scheduling tools); fall back to query_workforce_db only if none fit — and even
+  then, report just the resulting facts in plain language, never the query.
+- Answer ONLY the user's current question with real values from tools. Do NOT invent
+  example data or extra "user:"/"assistant:" turns. Stop after your answer.
 
 {schema}
 """
 
 
 def _clean(text: str) -> str:
-    """Keep only the first clean answer; strip tool-call/JSON/fence artifacts that
-    small models leak (granite sometimes role-plays extra user/assistant turns)."""
+    """Keep only the clean final answer. Strip tool-call/JSON artifacts, SQL/code
+    blocks, apology/meta filler, and fabricated extra turns (granite-2b quirks).
+    Unwraps fenced markdown TABLES (so they render) but drops SQL/code fences."""
     if not text:
         return ""
     # 1. Truncate at the first fabricated next turn ("user:", "assistant:", ...).
@@ -51,12 +55,19 @@ def _clean(text: str) -> str:
     text = re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL)
     text = re.sub(r"</?tool_call>", "", text)
     text = re.sub(r"```(?:json)?\s*\{.*?\}\s*```", "", text, flags=re.DOTALL)
-    text = re.sub(r'^\s*\{["a-zA-Z].*?\}\s*$', "", text, flags=re.DOTALL | re.MULTILINE)
-    # 3. Unwrap a single surrounding code fence so a markdown table renders as a table.
-    text = text.strip()
-    fenced = re.match(r"^```[a-zA-Z]*\s*\n(.*)\n```$", text, flags=re.DOTALL)
-    if fenced:
-        text = fenced.group(1)
+
+    # 3. Per fenced block: drop SQL/code; UNWRAP a markdown table so it renders.
+    def _fence(mm):
+        lang, body = (mm.group(1) or "").lower(), mm.group(2)
+        if lang in ("sql", "python", "json", "js", "bash") or re.search(
+            r"\b(SELECT|FROM|JOIN|WHERE|INSERT|UPDATE|DELETE)\b", body, re.IGNORECASE):
+            return ""
+        return body if "|" in body else ""
+    text = re.sub(r"```([a-zA-Z]*)\n(.*?)```", _fence, text, flags=re.DOTALL)
+
+    # 4. Drop apology / "here's the query" meta lines.
+    drop = re.compile(r"^\s*(apolog|sorry|i'?m sorry|here'?s the|this (query|will)|the query|corrected request|note:)", re.IGNORECASE)
+    text = "\n".join(ln for ln in text.split("\n") if not drop.match(ln))
     return text.strip()
 
 
