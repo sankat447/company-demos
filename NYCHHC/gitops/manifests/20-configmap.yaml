@@ -1,0 +1,37 @@
+# Non-secret runtime config. Secrets (Aurora DSN) come from the bootstrapped
+# `nychhc-aurora` Secret, NOT from here (L6).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nychhc-config
+  namespace: nychhc-demo
+  labels:
+    demo: nychhc
+data:
+  NYCHHC_MODE: "live"
+
+  # LLM routing. Points at our OWN RHOAI GPU vLLM (granite-8b) served in-namespace
+  # via KServe (manifests 62/63) — OpenAI-compatible at the predictor svc. The
+  # platform's shared Portkey is the headless OSS gateway with no provider config,
+  # and its vLLM is down (stale image + no model), so we serve our own. Production
+  # would route this through Portkey for unified observability (L5) — documented as
+  # the prod path once Portkey has a provider config.
+  NYCHHC_PORTKEY_BASE_URL: "http://nychhc-llm-predictor.nychhc-demo.svc.cluster.local:8080"
+  NYCHHC_PRIMARY_MODEL: "granite-2b"
+  NYCHHC_FALLBACK_MODEL: ""           # no fallback alias; single local model
+  NYCHHC_PORTKEY_VERIFY_SSL: "true"   # plain-http in-cluster svc; TLS verify N/A
+
+  # Predictive models — KServe RawDeployment predictor svcs, v1 predict path.
+  # If a model isn't up yet (artifact not published), the client falls back to the
+  # rules model automatically (confirmed design D5).
+  NYCHHC_NOSHOW_MODEL_URL: "http://noshow-predictor.nychhc-demo.svc.cluster.local:8080/v1/models/noshow:predict"
+  NYCHHC_FORECAST_MODEL_URL: "http://forecast-predictor.nychhc-demo.svc.cluster.local:8080/v1/models/forecast:predict"
+  NYCHHC_MODELS_FALLBACK_ENABLED: "true"
+
+  # n8n webhook — empty until n8n flow imported; empty => workflow proposals are
+  # logged (still approval-gated). Set to the n8n webhook URL to route for real.
+  NYCHHC_N8N_WEBHOOK_URL: ""
+
+  # Telemetry (L9).
+  NYCHHC_OTEL_ENABLED: "true"
+  NYCHHC_OTEL_ENDPOINT: "otel-collector.observability.svc:4317"

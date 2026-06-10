@@ -1,0 +1,6 @@
+# Don't commit model binaries or MLflow runs — published to S3 by publish.sh.
+artifacts/**/model.joblib
+mlruns/
+__pycache__/
+*.pyc
+serving/models/*.joblib

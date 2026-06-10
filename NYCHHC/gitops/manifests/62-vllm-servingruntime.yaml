@@ -1,0 +1,26 @@
+# Demo-owned vLLM ServingRuntime (RHOAI's CUDA vLLM image — the current one; the
+# platform's shared runtime still pins the deleted quay modh:rhoai-2.16 tag).
+# Namespaced to nychhc-demo so it's torn down with the demo; the InferenceService
+# supplies the --model (pulled from HuggingFace) so no S3 staging is needed.
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: nychhc-vllm
+  namespace: nychhc-demo
+  labels:
+    demo: nychhc
+spec:
+  supportedModelFormats:
+    - name: vLLM
+      autoSelect: true
+  containers:
+    - name: kserve-container
+      image: registry.redhat.io/rhoai/odh-vllm-cuda-rhel9@sha256:9302ffc252b8681317b4d40ce8b4e66a5db3511f08f6a1ff6d34e595023f85c5
+      command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+      args: ["--port=8080"] # --model / --served-model-name come from the InferenceService
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+      ports:
+        - containerPort: 8080
+          protocol: TCP

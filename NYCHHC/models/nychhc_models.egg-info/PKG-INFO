@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: nychhc-models
+Version: 0.1.0
+Summary: NYCHHC demo predictive models — no-show + coverage forecast (SYNTHETIC DATA)
+Requires-Python: >=3.11
+Requires-Dist: scikit-learn>=1.5
+Requires-Dist: numpy>=1.26
+Requires-Dist: joblib>=1.4
+Provides-Extra: mlflow
+Requires-Dist: mlflow>=2.16; extra == "mlflow"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.3; extra == "dev"

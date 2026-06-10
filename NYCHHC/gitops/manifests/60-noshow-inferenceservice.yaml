@@ -1,0 +1,29 @@
+# No-Show predictor (DR-06) — CPU sklearn on KServe, served by our nychhc-sklearn
+# ServingRuntime (model baked into the image, version-matched). RawDeployment.
+# Client POSTs {"instances": [[lead,prior,age_ord,dept]]} to
+#   http://noshow-predictor.nychhc-demo.svc.cluster.local:8080/v1/models/noshow:predict
+# → {"predictions": [p_no_show]}.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: noshow
+  namespace: nychhc-demo
+  labels:
+    demo: nychhc
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    serviceAccountName: nychhc-copilot-sa   # ECR image pull
+    minReplicas: 1
+    model:
+      modelFormat:
+        name: sklearn
+      runtime: nychhc-sklearn
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi

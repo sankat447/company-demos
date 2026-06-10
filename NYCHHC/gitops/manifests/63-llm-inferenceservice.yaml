@@ -1,0 +1,52 @@
+# Demo-owned LLM for the conversational copilot (DR-11) — real RHOAI GPU vLLM serving.
+# Granite 3.1 8B Instruct (ungated, IBM/Red Hat) pulled from HuggingFace at startup
+# (no gated-Llama token, no 16GB S3 staging). RawDeployment to avoid Knative/mesh
+# complexity in our non-mesh namespace. Runs on the shared GPU node (g5.xlarge / A10G
+# 24GB) that deploy/ops scaled up (annotation-guarded).
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: nychhc-llm
+  namespace: nychhc-demo
+  labels:
+    demo: nychhc
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    minReplicas: 1
+    # SA carries the KServe S3 creds (storage-initializer pulls the model from S3 —
+    # the cluster has no HuggingFace egress, so models are staged to the data lake).
+    serviceAccountName: nychhc-copilot-sa
+    nodeSelector:
+      nvidia.com/gpu.present: "true"
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/gpu
+        operator: Exists
+        effect: NoSchedule
+    model:
+      modelFormat:
+        name: vLLM
+      runtime: nychhc-vllm
+      # Model staged to S3 (granite-3.1-2b-instruct) → initializer mounts at /mnt/models.
+      storageUri: s3://ai-demo-data-lake/models/nychhc/granite-2b
+      args:
+        - --model=/mnt/models
+        - --served-model-name=granite-2b
+        - --max-model-len=4096
+        - --gpu-memory-utilization=0.92
+        # Required for the LangChain agent's function-calling (Copilot tools).
+        - --enable-auto-tool-choice
+        - --tool-call-parser=granite
+      resources:
+        requests:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "4"
+          memory: 14Gi              # g5.xlarge has 16Gi node RAM — leave headroom
+          nvidia.com/gpu: "1"

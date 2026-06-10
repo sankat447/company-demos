@@ -1,0 +1,25 @@
+# In-cluster binary build (no local docker). deploy.sh runs:
+#   oc -n nychhc-demo start-build nychhc-copilot --from-dir=backend --follow
+# Builds the Dockerfile in the uploaded context and PUSHES to ECR via the
+# `ecr-push` docker-registry secret (created/refreshed by deploy.sh; ECR token ~12h).
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: nychhc-copilot
+  namespace: nychhc-demo
+  labels:
+    demo: nychhc
+spec:
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: DockerImage
+      name: 406337554361.dkr.ecr.us-east-1.amazonaws.com/nychhc/copilot:0.1.0
+    pushSecret:
+      name: ecr-push

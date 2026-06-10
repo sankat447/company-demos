@@ -1,0 +1,19 @@
+# Standard edge-TLS Route. Works without maistra.io/expose-route because
+# nychhc-demo is outside the mesh (ARCHITECTURE.md D1 / L2).
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: nychhc-copilot
+  namespace: nychhc-demo
+  labels:
+    app: nychhc-copilot
+    demo: nychhc
+spec:
+  to:
+    kind: Service
+    name: nychhc-copilot
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

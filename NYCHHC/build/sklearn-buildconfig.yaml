@@ -1,0 +1,24 @@
+# In-cluster build for the sklearn predictor image (pushed to the demo ECR repo
+# under the :sklearn tag). deploy/ops runs:
+#   oc -n nychhc-demo start-build nychhc-sklearn --from-dir=models/serving --follow
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: nychhc-sklearn
+  namespace: nychhc-demo
+  labels:
+    demo: nychhc
+spec:
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: DockerImage
+      name: 406337554361.dkr.ecr.us-east-1.amazonaws.com/nychhc/copilot:sklearn
+    pushSecret:
+      name: ecr-push

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NYC Health + Hospitals · Predictive Workforce &amp; Patient-Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img class="brandimg" src="assets/nychhc-logo.png" alt="NYC Health + Hospitals">
+    </div>
+    <div class="wm-sub">Workforce &amp; Patient-Flow</div>
+    <div>
+      <div class="side-label">Role &amp; context</div>
+      <div class="role-card" id="roleCard">
+        <div class="role-opt active" data-role="Scheduler"><span class="dot"></span><div>Scheduler<small>Coverage · no-show · fills</small></div></div>
+        <div class="role-opt" data-role="HR/Ops"><span class="dot"></span><div>HR / Ops<small>Overtime · PTO · compliance</small></div></div>
+        <div class="role-opt" data-role="Provider"><span class="dot"></span><div>Provider<small>My shifts · request time off</small></div></div>
+      </div>
+    </div>
+    <div><div class="side-label">Department</div><div class="select">Med-Surg 4W</div></div>
+    <div class="synthetic"><span class="pip"></span> Synthetic data · no PHI · fictional</div>
+    <div class="me">
+      <div class="avatar" id="personaAvatar">DR</div>
+      <div><b id="personaName">Dana Reyes</b><small id="personaTitle" style="color:var(--ink-3)">Staffing Coordinator</small></div>
+    </div>
+    <div class="cobrand"><span>Built by</span><img src="assets/iis-logo.png" alt="IIS"></div>
+  </aside>
+
+  <main class="main">
+    <section class="hero">
+      <h1>Predictive Workforce <b>+</b> Patient-Flow</h1>
+      <p>Forecast demand, protect coverage, and act on no-show risk — one shift ahead.</p>
+    </section>
+    <div class="banner">⚠ FOR DEMONSTRATION ONLY — NOT FOR CLINICAL USE — SYNTHETIC DATA</div>
+    <div class="viewline"><span id="viewIcon"></span> <b id="viewRole">Scheduler view</b> — <span id="viewSub">coverage, no-show risk, and smart fills</span> · <span class="mono">Med-Surg 4W</span></div>
+
+    <nav class="tabs" id="tabbar"></nav>
+
+    <section class="panel show" id="dashboard"></section>
+    <section class="panel" id="schedule"></section>
+    <section class="panel" id="risk"></section>
+    <section class="panel" id="pto"></section>
+    <section class="panel" id="copilot"></section>
+
+    <div class="foot">NYC Health + Hospitals · Predictive Workforce &amp; Patient-Flow — demonstration build. Synthetic data, no PHI. Names fictional; phones use the reserved 555-01xx range.</div>
+  </main>
+</div>
+
+<div class="drawer-scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-h"><h3 id="drawerTitle">New appointment</h3><button class="x" id="drawerClose">✕</button></div>
+  <div class="crumbs" id="crumbs"></div>
+  <div class="drawer-b" id="drawerBody"></div>
+</aside>
+<div class="toast" id="toast"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
