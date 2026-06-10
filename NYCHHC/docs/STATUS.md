@@ -16,6 +16,30 @@
 - Cluster: `ai-demo` OCP, AWS acct `406337554361`, `us-east-1`, SSO profile `rhoai-demo`.
   KUBECONFIG: `~/GitHub/ai-demo-stack-aws/environments/demo/ocp-install-dir/ai-demo/auth/kubeconfig`.
 
+## ⏸ Scaled down overnight (2026-06-09 PM)
+
+GPU MachineSet `ai-demo-fs25h-gpu-demo-us-east-1a` scaled **0** to save cost. The
+granite vLLM pod is Pending until GPU returns (chat is down overnight); everything
+else (frontend, data/scheduling APIs, dashboards, the two CPU sklearn models, Grafana)
+stays up. The worker scale-up + namespace/secrets/ArgoCD app are untouched.
+
+**Bring it back tomorrow (~10 min):**
+```bash
+export KUBECONFIG=~/GitHub/ai-demo-stack-aws/environments/demo/ocp-install-dir/ai-demo/auth/kubeconfig
+aws sso login --profile rhoai-demo
+oc -n openshift-machine-api scale machineset ai-demo-fs25h-gpu-demo-us-east-1a --replicas=1
+# wait ~7-10 min for the GPU node + NVIDIA driver, then the granite pod auto-reschedules
+oc -n nychhc-demo delete pod -l serving.kserve.io/inferenceservice=nychhc-llm   # if it doesn't pick up the GPU
+# refresh ECR pull secret if pods can't pull (token ~12h):
+oc -n nychhc-demo create secret docker-registry ecr-push --docker-server=406337554361.dkr.ecr.us-east-1.amazonaws.com \
+  --docker-username=AWS --docker-password="$(aws ecr get-login-password --profile rhoai-demo --region us-east-1)" \
+  --dry-run=client -o yaml | oc apply -f -
+```
+**Optional — granite-8b upgrade** (staged to `s3://ai-demo-data-lake/models/nychhc/granite-8b/`):
+set IS `nychhc-llm` storageUri→`.../granite-8b`, `--served-model-name=granite-8b`,
+memory limit ~14Gi, and ConfigMap `NYCHHC_PRIMARY_MODEL=granite-8b`, then reload. Fall
+back to granite-2b if the 16Gi node OOMs on load.
+
 ## What's deployed (namespace `nychhc-demo`, label `demo=nychhc`)
 
 | Component | State |

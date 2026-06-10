@@ -73,10 +73,10 @@ NYCHHC/
 ├── scripts/                   lib.sh (deploy/destroy helpers) ✅
 ├── deploy.sh / destroy.sh     Scoped: stand on / tear down only demo objects ✅
 ├── models/                    No-Show + Coverage-Forecast → MLflow → KServe ✅
-├── frontend/                  Streamlit role UIs (NYC H+H branded) + copilot chat ✅
+├── frontend/                  Static SPA (Claude-styled, role-driven) + Assistant chat ✅
+├── grafana/                   nychhc-dashboard.json (provisioned on deploy) ✅
 ├── ingestion/                 RAG: scrape → embed → upsert pgvector; full Faker seed ⏳
 ├── keycloak/                  nychhc-demo realm export (4 roles) ⏳
-├── grafana/                   dashboard.json ⏳
 └── n8n/                       PTO-impact + no-show-cron + weekly-usage flows ⏳
 ```
 
@@ -86,6 +86,13 @@ existing `ai-demo-stack-aws` platform; `destroy.sh` removes only demo-owned obje
 
 ## Status
 
-🚧 **Documentation / design review phase.** No application code written yet.
-Pending your review of `ARCHITECTURE.md`, `docs/DATA_SOURCES.md`, and
-`docs/COMPLIANCE.md` before backend work begins.
+✅ **Deployed and running on AWS / RHOAI** (cluster `ai-demo`). Live: the Claude-styled
+role-based UI, scheduling drill-downs (book/modify/cancel), PTO-impact engine, dashboards,
+the conversational **Workforce Assistant** on a GPU-served granite vLLM, two CPU sklearn
+KServe models (no-show + coverage), and a scoped NYCHHC Grafana dashboard. Deploy/destroy
+are Terraform-scoped to demo-owned objects only.
+
+See **[docs/STATUS.md](docs/STATUS.md)** for live URLs, every cluster mutation + rollback,
+the overnight scale-down state, and the bring-up runbook.
+
+> Built BY IIS for an NYC Health + Hospitals demo · synthetic data, no PHI.
