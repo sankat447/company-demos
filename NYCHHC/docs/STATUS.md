@@ -7,6 +7,8 @@
 ## Live URLs
 
 - **Demo UI (frontend):** https://nychhc-frontend-nychhc-demo.apps.ai-demo.iisdemolab.click
+- **Presenter console:** https://nychhc-frontend-nychhc-demo.apps.ai-demo.iisdemolab.click/demoer/
+  (opens + drives the demo tab; step cards + speaker script + types prompts into the Assistant)
 - **Backend API:** https://nychhc-copilot-nychhc-demo.apps.ai-demo.iisdemolab.click
   (`/health`, `/api/data/*`, `/api/sched/*`, `/api/chat` SSE)
 - **Grafana dashboard:** https://grafana-rhoai-monitoring.apps.ai-demo.iisdemolab.click/d/nychhc-workforce
