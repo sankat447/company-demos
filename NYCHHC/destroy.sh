@@ -26,23 +26,38 @@ fi
 grafana_teardown || warn "grafana teardown skipped"
 
 # ── 2. Delete the ArgoCD Application (finalizer cascade-prunes its children) ──
+# Disable automated sync FIRST — the app has selfHeal+CreateNamespace=true, which
+# would otherwise re-create the namespace + children mid-teardown (race).
 log "Delete ArgoCD Application nychhc-demo"
+oc -n openshift-gitops patch application nychhc-demo --type=merge \
+  -p '{"spec":{"syncPolicy":{"automated":null}}}' >/dev/null 2>&1 || true
 oc -n openshift-gitops delete application nychhc-demo --wait=true --ignore-not-found
 
-# ── 3. Delete the namespace (guarded by the demo label) ───────────────────────
+# ── 3. Delete the namespace (guarded by the demo label; retry to beat any race) ─
 if oc get ns "$NS" >/dev/null 2>&1; then
   assert_demo_namespace          # refuses unless ns carries demo=nychhc
   log "Delete namespace $NS"
-  oc delete ns "$NS" --wait=true --ignore-not-found
+  for attempt in 1 2 3; do
+    oc delete ns "$NS" --wait=true --timeout=180s --ignore-not-found || true
+    oc get ns "$NS" >/dev/null 2>&1 || break
+    warn "namespace still present (attempt $attempt) — retrying"
+    sleep 5
+  done
+  oc get ns "$NS" >/dev/null 2>&1 && warn "namespace $NS still terminating — check finalizers" || ok "namespace $NS removed"
 fi
 
-# ── 3b. Revert any worker MachineSet we scaled up for this demo (guarded) ─────
-# Only touches MachineSets annotated by us; scales back to 1 (their original).
+# ── 3b. Revert any MachineSet we scaled up (guarded) — restore EXACT original ──
+# Only touches MachineSets we annotated. Scales back to the recorded prev-replicas
+# (GPU set → 0, worker set → 1), so teardown leaves no demo compute running.
 for ms in $(oc -n openshift-machine-api get machinesets \
     -o jsonpath='{range .items[?(@.metadata.annotations.nychhc-demo\.iisl\.com/scaled-up-by=="nychhc-demo")]}{.metadata.name}{"\n"}{end}' 2>/dev/null); do
-  log "Scaling $ms back to 1 (demo scaled it up)"
-  oc -n openshift-machine-api scale machineset "$ms" --replicas=1 || warn "scale-back failed for $ms"
-  oc -n openshift-machine-api annotate machineset "$ms" nychhc-demo.iisl.com/scaled-up-by- 2>/dev/null || true
+  prev="$(oc -n openshift-machine-api get machineset "$ms" -o jsonpath='{.metadata.annotations.nychhc-demo\.iisl\.com/prev-replicas}' 2>/dev/null || echo "")"
+  # Fallback for sets annotated before prev-replicas existed: GPU sets → 0, else 1.
+  if [[ -z "$prev" ]]; then case "$ms" in *gpu*) prev=0;; *) prev=1;; esac; fi
+  log "Scaling $ms back to $prev (demo scaled it up)"
+  oc -n openshift-machine-api scale machineset "$ms" --replicas="$prev" || warn "scale-back failed for $ms"
+  oc -n openshift-machine-api annotate machineset "$ms" \
+    nychhc-demo.iisl.com/scaled-up-by- nychhc-demo.iisl.com/prev-replicas- 2>/dev/null || true
 done
 
 # ── 3c. Remove the demo IAM user used by KServe to pull the model from S3 ─────

@@ -32,13 +32,20 @@ hit a chain of real platform traps. In order:
    `"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser`.
    Add `--enable-auto-tool-choice --tool-call-parser granite` to the IS args.
 6. **A 2B model is too weak for open-ended agentic chat.** `granite-3.1-2b` follows
-   "use a table" but not "call the tool" — it hallucinates plausible numbers AND
-   role-plays a whole fake user/assistant transcript with JSON. Mitigations:
-   `stop=["\nuser:", …]`, `max_tokens` cap, a strict "answer only this turn" prompt,
-   and a `_clean()` that truncates at the first fabricated turn + strips
-   `<tool_call>`/JSON/code-fence artifacts. **Real fix = a larger model (8B)** for
-   reliable tool use; explicit asks (book/cancel/PTO) work on 2B, open-ended status
-   does not.
+   "use a table" but not "call the tool" — it *narrates* the call ("I'll use the
+   find_doctors function, here's the SQL…"), hallucinates plausible numbers, and
+   role-plays a whole fake user/assistant transcript with JSON. Mitigations that only
+   cleaned the *format*: `stop=["\nuser:", …]`, `max_tokens` cap, a strict "answer
+   only this turn" prompt, and a `_clean()` that truncates at the first fabricated
+   turn + strips `<tool_call>`/JSON/code-fence/apology artifacts.
+   **The fix that actually grounds answers = a deterministic intent router**
+   (`agent/react.py → route()`) that runs **before** the LLM: for the demo's headline
+   asks (doctors/openings by specialty, no-show rate by provider, unit status, PTO
+   impact, cancel-by-name) it calls the real scheduling service against Aurora and
+   returns the actual result in plain language — so the answer never depends on the
+   small model's flaky tool-calling. Unmatched questions still fall through to the LLM
+   agent (cleaned). A larger model (8B) remains the durable upgrade for arbitrary
+   open-ended questions the router doesn't cover.
 7. **The cluster ships NO sklearn ServingRuntime** (RHOAI 2.25 has only vLLM
    runtimes). The two `modelFormat: sklearn` IS had no runtime → "Failed", zero pods.
    Fix: our own **`nychhc-sklearn` ServingRuntime** — a tiny FastAPI KServe-v1
@@ -59,6 +66,17 @@ hit a chain of real platform traps. In order:
     `.dockerignore` must exclude `.venv` (don't upload 100s of MB).
 13. **ConfigMap change needs a pod restart** — ArgoCD won't roll the Deployment on a
     ConfigMap edit; `oc rollout restart` after applying.
+14. **Make `deploy.sh` carry every "bring-up gotcha" so it's reproducible.** The first
+    bring-up did GPU/worker scale-up, the `nychhc-s3-creds` IAM user + secret, granite
+    staging to S3, and the sklearn predictor build all **by hand** — none were in
+    `deploy.sh`, so a torn-down demo would NOT come back with one command. Folded all
+    of them into `deploy.sh`/`scripts/lib.sh` (`cluster_scale_up`, `ensure_s3_creds`,
+    `models/stage_llm.sh`, `build_sklearn_runtime`, `wait_for_gpu`). Lesson: a demo
+    isn't "deployable" until a single `deploy.sh` on a *clean* platform reproduces it.
+15. **Record the ORIGINAL replica count before scaling a shared MachineSet.** Teardown
+    must restore the GPU set to **0**, not blindly to 1 — otherwise a GPU node is left
+    running and billing. `deploy.sh` stamps `nychhc-demo.iisl.com/prev-replicas=<n>`
+    at scale-up; `destroy.sh` scales back to that (fallback: GPU→0, worker→1).
 
 ---
 

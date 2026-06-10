@@ -113,3 +113,86 @@ grafana_teardown() {
   curl -sk -u "$GAUTH" -X DELETE "$GURL/api/datasources/uid/nychhc-aurora" >/dev/null 2>&1 || true
   curl -sk -u "$GAUTH" -X DELETE "$GURL/api/folders/nychhc" >/dev/null 2>&1 || true
 }
+
+# ── Compute capacity: GPU + worker MachineSets the demo scales (guarded) ──────
+# The demo runs on the platform's existing MachineSets. We scale a GPU set 0→1
+# (granite vLLM needs an A10G) and a worker set up for CPU headroom — recording
+# the ORIGINAL replica count so destroy.sh restores it exactly (GPU back to 0).
+GPU_MACHINESET="${GPU_MACHINESET:-ai-demo-fs25h-gpu-demo-us-east-1a}"
+WORKER_MACHINESET="${WORKER_MACHINESET:-ai-demo-fs25h-worker-us-east-1c}"
+WORKER_REPLICAS="${WORKER_REPLICAS:-3}"
+ANN_PREV="nychhc-demo.iisl.com/prev-replicas"
+ANN_BY="nychhc-demo.iisl.com/scaled-up-by"
+
+_scale_ms_up() {   # name desired — annotate prev-replicas (once) + scale up if needed
+  local name="$1" want="$2" cur prev
+  cur="$(oc -n openshift-machine-api get machineset "$name" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "")"
+  [[ -z "$cur" ]] && { warn "MachineSet $name not found — skipping (set GPU_MACHINESET/WORKER_MACHINESET)"; return 0; }
+  if (( cur < want )); then
+    prev="$(oc -n openshift-machine-api get machineset "$name" -o jsonpath="{.metadata.annotations.${ANN_PREV//./\\.}}" 2>/dev/null || echo "")"
+    [[ -z "$prev" ]] && oc -n openshift-machine-api annotate machineset "$name" "${ANN_PREV}=${cur}" --overwrite >/dev/null
+    oc -n openshift-machine-api annotate machineset "$name" "${ANN_BY}=nychhc-demo" --overwrite >/dev/null
+    log "Scaling MachineSet $name $cur → $want"
+    oc -n openshift-machine-api scale machineset "$name" --replicas="$want" >/dev/null
+  else
+    ok "MachineSet $name already at $cur (>= $want)"
+  fi
+}
+
+cluster_scale_up() {
+  log "Ensure compute capacity (GPU + worker)"
+  _scale_ms_up "$WORKER_MACHINESET" "$WORKER_REPLICAS"
+  _scale_ms_up "$GPU_MACHINESET" 1
+}
+
+wait_for_gpu() {
+  log "Wait for a GPU node to expose nvidia.com/gpu (up to ~12 min)"
+  local i
+  for i in $(seq 1 72); do
+    if oc get nodes -o jsonpath='{range .items[*]}{.status.allocatable.nvidia\.com/gpu}{"\n"}{end}' 2>/dev/null | grep -qE '^[1-9]'; then
+      ok "GPU node ready"; return 0
+    fi
+    sleep 10
+  done
+  warn "No allocatable GPU yet — granite IS may stay Pending. Check the GPU MachineSet + NVIDIA driver."
+}
+
+# ── KServe S3 pull creds: long-lived IAM user (storage-init can't use STS) ────
+ensure_s3_creds() {
+  local U=nychhc-demo-s3-rw CRED AK SK
+  if ! aws iam get-user --user-name "$U" --profile "$AWS_PROFILE" >/dev/null 2>&1; then
+    log "Create IAM user $U (read-only, models/nychhc/* only)"
+    aws iam create-user --user-name "$U" --profile "$AWS_PROFILE" >/dev/null
+  fi
+  aws iam put-user-policy --user-name "$U" --policy-name s3-models-read --profile "$AWS_PROFILE" \
+    --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":"arn:aws:s3:::ai-demo-data-lake","Condition":{"StringLike":{"s3:prefix":["models/nychhc/*"]}}},{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::ai-demo-data-lake/models/nychhc/*"}]}' >/dev/null
+  if ! oc -n "$NS" get secret nychhc-s3-creds >/dev/null 2>&1; then
+    # Clear stale keys (max 2/user) so create-access-key never fails, then mint one.
+    for k in $(aws iam list-access-keys --user-name "$U" --profile "$AWS_PROFILE" --query 'AccessKeyMetadata[].AccessKeyId' --output text 2>/dev/null); do
+      aws iam delete-access-key --user-name "$U" --access-key-id "$k" --profile "$AWS_PROFILE" 2>/dev/null || true; done
+    CRED="$(aws iam create-access-key --user-name "$U" --profile "$AWS_PROFILE" --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text)"
+    AK="$(echo "$CRED" | awk '{print $1}')"; SK="$(echo "$CRED" | awk '{print $2}')"
+    log "Create secret nychhc-s3-creds + link to SA nychhc-copilot-sa"
+    oc -n "$NS" create secret generic nychhc-s3-creds \
+      --from-literal=AWS_ACCESS_KEY_ID="$AK" --from-literal=AWS_SECRET_ACCESS_KEY="$SK" \
+      --dry-run=client -o yaml | oc apply -f - >/dev/null
+    oc -n "$NS" annotate secret nychhc-s3-creds \
+      serving.kserve.io/s3-endpoint=s3.us-east-1.amazonaws.com \
+      serving.kserve.io/s3-region=us-east-1 \
+      serving.kserve.io/s3-usehttps=1 serving.kserve.io/s3-verifyssl=1 --overwrite >/dev/null
+    sleep 8   # let the new IAM key propagate before KServe uses it
+  else
+    ok "Secret nychhc-s3-creds already present"
+  fi
+  # SA must exist (gitops manifest 10) so the storage-initializer mounts the creds.
+  oc -n "$NS" apply -f "$DEMO_DIR/gitops/manifests/10-serviceaccount.yaml" >/dev/null 2>&1 || true
+  oc -n "$NS" secrets link nychhc-copilot-sa nychhc-s3-creds 2>/dev/null || true
+}
+
+# ── In-cluster build of the sklearn predictor image (KServe nychhc-sklearn rt) ─
+build_sklearn_runtime() {
+  log "In-cluster build: sklearn predictor (nychhc/copilot:sklearn)"
+  oc -n "$NS" apply -f "$DEMO_DIR/build/sklearn-buildconfig.yaml" >/dev/null
+  oc -n "$NS" start-build nychhc-sklearn --from-dir="$DEMO_DIR/models/serving" --follow \
+    || warn "sklearn predictor build failed — noshow/forecast IS will not be Ready"
+}

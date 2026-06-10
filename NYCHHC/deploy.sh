@@ -38,6 +38,10 @@ oc -n "$NS" create secret docker-registry ecr-push \
   --dry-run=client -o yaml | oc apply -f - >/dev/null
 ok "Registry secret ecr-push ready ($REGISTRY)"
 
+# ── 2b. Scale up compute early (GPU node takes ~8-10 min to join + load driver) ─
+# Guarded + records original replicas so destroy.sh restores exactly (GPU→0).
+cluster_scale_up
+
 # ── 3. In-cluster image builds (OpenShift BuildConfig → ECR) ──────────────────
 log "In-cluster build: backend"
 oc -n "$NS" apply -f "$DEMO_DIR/build/backend-buildconfig.yaml" >/dev/null
@@ -60,18 +64,30 @@ log "Apply schema + seed (schemas: workforce, rag)"
 run_sql_stdin "$DSN" < "$DEMO_DIR/db/schema.sql"
 ok "Schema + seed applied"
 
-# ── 6. Train + publish predictive models to S3 (KServe storageUri targets) ────
-# Skip with SKIP_MODELS=1 (e.g. iterating on the app only).
+# ── 6. KServe S3 pull creds (long-lived IAM user; storage-init can't use STS) ─
+ensure_s3_creds
+
+# ── 6a. Stage all model artifacts to S3 (KServe storageUri targets) ───────────
+# Skip with SKIP_MODELS=1 (e.g. iterating on the app only). Covers BOTH the two
+# sklearn models AND the granite LLM (cluster has no HF egress → must be in S3).
 if [[ "${SKIP_MODELS:-0}" != "1" ]]; then
-  log "Train + publish predictive models → s3://ai-demo-data-lake/models/nychhc/"
+  log "Train + publish sklearn models → s3://ai-demo-data-lake/models/nychhc/"
   ( cd "$DEMO_DIR/models" && AWS_PROFILE="$AWS_PROFILE" AWS_REGION="$AWS_REGION" ./publish.sh ) \
-    || warn "model publish failed — backend will use the rules fallback (D5)"
+    || warn "sklearn publish failed — backend will use the rules fallback (D5)"
+  log "Stage conversational LLM (granite) → s3 (idempotent; ~5GB first time)"
+  ( cd "$DEMO_DIR/models" && AWS_PROFILE="$AWS_PROFILE" AWS_REGION="$AWS_REGION" ./stage_llm.sh ) \
+    || warn "LLM staging failed — granite IS will not become Ready (chat disabled)"
+  # In-cluster build of the sklearn predictor image the noshow/forecast IS use.
+  build_sklearn_runtime
 else
-  warn "SKIP_MODELS=1 — backend will use the rules fallback until models are published"
+  warn "SKIP_MODELS=1 — skipping model staging (assumes artifacts already in S3)"
 fi
 
 # ── 6b. Grafana: provision the NYCHHC dashboard + datasource (scoped) ─────────
 grafana_provision || warn "grafana provisioning skipped"
+
+# ── 6c. Block until the GPU node is schedulable so the granite IS comes up ────
+wait_for_gpu
 
 # ── 7. Register the demo's ArgoCD Application (no edit to platform app-of-apps)─
 log "Apply ArgoCD Application"

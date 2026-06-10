@@ -157,9 +157,14 @@ flowchart TB
 
 ## Hero data flow — "Explain coverage risks next week"
 
-1. User logs into the **Streamlit** UI via **Keycloak** OIDC (role determines visible tools).
-2. Frontend POSTs the question to **`copilot-backend`** (FastAPI, streaming).
-3. The **LangChain ReAct** agent plans. All reasoning tokens go through **Portkey → vLLM** (Bedrock fallback). (L5)
+1. User logs into the UI (role determines visible tools/panes).
+2. Frontend POSTs the question to **`copilot-backend`** (FastAPI, streaming SSE).
+3. **As-built:** a **deterministic intent router** (`agent/react.py → route()`) runs first —
+   for the demo's headline asks (doctors/openings by specialty, no-show rate by provider, unit
+   status, PTO impact, cancel-by-name) it calls the real scheduling service against Aurora and
+   returns the actual result in plain language, so answers don't depend on the small model's
+   tool-calling. Unmatched questions fall through to the **LangChain ReAct** agent on the
+   GPU-served **granite vLLM** (output cleaned of tool-call/SQL/apology artifacts). (L5)
 4. Agent calls the **MCP server** tools as needed:
    - `query_aurora` → current schedule, PTO requests, staffing levels (Text-to-SQL).
    - `call_kserve` → **coverage-forecast** (1–2 wk demand) and **no-show** scores.

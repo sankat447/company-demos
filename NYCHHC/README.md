@@ -81,18 +81,23 @@ NYCHHC/
 ```
 
 Deployment is Terraform-driven and **scoped to the demo** — see
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). `deploy.sh` stands the demo up on the
-existing `ai-demo-stack-aws` platform; `destroy.sh` removes only demo-owned objects.
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). `deploy.sh` is **fully self-contained**: a
+single run on the existing `ai-demo-stack-aws` platform brings up everything (GPU
+scale-up, model staging, KServe S3 creds, in-cluster builds, ArgoCD app) with no
+manual steps; `destroy.sh` removes only demo-owned objects and restores any scaled
+MachineSets to their originals (GPU→0).
 
 ## Status
 
-✅ **Deployed and running on AWS / RHOAI** (cluster `ai-demo`). Live: the Claude-styled
-role-based UI, scheduling drill-downs (book/modify/cancel), PTO-impact engine, dashboards,
-the conversational **Workforce Assistant** on a GPU-served granite vLLM, two CPU sklearn
-KServe models (no-show + coverage), and a scoped NYCHHC Grafana dashboard. Deploy/destroy
-are Terraform-scoped to demo-owned objects only.
+⏸ **Torn down** (cost-parked). The build is complete and verified end-to-end on AWS /
+RHOAI (cluster `ai-demo`): the Claude-styled role-based UI, scheduling drill-downs
+(book/modify/cancel), PTO-impact engine, dashboards, the conversational **Workforce
+Assistant** (a deterministic intent router over the live scheduling data, backed by a
+GPU-served granite vLLM for open-ended questions), two CPU sklearn KServe models
+(no-show + coverage), and a scoped NYCHHC Grafana dashboard.
 
-See **[docs/STATUS.md](docs/STATUS.md)** for live URLs, every cluster mutation + rollback,
-the overnight scale-down state, and the bring-up runbook.
+Bring it all back with **one command** — `./deploy.sh`. See
+**[docs/STATUS.md](docs/STATUS.md)** for the torn-down inventory, what `deploy.sh`
+recreates, and every cluster mutation + rollback.
 
 > Built BY IIS for an NYC Health + Hospitals demo · synthetic data, no PHI.
