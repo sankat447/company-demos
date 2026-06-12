@@ -32,6 +32,7 @@ router = APIRouter()
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 _INDEX_HTML = _TEMPLATE_DIR / "index.html"
+_PRESENTER_HTML = _TEMPLATE_DIR / "presenter.html"
 
 _MAX_UPLOAD_MB = int(os.environ.get("PD_MAX_UPLOAD_MB", "300"))
 _PD_LLM_MODE_CM = os.environ.get("PD_LLM_MODE_CM", "pd-llm-mode")
@@ -41,6 +42,15 @@ _PD_PERSONAS_NS = os.environ.get("PD_PERSONAS_NAMESPACE", "pd-personas")
 @router.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse(_INDEX_HTML.read_text(encoding="utf-8"))
+
+
+@router.get("/presenter", response_class=HTMLResponse)
+def presenter() -> HTMLResponse:
+    """Live demo presenter page — click a preset prompt → main demo UI focuses
+    the chat input, fills the prompt, and submits it. Opens the demo in a
+    separate window so the presenter screen stays in view on a second monitor.
+    """
+    return HTMLResponse(_PRESENTER_HTML.read_text(encoding="utf-8"))
 
 
 @router.get("/api/mode")

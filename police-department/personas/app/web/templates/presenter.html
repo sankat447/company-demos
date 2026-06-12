@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Demo Presenter — Police-Dept CCTV Intelligence</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0b1220; --panel: #111827; --panel-2: #0f172a;
+    --line: #1f2937; --text: #e5e7eb; --muted: #94a3b8;
+    --accent: #38bdf8; --accent-hi: #22d3ee;
+    --ok: #22c55e; --warn: #f59e0b; --err: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  header {
+    padding: 14px 24px; border-bottom: 1px solid var(--line);
+    background: #0a101c;
+    display: flex; align-items: center; gap: 14px;
+  }
+  header .brand-mark {
+    width: 32px; height: 32px; border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hi));
+    display: flex; align-items: center; justify-content: center;
+    color: #0f172a; font-weight: 700; font-size: 16px;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.01em; }
+  header h1 .subtitle { color: var(--muted); font-weight: 400; font-size: 12px; display: block; margin-top: 2px; }
+  header .spacer { flex: 1; }
+  header .status-pill {
+    font-size: 11px; padding: 3px 10px; border-radius: 999px;
+    background: rgba(239, 68, 68, 0.12); color: var(--err);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+  header .status-pill.live {
+    background: rgba(34, 197, 94, 0.12); color: var(--ok);
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+  header .status-pill .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: currentColor; margin-right: 6px; vertical-align: middle;
+  }
+  main { padding: 28px 24px; max-width: 920px; margin: 0 auto; width: 100%; flex: 1; }
+  .open-row {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 28px;
+    padding: 16px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .open-row .text { flex: 1; }
+  .open-row .text .title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+  .open-row .text .desc  { font-size: 12px; color: var(--muted); }
+  .btn {
+    cursor: pointer; border: none; border-radius: 6px; padding: 10px 18px;
+    font-weight: 600; font-size: 14px; transition: filter 120ms ease;
+  }
+  .btn:hover { filter: brightness(1.12); }
+  .btn-primary { background: var(--accent); color: #0f172a; }
+  .btn-ghost   { background: transparent; color: var(--text); border: 1px solid var(--line); }
+
+  h2 {
+    font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
+    margin: 24px 0 12px; font-weight: 600;
+  }
+
+  .prompts { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .prompt {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px;
+    display: flex; align-items: center; gap: 16px;
+    cursor: pointer; transition: border-color 120ms ease, background 120ms ease;
+    text-align: left; font-family: inherit; color: var(--text);
+    width: 100%;
+  }
+  .prompt:hover { border-color: var(--accent); background: var(--panel-2); }
+  .prompt:disabled { opacity: 0.5; cursor: not-allowed; }
+  .prompt .num {
+    width: 32px; height: 32px; flex: 0 0 32px;
+    border-radius: 50%; background: var(--panel-2); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 15px;
+  }
+  .prompt .body { flex: 1; min-width: 0; }
+  .prompt .label {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.06em; margin-bottom: 4px;
+  }
+  .prompt .label.slash { color: var(--accent-hi); }
+  .prompt .label.chat  { color: var(--accent); }
+  .prompt .text {
+    font-size: 15px; line-height: 1.45;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text);
+    word-break: break-word;
+  }
+  .prompt .send-hint {
+    font-size: 11px; color: var(--muted); white-space: nowrap;
+  }
+  .help {
+    margin-top: 28px; padding: 14px 18px;
+    background: rgba(56, 189, 248, 0.05);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    font-size: 13px; color: var(--muted);
+  }
+  .help strong { color: var(--text); }
+  .help kbd {
+    font-family: ui-monospace, monospace; font-size: 11px;
+    background: var(--panel-2); padding: 2px 6px; border-radius: 3px;
+    border: 1px solid var(--line);
+  }
+
+  footer {
+    padding: 14px 24px; border-top: 1px solid var(--line);
+    background: #0a101c; color: var(--muted); font-size: 12px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="brand-mark">⏵</span>
+  <h1>Demo Presenter
+    <span class="subtitle">Police-Department CCTV Intelligence · second-screen control deck</span>
+  </h1>
+  <span class="spacer"></span>
+  <span class="status-pill" id="status"><span class="dot"></span> demo not opened</span>
+</header>
+
+<main>
+
+  <div class="open-row">
+    <div class="text">
+      <div class="title">Open the live demo</div>
+      <div class="desc">Pops the demo UI in a new window so you can drive it from here.
+                       Drag that window to your projector / second monitor and keep this page on your laptop.</div>
+    </div>
+    <button class="btn btn-primary" id="open-demo">Open demo →</button>
+    <button class="btn btn-ghost"   id="focus-demo" style="display: none;">Focus demo</button>
+  </div>
+
+  <h2>Preset prompts — click to send into the demo chat</h2>
+
+  <div class="prompts" id="prompts">
+    <button class="prompt" data-action="submit" data-text="What happened in this clip?">
+      <span class="num">1</span>
+      <span class="body">
+        <span class="label chat">Chat question</span>
+        <span class="text">What happened in this clip?</span>
+      </span>
+      <span class="send-hint">↵ types &amp; submits</span>
+    </button>
+
+    <button class="prompt" data-action="submit" data-text="/geo 200 E Colfax Ave Denver, CO 80203">
+      <span class="num">2</span>
+      <span class="body">
+        <span class="label slash">Slash command — geo-tag</span>
+        <span class="text">/geo 200 E Colfax Ave Denver, CO 80203</span>
+      </span>
+      <span class="send-hint">↵ types &amp; submits</span>
+    </button>
+  </div>
+
+  <div class="help">
+    <strong>How it works.</strong>
+    Click <em>Open demo</em> first — the demo UI opens in its own window.
+    Activate any clip in that window's side panel (the chat input must be enabled, i.e. a clip is selected),
+    then come back here and click any preset prompt. The chat input will be focused, filled, and submitted —
+    no typing on the demo screen needed.<br><br>
+    <strong>Keyboard.</strong> <kbd>1</kbd> / <kbd>2</kbd> on this page also fires the matching preset.
+  </div>
+
+</main>
+
+<footer>
+  © 2026 International Integrated Solutions, Ltd. · Demo presenter for Police-Department CCTV Intelligence
+</footer>
+
+<script>
+  const DEMO_PATH = "/";
+  const DEMO_WINDOW_NAME = "pd-demo-ui";
+  let demoWin = null;
+
+  const statusPill = document.getElementById("status");
+  const openBtn    = document.getElementById("open-demo");
+  const focusBtn   = document.getElementById("focus-demo");
+
+  function setStatus(live) {
+    if (live) {
+      statusPill.className = "status-pill live";
+      statusPill.innerHTML = '<span class="dot"></span> demo open · ready';
+      openBtn.style.display  = "none";
+      focusBtn.style.display = "";
+    } else {
+      statusPill.className = "status-pill";
+      statusPill.innerHTML = '<span class="dot"></span> demo not opened';
+      openBtn.style.display  = "";
+      focusBtn.style.display = "none";
+    }
+  }
+
+  function openDemo() {
+    demoWin = window.open(DEMO_PATH, DEMO_WINDOW_NAME, "noopener=no,popup=yes,width=1400,height=900");
+    if (!demoWin) { alert("Popup blocked. Allow popups for this page and try again."); return; }
+    setStatus(true);
+    // Poll for the window getting closed
+    const tick = setInterval(() => {
+      if (!demoWin || demoWin.closed) { clearInterval(tick); setStatus(false); demoWin = null; }
+    }, 1000);
+  }
+
+  function focusDemo() {
+    if (demoWin && !demoWin.closed) demoWin.focus();
+    else openDemo();
+  }
+
+  function sendToDemo(action, text) {
+    if (!demoWin || demoWin.closed) {
+      if (!confirm("Demo window is not open. Open it now?")) return;
+      openDemo();
+      // Give the demo a moment to load, then send
+      setTimeout(() => sendToDemo(action, text), 1500);
+      return;
+    }
+    demoWin.focus();
+    try {
+      demoWin.postMessage(
+        { source: "pd-presenter", action, text },
+        window.location.origin
+      );
+    } catch (e) {
+      console.error("postMessage failed", e);
+      alert("Could not send to demo window: " + e);
+    }
+  }
+
+  openBtn.addEventListener("click", openDemo);
+  focusBtn.addEventListener("click", focusDemo);
+
+  document.querySelectorAll(".prompt").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      sendToDemo(btn.dataset.action || "submit", btn.dataset.text || "");
+    });
+  });
+
+  // Keyboard shortcuts: 1 / 2 → first / second prompt
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    if (!/^[0-9]$/.test(e.key)) return;
+    const idx = parseInt(e.key, 10) - 1;
+    const btns = document.querySelectorAll(".prompt");
+    if (idx >= 0 && idx < btns.length) btns[idx].click();
+  });
+</script>
+
+</body>
+</html>

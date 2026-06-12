@@ -131,8 +131,10 @@
   /* Chat */
   /* The chat-wrap card has its OWN inner scroll region (.chat-log); stop the
      outer .card from also scrolling, otherwise the video preview + header
-     scroll out of view with the chat history. */
-  .chat-wrap { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+     scroll out of view with the chat history.
+     Also tighten the card padding so on a small viewport the input row stays
+     above the fold even with the video player visible. */
+  .chat-wrap { display: flex; flex-direction: column; height: 100%; overflow: hidden; padding: 12px; }
   .chat-header, .chat-wrap .player-wrap, .chat-wrap .input-row { flex: 0 0 auto; }
   .chat-log { min-height: 0; }   /* flex child shrink-to-fit so overflow-y works */
   .chat-header { display: flex; align-items: center; gap: 10px; padding-bottom: 10px;
@@ -177,9 +179,12 @@
            padding: 10px 16px; border-radius: 4px; font-size: 13px; max-width: 360px; }
   .toast.ok { background: var(--ok); }
   /* Clip video player */
-  .player-wrap { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  /* Tightened so the chat input row stays visible above the fold on a
+     ~720-800px viewport (13" laptop, devtools open, etc.). Was 320px + 12+12
+     margins which pushed the input row below the fold once the video loaded. */
+  .player-wrap { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   .player-wrap.hidden { display: none; }
-  .player-wrap video { width: 100%; max-height: 320px; border-radius: 6px; background: #000;
+  .player-wrap video { width: 100%; max-height: 200px; border-radius: 6px; background: #000;
                        display: block; }
   .player-meta { font-size: 11px; color: var(--muted); margin-top: 6px;
                  display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -913,6 +918,26 @@ async function handleSlashCommand(parsed) {
 
 $("#send").addEventListener("click", sendMessage);
 $("#q").addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
+
+// ── Presenter remote-control bridge ────────────────────────────────────
+// The /presenter page (typically opened on a second monitor) posts:
+//   { source: "pd-presenter", action: "fill",   text: "<prompt>" }   — types but does not send
+//   { source: "pd-presenter", action: "submit", text: "<prompt>" }   — types AND submits
+// Same-origin only (https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click).
+window.addEventListener("message", (ev) => {
+  if (ev.origin !== window.location.origin) return;             // strict origin check
+  const msg = ev.data || {};
+  if (msg.source !== "pd-presenter") return;
+  if (typeof msg.text !== "string" || !msg.text.trim()) return;
+  const q = $("#q");
+  if (!q || q.disabled) {
+    toast("Pick a clip in the side panel first — chat input is disabled until a clip is active.");
+    return;
+  }
+  q.value = msg.text;
+  q.focus();
+  if (msg.action === "submit") sendMessage();
+});
 
 $("#clear-chat").addEventListener("click", async () => {
   if (!activeClip) return;
