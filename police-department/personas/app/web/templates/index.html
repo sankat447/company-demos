@@ -129,7 +129,12 @@
     -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
   /* Chat */
-  .chat-wrap { display: flex; flex-direction: column; height: 100%; }
+  /* The chat-wrap card has its OWN inner scroll region (.chat-log); stop the
+     outer .card from also scrolling, otherwise the video preview + header
+     scroll out of view with the chat history. */
+  .chat-wrap { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  .chat-header, .chat-wrap .player-wrap, .chat-wrap .input-row { flex: 0 0 auto; }
+  .chat-log { min-height: 0; }   /* flex child shrink-to-fit so overflow-y works */
   .chat-header { display: flex; align-items: center; gap: 10px; padding-bottom: 10px;
                  border-bottom: 1px solid var(--line); margin-bottom: 12px; }
   .chat-log { flex: 1; overflow-y: auto; padding: 4px 6px; }
