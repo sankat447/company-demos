@@ -2,6 +2,67 @@
 
 Written 2026-05-07 after a multi-day demo iteration cycle. Distils the operational pain points hit during real demo runs and the remediation that worked. **Read this before scaling up tomorrow** — every item here was paid for with downtime.
 
+---
+
+## 📊 Operational Snapshot (updated 2026-06-12)
+
+**Cluster prefix evolution** — auto-detected per Terraform run; do NOT hardcode:
+`ai-demo-lt9wz` → `ai-demo-zpvwj` → `ai-demo-fs25h` (current). Always leave `PD_MACHINESET_PREFIX=""` in `.env.demo`.
+
+**Cache locations (warm them once — survive scale-down/up)**
+
+| What | Where | Size | Re-fetched on… |
+|---|---|---|---|
+| Qwen2.5-VL-7B weights | `s3://ai-demo-data-lake/models/police-department/qwen2.5-vl-7b/` | ~14 GB | Hard teardown only (Step 7 of provision re-stages from HF) |
+| BGE-small embeddings | `s3://ai-demo-data-lake/models/police-department/bge-small-en-v1.5/` | ~130 MB | Hard teardown only |
+| EFS workspace cache (BGE local + easyOCR + yolov8n-face weights) | `pd-pipeline-workspace` PVC `/workspace/.cache/` | ~250 MB | Wiped only on `oc adm taint nodes ... NoSchedule` + node replacement, OR explicit cleanup pod |
+| `ultralytics/ultralytics:8.3.0` container image (yolo + faces tasks) | crio cache on GPU node | ~5 GB | EVERY new GPU node — first PipelineRun on a fresh node sees ~4 min image-pull wait (lesson 17.32). Subsequent runs: ~10 sec start |
+| `pd-persona:0.2.0` + `pd-structure-runner:0.1.0` images | OCP internal registry | ~3 GB + ~600 MB | Hard teardown only |
+| Persona chat history per clip | `pd_cctv.chat_history` Aurora table | per-clip | Aurora wipe (preserved by scale-down) |
+| ArgoCD bootstrap + 7 children | cluster API | small | Hard teardown only |
+
+**Memory budget — g5.xlarge (the GPU node, only 1 in the demo)**
+
+| Capacity | 4 vCPU · 16 GiB RAM · 1× NVIDIA A10G (24 GiB VRAM) |
+|---|---|
+| **Allocatable** (after RHCOS overhead) | ~3.5 CPU · ~12.7 GiB RAM |
+| **Predictor** (vLLM kserve-container + queue-proxy + istio-proxy) at idle | 85m CPU · 4.2 GiB RAM · 1 vGPU |
+| **Per pipeline task** (yolo / faces while running) | 25m CPU · 1 GiB RAM · 1 vGPU each |
+| **Time-slicing** | 1 physical GPU → 4 vGPUs (predictor holds 1, leaves 3 for parallel pipeline tasks) |
+| **VRAM** | Qwen-VL 7B loaded ~14 GiB · KV cache + activations fit in remaining ~10 GiB on A10G 24 GB. T4 16 GB does NOT fit (lesson 17.3) |
+| **MUST-DO: taint the GPU MachineSet** (`nvidia.com/gpu=true:NoSchedule`) so platform pods (rhods-dashboard 1.5 CPU/3 GiB, argocd-application-controller 250m/1 GiB, etc.) don't squat and starve the pipeline GPU tasks (lesson 17.23) |
+
+**Cost (us-east-1, on-demand pricing — 2026 catalog)**
+
+| Live demo | $1.10/hr |  |
+| --- | --- | --- |
+| 1× g5.xlarge GPU node | $0.526/hr | A10G — non-negotiable for Qwen-VL 7B |
+| 3× m6i.xlarge "second worker" (one per AZ) | $0.192/hr × 3 = $0.576/hr | Scale these back to 1/AZ between demos |
+| **Baseline cluster** (control plane + 1 worker/AZ + Aurora + EFS + S3 idle) | ~$1.20/hr | Unchanged whether the demo is up or torn down |
+| **Demo-attributable savings on scale-down** | **$1.10/hr** | Just delete the IS + scale gpu→0 + workers→1/AZ |
+
+**Lessons-Learned section index (jump to it)**
+
+| # | Title | One-liner |
+|---|---|---|
+| 1 | Cordoned node still poisons webhooks | Webhook on a cordoned node = stuck IS apply |
+| 2 | SSO STS = 1 hr TTL, not 12 | Use long-lived IAM user for the demo |
+| 3 | ArgoCD selfHeal blanks Secrets/CMs | Use `Prune=false` annotation + don't put empty-stringed fields in git |
+| 4 | BuildConfig `:latest` ≠ deployment `:0.2.0` | Always `oc tag :latest :0.2.0` after build |
+| 5 | Knative 600s progress deadline | vLLM cold-start can exceed it; bump |
+| 6 | Terminating GPU pod holds VRAM | Mutex preflight must wait until vGPU returned |
+| 7 | Time-slicing race on fresh GPU node | Apply ConfigMap + ClusterPolicy patch before allocatable check |
+| 8 | EFS workspace persists frames | Across PipelineRuns — useful, keep `.cache/` warm |
+| 9 | Forensic-prompt timestamp format | Must agree with UI's `linkifyTimestamps` regex |
+| 10 | Four VLM knobs must move in lockstep | resolution/frames/jpeg_quality/mode — resolution=640 with frames=16 fits ctx=8192 |
+| 11 | JSON code-fence wrapping | VLM wraps JSON in ` ```json `; strip before parse |
+| 12 | Persona `/chat` needs clip narration | Pass `prose` in render_context or you get generic answers |
+| 13 | Aurora `custody_log` append-only | DISABLE TRIGGER ALL needed for admin purge |
+| 14 | App-of-apps cascade defeats local patches | Use `Prune=false` and SS apply with different field manager |
+| 15 | Two LLM mode toggles | VLM (ingest) vs LLM (chat) — independent ConfigMaps |
+| 16 | Tekton wasn't the only bitten webhook | RHODS + KServe webhooks also flaky after node load |
+| 17.1–17.32 | Fresh-cluster bring-up gotchas | Every line below paid for in real downtime |
+
 > ### Overnight state (2026-05-07 → 2026-05-08)
 > Scaled to **bare minimum** to save cost — the cluster does no work until the next demo. Tomorrow's bring-up has to scale all this back up first.
 >
@@ -614,6 +675,131 @@ script now so the next operator hits zero of them:
     different field-manager and survive ArgoCD reconciles. The git
     manifest now only declares `database` + `username` (deterministic
     values that are safe to be authoritative).
+
+24. **Operator correction does not rewrite the narration prose** —
+    the VLM's original prose stays in `pd_cctv.narrations.prose`. The
+    correction is a separate audit row in
+    `pd_cctv.operator_corrections`. So after `/vehicle Black Jeep Grand
+    Cherokee`, the side-panel preview (which renders `narrations.prose`)
+    still shows the AI's "burgundy" first paragraph until a chat reply
+    weaves both signals together. For a polished demo: also direct-edit
+    `narrations.prose` so the preview matches the corrections. For a
+    real deployment: leave the prose alone (it's the AI's contemporaneous
+    record) and let the audit trail prove the operator's override at
+    chat-reply time. Don't conflate the two artefacts.
+
+25. **The "AUTHORITATIVE" label alone doesn't make an LLM honor priority.**
+    `graphs/_common.py` injects `[operator corrections — AUTHORITATIVE,
+    override any auto-detected …]` into the persona prompt context.
+    Without a matching **explicit rule in the persona prompt itself**,
+    LLMs (sonnet-4-5, llama-3-8b alike) blend the AUTHORITATIVE values
+    with the narration prose — favouring the longer, richer narrative.
+    **Fix**: top-of-prompt ABSOLUTE rule injected into all 5 persona
+    `.md` files: "If CONTEXT contains `[operator corrections — …]`,
+    every entry is ground truth … do NOT mention the prior auto-detected
+    value, do NOT hedge with 'model said X but operator corrected to Y'."
+    Worked-example for vehicle colour included verbatim. Belt-and-
+    suspenders: the demo also direct-edits `narrations.prose` so the
+    side-panel preview matches without relying on prompt fidelity.
+
+26. **Persona prompts are read from disk per-call but the disk is the
+    container image** — `_PROMPTS_DIR` resolves to
+    `/opt/app/app/prompts/` which is owned by root, mode 644 for the
+    runtime UID 1001. So `load_prompt()` re-reads on every chat (no
+    cache), but the only way to UPDATE a prompt is to rebuild the
+    image. Attempts to `oc cp` or `oc exec -- sh -c 'cat > …'` both
+    fail with `Permission denied`. If we want hot-patchable prompts
+    in the future, the cleanest path is to mount `app/prompts/` from
+    a writable ConfigMap volume (one `oc patch deploy …` + a `kubectl
+    create cm pd-prompts --from-file=...` would rotate prompts in 5
+    seconds, no rebuild). Today's workflow is: edit `.md`, commit,
+    `start-build`, tag `:latest → :0.2.0`, rollout. ~8-10 min per
+    iteration.
+
+27. **CSS `.card { overflow: auto }` overrode every inner scroll
+    region** in the persona UI. The chat card had a nested
+    flex layout — header + video preview (`.player-wrap`) +
+    chat-log (`.chat-log`, `flex: 1; overflow-y: auto`) + input row.
+    When chat history grew, the OUTER card scrolled instead of the
+    inner `.chat-log`, taking the video preview + chat header up
+    with it. **Fix**: explicit `overflow: hidden` on `.chat-wrap`
+    plus `min-height: 0` on `.chat-log` (the classic flexbox-
+    overflow-clip-fix that makes a flex child shrink-to-fit so its
+    `overflow-y: auto` actually engages).
+
+28. **Chat input was below the fold on small viewports.** The video
+    preview's `max-height: 320px` plus 12+12 px margins ate too
+    much vertical budget on a ~720-800 px viewport (13" laptop or
+    devtools open). Even an empty chat-log pushed the input row
+    off-screen because `flex: 1` on `.chat-log` consumed all
+    remaining space. **Fix**: tightened to `max-height: 200px` on
+    video, `margin/padding 8px` on `.player-wrap`, and overall card
+    padding from 16 → 12 px. Total saved: ~140 px — input row now
+    always visible.
+
+29. **SSO-issued presigned S3 URLs cap at the 1-hour SSO session TTL,
+    NOT the SigV4 7-day max.** Running `aws s3 presign --expires-in
+    604800` succeeded — the URL was generated with all the right
+    fields — but it stopped working after ~55 minutes because the
+    embedded `X-Amz-Security-Token` belongs to a short-lived SSO STS
+    credential. AWS validates BOTH the SigV4 expiry AND the STS
+    credential's `Expiration`; whichever is earlier wins. **Fix
+    options**: (a) presign using a long-lived IAM user's keys
+    (no STS token in the URL — 7-day TTL fully honoured); (b) make
+    the object public-read (no auth needed — but `ai-demo-data-lake`
+    has all four `PublicAccessBlockConfiguration` flags = true, so
+    this requires a platform-level change to the bucket); (c)
+    CloudFront signed URLs with a custom long TTL. For the demo
+    today (sharing a recorded video for distribution), the
+    long-lived-IAM-user path is the practical choice — extend
+    `pd-demo-s3-rw`'s policy to include a `demos/*` prefix.
+
+30. **Presenter remote-control via `window.postMessage`** —
+    pattern: presenter page on operator's laptop, demo UI in a
+    separate window (typically projected). Presenter `window.open`s
+    the demo with a deterministic window name; on a preset-click,
+    `postMessage({source:"pd-presenter", action:"submit",
+    text:"<prompt>", typingMs:35}, window.location.origin)`. The
+    demo registers a `message` listener that **strictly checks
+    `ev.origin === window.location.origin`** before acting. Same-
+    origin guarantees no cross-site page can drive the demo via
+    postMessage. Demo bridge ignores re-entrant messages while
+    typing is in progress (`_presenterBusy` guard). Presenter
+    disables the just-clicked button for `(text.length × typingMs
+    + 800ms)` to prevent double-fire from a nervous presenter.
+
+31. **Char-by-char "human typing" effect** in the demo chat input —
+    `q.value = text` followed by `sendMessage()` looked like a
+    script. To look like operator typing: clear the input → focus
+    → for each char, `input.value += ch; input.dispatchEvent(new
+    Event("input", {bubbles:true})); setSelectionRange(value.length,
+    value.length); await sleep(perCharMs)`. The `input` event per
+    keystroke makes ANY UI listener (placeholder fade, autocomplete,
+    char counter, etc.) update naturally; `setSelectionRange` pins
+    the caret to the end (some browsers reset to 0 after `.value`
+    assignment). After last char, **220 ms pause then submit** so
+    the audience has time to read the prompt. Default speed
+    35 ms/char ≈ 28 chars/sec — fast but visibly typing; configurable
+    via msg.typingMs.
+
+32. **GPU node was image-pull-blocked the first time it ran the
+    pipeline** — yolo-detect + faces-and-plates both use
+    `docker.io/ultralytics/ultralytics:8.3.0` (~5 GB image). First
+    PipelineRun on a fresh GPU node: both pods sat Pending for
+    ~4 min 24 sec each (image-pull from docker.io across the
+    public internet). The persona UI's `pipeline_status.py`
+    reports **TaskRun-elapsed time** (which includes scheduling +
+    image-pull wait), so the operator saw "yolo-detect 303s, faces
+    311s" and concluded time-slicing was broken. Reality: the
+    containers themselves ran ~40s each, in parallel, on the GPU
+    node. Once the image is cached on that EC2 instance, next
+    PipelineRun starts the same containers in ~10 sec. **Fix
+    options**: (a) accept the one-time penalty (already
+    documented); (b) pre-pull the image during MachineSet
+    init (kubelet imagePullPolicy + cluster-wide ImagePolicy);
+    (c) mirror the image into the cluster's internal registry so
+    subsequent pulls are LAN-local. Logged here because the
+    "time-slicing not working" misdiagnosis cost ~20 minutes.
 
 ---
 

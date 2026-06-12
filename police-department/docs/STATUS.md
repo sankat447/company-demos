@@ -2,12 +2,27 @@
 
 Snapshot of what is built, what is verified, what is not, and the gotchas a future engineer needs to know on day one. Update this file whenever the truth shifts.
 
-**Last updated:** 2026-05-06
-**Branch:** `feature/police-department-v1`
-**PR:** https://github.com/sankat447/company-demos/pull/1 (open, against `sanjeev-dev`)
-**Cluster:** `https://api.ai-demo.iisdemolab.click:6443` (AWS, OCP 4.20)
+**Last updated:** 2026-06-12
+**Branch:** `sanjeev-dev` (police-department/v1 merged in 2026-06-08 at `942340a`)
+**Cluster:** `https://api.ai-demo.iisdemolab.click:6443` (AWS, OCP 4.21 · RHEL 9.6)
+**MachineSet prefix:** `ai-demo-fs25h` (auto-detected — see lesson 17.17; do not hardcode)
 **Kubeconfig:** `/Users/sanjeevkumar/GitHub/ai-demo-stack-aws/environments/demo/ocp-install-dir/ai-demo/auth/kubeconfig`
-**Live demo URL:** https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/
+**Demo URL** (operator chat): https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/
+**Presenter URL** (second-screen control deck): https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/presenter
+**Predictor URL** (Knative KServe route): https://pd-qwen25-vl-7b-predictor-pd-cctv.apps.ai-demo.iisdemolab.click/v1/models
+
+## What's new since 2026-05-21 (post-merge to sanjeev-dev)
+
+- ✅ **Presenter page at `/presenter`** — second-screen control deck with preset prompt buttons that type into the demo chat char-by-char and submit (lesson 17.30, 17.31)
+- ✅ **GPU MachineSet auto-taint** with `nvidia.com/gpu=true:NoSchedule` so platform pods don't squat (lesson 17.23)
+- ✅ **05_views.sql idempotent** — drops the `v_clip_summary` view before re-creating since 07_faces_plates.sql widens it (lesson 17.21)
+- ✅ **`pd_cctv.operator_corrections` table** baked into the schema CM (lesson 17.16)
+- ✅ **BGE-small staging** added to `bootstrap/02_fetch_models.sh` (lesson 17.22)
+- ✅ **MLflow `s3:PutObject` permission** on `mlflow-artifacts/*` for the pd-demo-s3-rw IAM user (lesson 17.15)
+- ✅ **Step 13.5** wires Tekton coschedule=disabled + `pd-results-prune-creds` + Pipelines console plugin (lessons 17.9, 17.10, 17.13)
+- ✅ **Persona prompts have ABSOLUTE override rule** for operator corrections (lesson 17.25)
+- ✅ **Chat-window CSS fix** — outer card no longer scrolls; video preview + input row stay pinned (lessons 17.27, 17.28)
+- ✅ **Pipeline `displayName: "Objects & Licence Plates"`** on faces-and-plates task
 
 ---
 

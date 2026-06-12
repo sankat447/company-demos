@@ -2,6 +2,17 @@
 
 Context primer for future Claude Code sessions in this directory.
 
+> **Read first**: `docs/LESSONS_LEARNED.md` — the top-of-file Operational Snapshot lists cluster prefix, cache locations, memory budget, cost, and a one-line index to every lesson. Most operational decisions you need to make have already been hit and documented.
+
+## Operational quick-reference
+
+- **Cluster**: OCP 4.21 on AWS · MachineSet prefix auto-detected (currently `ai-demo-fs25h`, **never hardcode**)
+- **GPU node**: g5.xlarge (A10G 24 GB VRAM, 4 vCPU, 16 GiB RAM) · time-sliced 1 phys → 4 vGPUs · **must have `nvidia.com/gpu=true:NoSchedule` taint** (lesson 17.23)
+- **Persona prompts**: 5 files under `personas/app/prompts/{quick,journalist,detective,patrol,evidence_clerk}.md` · read from disk per `/chat` call but the disk is the container image (lesson 17.26) → update = rebuild
+- **Slash commands**: 7 correction kinds (`plate`, `vehicle`, `people`, `event`, `suspect`, `note`, `geo`) + 3 mgmt (`list`, `undo`, `help`). All recorded in `pd_cctv.operator_corrections` table.
+- **Sync waves table** below remains accurate.
+- **Hot patches that DON'T need rebuild**: ConfigMaps (pd-vlm-mode, pd-llm-mode), Secrets, Aurora data directly, MachineSet replicas. **Patches that DO need rebuild**: persona prompts, persona templates (`index.html`, `presenter.html`), persona Python code.
+
 ## Hard Rules
 
 1. **Never write to `/Users/sanjeevkumar/GitHub/ai-demo-stack-aws/`.** That is the platform repo. It is the source of truth for the cluster's existing apps. If a change there appears necessary, stop and surface it as a "Decision Needed" — do not edit.

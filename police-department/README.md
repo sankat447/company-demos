@@ -1,6 +1,16 @@
 # Police-Department CCTV Video-Intelligence Demo
 
-A self-contained customer demo built on top of the existing `ai-demo` AWS / OpenShift / RHOAI platform. Drops 30-second CCTV clips into S3, runs them through a 5-task Tekton perception pipeline (multimodal VLM caption + ASR + object detection + structured write), and exposes three LangGraph persona agents (Detective, Patrol, Evidence Clerk) with HITL approval over a small HTMX UI.
+A self-contained customer demo built on top of the existing `ai-demo` AWS / OpenShift / RHOAI platform. Drops CCTV clips into S3, runs them through a **6-task Tekton perception pipeline** (Pulling clip → Captioning frames (VLM) → Transcribing audio (Whisper) → Detecting objects (YOLO) → **Objects & Licence Plates** → Indexing in Aurora), and exposes **five LangGraph persona agents** (Quick, Journalist, Detective, Patrol, Evidence Clerk) over a small chat UI with **slash-command operator corrections** (`/plate`, `/vehicle`, `/people`, `/event`, `/suspect`, `/geo`, `/note`).
+
+## Live entry points
+
+| URL | Purpose |
+|---|---|
+| https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/ | Operator chat UI — drag-drop mp4, live pipeline progress, persona chat, slash commands |
+| https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/presenter | Second-screen control deck — opens the demo and drives it via `postMessage` with char-by-char "human typing" preset prompts |
+| https://pd-qwen25-vl-7b-predictor-pd-cctv.apps.ai-demo.iisdemolab.click/v1/models | Qwen2.5-VL-7B predictor (KServe / vLLM on A10G time-sliced) |
+
+> **Quick context for new readers**: see `docs/STATUS.md` for current operational state, `docs/LESSONS_LEARNED.md` for the 32-item runbook of fresh-cluster gotchas, and `docs/PLATFORM_URLS.md` for every URL + login.
 
 ## Two-Repo Model
 

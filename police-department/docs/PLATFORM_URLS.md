@@ -42,6 +42,7 @@ Reference card for the demo cluster. **Credentials live in the gitignored `polic
 | Category | Product | URL | Login | Credential reference |
 |---|---|---|---|---|
 | Application | **Persona service** (chat UI + slash commands) | https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/ | — | (no auth — operator-facing only) |
+| Application | **Presenter** (second-screen control deck — opens demo + types presets via postMessage) | https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/presenter | — | (no auth — operator-facing only; same-origin enforced) |
 | Application | **Qwen2.5-VL predictor / CCTV inference service** | https://pd-qwen25-vl-7b-predictor-pd-cctv.apps.ai-demo.iisdemolab.click/ | — | (KServe Knative route; called by vlm-caption task internally) |
 | Application | **Open WebUI** | https://open-webui-ai-demo.apps.ai-demo.iisdemolab.click/ | first-time wizard | `PD_OPENWEBUI_ADMIN_PASSWORD` in `.env.demo` (placeholder if unknown) |
 | Application | **LangChain Server API** | https://langchain-server-langchain.apps.ai-demo.iisdemolab.click/docs | — | (auth optional; check Swagger) |
