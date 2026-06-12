@@ -446,6 +446,28 @@ script now so the next operator hits zero of them:
     already prefers SSM as the source-of-truth for the password in step
     4; just confirmed this is the correct precedence going forward.
 
+23. **GPU MachineSet had NO `NoSchedule` taint — platform pods squatted
+    on it and starved pipeline GPU tasks of CPU/memory** (not vGPU).
+    Symptom: `oc describe pod` on a Pending yolo-detect or
+    faces-and-plates says `Insufficient cpu / Insufficient memory` on
+    the GPU node even though `nvidia.com/gpu` allocatable is 3/4.
+    A single g5.xlarge has only ~3.5 CPU + ~12.7 GiB allocatable; once
+    `rhods-dashboard` (1.5 CPU + 3 GiB), `argocd-application-controller`
+    (250m + 1 GiB), `notebook-controller`, and a few operators drift
+    onto the node, there's zero headroom for a 25m + 1 GiB pipeline
+    pod. The full pipeline ends up partly serial and the operator
+    blames "time-slicing not working" — but the vGPU side is fine,
+    the CPU/mem side is starved. **Fix**: add a
+    `nvidia.com/gpu=true:NoSchedule` taint to the GPU MachineSet's
+    `spec.template.spec.taints`. Every GPU-requesting workload in
+    this demo (predictor, yolo-detect, faces-and-plates) already
+    carries the matching toleration (`operator: Exists` with key
+    `nvidia.com/gpu`), so only they can land there. Idempotent — the
+    script checks for the existing taint before re-applying. Note
+    that this only affects NEW nodes provisioned by the MachineSet;
+    a live node also needs `oc adm taint nodes <node>
+    nvidia.com/gpu=true:NoSchedule` to take effect immediately.
+
 22. **BGE-small embedding model was missing from S3 after hard
     teardown.** `bootstrap/02_fetch_models.sh` only staged Qwen2.5-VL;
     BGE-small (`BAAI/bge-small-en-v1.5`, ~130 MB) was implicitly assumed

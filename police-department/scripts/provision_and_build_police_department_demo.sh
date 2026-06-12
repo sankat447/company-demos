@@ -379,18 +379,37 @@ if ! "$DRY_RUN"; then
   CUR_SUBNET=$(oc -n openshift-machine-api get machineset "$gpu_ms" -o jsonpath='{.spec.template.spec.providerSpec.value.subnet.filters[0].values[0]}' 2>/dev/null)
   WORKER_SG=$(oc -n openshift-machine-api get machineset "${PD_MACHINESET_PREFIX}-worker-us-east-1a" -o jsonpath='{.spec.template.spec.providerSpec.value.securityGroups[0].filters[0].values[0]}' 2>/dev/null)
   WORKER_SUBNET=$(oc -n openshift-machine-api get machineset "${PD_MACHINESET_PREFIX}-worker-us-east-1a" -o jsonpath='{.spec.template.spec.providerSpec.value.subnet.filters[0].values[0]}' 2>/dev/null)
+  # Lesson 17.23: the MachineSet template ships with NO `spec.template.spec.taints`,
+  # so the scheduler is free to drop ANY platform pod (rhods-dashboard,
+  # argocd-application-controller, notebook-controller, etc.) on the GPU
+  # node. A single g5.xlarge has only 3.5 CPU + 12.7 GiB allocatable — once
+  # the dashboard alone parks 1.5 CPU + 3 GiB there, the pipeline tasks
+  # (yolo + faces) can't fit even though 3 of 4 vGPUs are free. The result
+  # looks like time-slicing failure but is actually CPU/mem starvation.
+  # Add a `nvidia.com/gpu=true:NoSchedule` taint — all GPU-requesting
+  # workloads (predictor, yolo, faces) already declare a matching
+  # toleration, so only they will ever schedule on this node.
+  CUR_TAINT=$(oc -n openshift-machine-api get machineset "$gpu_ms" -o jsonpath='{.spec.template.spec.taints[?(@.key=="nvidia.com/gpu")].effect}' 2>/dev/null)
   needs_patch=false
   [ "$CUR_TYPE" != "g5.xlarge" ] && needs_patch=true
   [ "$CUR_SG" != "$WORKER_SG" ] && needs_patch=true
   [ "$CUR_SUBNET" != "$WORKER_SUBNET" ] && needs_patch=true
+  [ "$CUR_TAINT" != "NoSchedule" ] && needs_patch=true
   if "$needs_patch"; then
-    log "patching GPU MachineSet (type=$CUR_TYPE→g5.xlarge, sg=$CUR_SG→$WORKER_SG, subnet=$CUR_SUBNET→$WORKER_SUBNET)"
+    log "patching GPU MachineSet (type=$CUR_TYPE→g5.xlarge, sg=$CUR_SG→$WORKER_SG, subnet=$CUR_SUBNET→$WORKER_SUBNET, +taint nvidia.com/gpu=true:NoSchedule)"
     oc -n openshift-machine-api patch machineset "$gpu_ms" --type=json -p "[
       {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/instanceType\",\"value\":\"g5.xlarge\"},
       {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/securityGroups/0/filters/0/values\",\"value\":[\"$WORKER_SG\"]},
-      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/subnet/filters/0/values\",\"value\":[\"$WORKER_SUBNET\"]}
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/subnet/filters/0/values\",\"value\":[\"$WORKER_SUBNET\"]},
+      {\"op\":\"add\",\"path\":\"/spec/template/spec/taints\",\"value\":[{\"key\":\"nvidia.com/gpu\",\"value\":\"true\",\"effect\":\"NoSchedule\"}]}
+    ]" >/dev/null 2>&1 || \
+    oc -n openshift-machine-api patch machineset "$gpu_ms" --type=json -p "[
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/instanceType\",\"value\":\"g5.xlarge\"},
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/securityGroups/0/filters/0/values\",\"value\":[\"$WORKER_SG\"]},
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/subnet/filters/0/values\",\"value\":[\"$WORKER_SUBNET\"]},
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/taints\",\"value\":[{\"key\":\"nvidia.com/gpu\",\"value\":\"true\",\"effect\":\"NoSchedule\"}]}
     ]" >/dev/null
-    ok "GPU MachineSet patched (g5.xlarge + platform-matched SG/subnet)"
+    ok "GPU MachineSet patched (g5.xlarge + platform-matched SG/subnet + NoSchedule taint)"
   fi
 fi
 run oc -n openshift-machine-api scale machineset "$gpu_ms" --replicas=1
