@@ -921,10 +921,27 @@ $("#q").addEventListener("keydown", e => { if (e.key === "Enter") sendMessage();
 
 // ── Presenter remote-control bridge ────────────────────────────────────
 // The /presenter page (typically opened on a second monitor) posts:
-//   { source: "pd-presenter", action: "fill",   text: "<prompt>" }   — types but does not send
-//   { source: "pd-presenter", action: "submit", text: "<prompt>" }   — types AND submits
-// Same-origin only (https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click).
-window.addEventListener("message", (ev) => {
+//   { source:"pd-presenter", action:"fill",   text:"<prompt>", typingMs:35 } — types only
+//   { source:"pd-presenter", action:"submit", text:"<prompt>", typingMs:35 } — types AND submits
+// Typing is char-by-char with a small delay between each, dispatching real
+// `input` events on the field so any listeners + the visible cursor update
+// exactly as if a human were at the keyboard. Same-origin enforced.
+let _presenterBusy = false;
+
+async function typeIntoInput(input, text, perCharMs) {
+  input.focus();
+  input.value = "";
+  input.dispatchEvent(new Event("input", {bubbles: true}));
+  for (const ch of text) {
+    input.value += ch;
+    input.dispatchEvent(new Event("input", {bubbles: true}));
+    // Keep the caret visible at the end as content grows
+    try { input.setSelectionRange(input.value.length, input.value.length); } catch (_) {}
+    await new Promise(r => setTimeout(r, perCharMs));
+  }
+}
+
+window.addEventListener("message", async (ev) => {
   if (ev.origin !== window.location.origin) return;             // strict origin check
   const msg = ev.data || {};
   if (msg.source !== "pd-presenter") return;
@@ -934,9 +951,19 @@ window.addEventListener("message", (ev) => {
     toast("Pick a clip in the side panel first — chat input is disabled until a clip is active.");
     return;
   }
-  q.value = msg.text;
-  q.focus();
-  if (msg.action === "submit") sendMessage();
+  if (_presenterBusy) return;        // ignore rapid double-click
+  _presenterBusy = true;
+  try {
+    const perCharMs = Number.isFinite(msg.typingMs) ? msg.typingMs : 35;
+    await typeIntoInput(q, msg.text, perCharMs);
+    // brief beat after typing finishes, then submit (so the audience reads it)
+    if (msg.action === "submit") {
+      await new Promise(r => setTimeout(r, 220));
+      sendMessage();
+    }
+  } finally {
+    _presenterBusy = false;
+  }
 });
 
 $("#clear-chat").addEventListener("click", async () => {

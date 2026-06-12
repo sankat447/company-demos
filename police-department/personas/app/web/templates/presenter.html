@@ -220,20 +220,33 @@
     else openDemo();
   }
 
-  function sendToDemo(action, text) {
+  // Per-char typing speed for the on-screen "human typing" effect.
+  // 35ms ≈ ~28 chars/sec — fast but visibly typing. Bump to 60-80 for slower
+  // emphasis on a small audience screen.
+  const TYPING_MS = 35;
+
+  function sendToDemo(action, text, btn) {
     if (!demoWin || demoWin.closed) {
       if (!confirm("Demo window is not open. Open it now?")) return;
       openDemo();
       // Give the demo a moment to load, then send
-      setTimeout(() => sendToDemo(action, text), 1500);
+      setTimeout(() => sendToDemo(action, text, btn), 1500);
       return;
     }
     demoWin.focus();
     try {
       demoWin.postMessage(
-        { source: "pd-presenter", action, text },
+        { source: "pd-presenter", action, text, typingMs: TYPING_MS },
         window.location.origin
       );
+      // Visual cue while the demo window is typing — disable the button +
+      // dim it for the typing-then-submit duration so the presenter can't
+      // double-fire it. Re-enable after the message would have finished.
+      if (btn) {
+        btn.disabled = true;
+        const totalMs = text.length * TYPING_MS + 800;   // typing + submit grace
+        setTimeout(() => { btn.disabled = false; }, totalMs);
+      }
     } catch (e) {
       console.error("postMessage failed", e);
       alert("Could not send to demo window: " + e);
@@ -245,7 +258,7 @@
 
   document.querySelectorAll(".prompt").forEach((btn) => {
     btn.addEventListener("click", () => {
-      sendToDemo(btn.dataset.action || "submit", btn.dataset.text || "");
+      sendToDemo(btn.dataset.action || "submit", btn.dataset.text || "", btn);
     });
   });
 
