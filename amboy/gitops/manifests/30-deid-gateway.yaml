@@ -1,0 +1,51 @@
+# deid-gateway — the privacy boundary. Single amboy image, AMBOY_ROLE=deid_gateway.
+# Secrets (passwords/keys) come from the out-of-band `amboy-creds` Secret created by
+# deploy.sh — NOT in git, so ArgoCD selfHeal/prune never blanks it. Service DNS
+# defaults live in app/common/config.py.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amboy-deid-gateway
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app: amboy-deid-gateway, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: amboy-deid-gateway}}
+  template:
+    metadata: {labels: {app: amboy-deid-gateway, demo: amboy}}
+    spec:
+      serviceAccountName: amboy
+      containers:
+        - name: deid-gateway
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+          env:
+            - {name: AMBOY_ROLE, value: "deid_gateway"}
+            - {name: PORT, value: "8080"}
+            - name: AMBOY_PG_PASSWORD
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: PG_PASSWORD}}
+            - name: AMBOY_S3_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_ACCESS_KEY}}
+            - name: AMBOY_S3_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_SECRET_KEY}}
+            - name: AMBOY_VAULT_TOKEN
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: VAULT_TOKEN}}
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 250m, memory: 768Mi}   # MiniLM + torch baked in image
+            limits: {cpu: "1", memory: 2Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amboy-deid-gateway
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  selector: {app: amboy-deid-gateway}
+  ports: [{port: 8080, targetPort: 8080}]

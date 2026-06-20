@@ -23,8 +23,12 @@ SSN_LAST4_RE = re.compile(r"(?i)\bssn\b.{0,25}?(\d{4})\b")
 # Our OWN de-id tokens — NOT NPI. Stripped before scanning so the privacy
 # invariant test never counts a token (whose hex may contain 4 digits) as a leak.
 TOKEN_RE = re.compile(r"\[[A-Z_]+:[0-9a-fA-F]+\]")
+# A separator (space/dot/dash or parens) between the groups is REQUIRED so bare
+# 10-digit financial figures (e.g. 1482000000 total assets) are not misread as
+# phones. Groups: (1) area (2) exchange (3) subscriber. Our synthetic phones —
+# "(732) 555-0142", "732-555-0142", "732.555.0142", "+1 732 555 0142" — all match.
 PHONE_RE = re.compile(
-    r"(?:\+?1[-.\s]?)?\(?\b(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})\b"
+    r"(?<!\d)(?:\+?1[-.\s])?\(?(\d{3})\)?[-.\s](\d{3})[-.\s](\d{4})\b"
 )
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
 # Street address: number + name + common suffix (catches restated addresses in prose)

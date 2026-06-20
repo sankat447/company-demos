@@ -1,0 +1,75 @@
+# Presidio analyzer + anonymizer — OFFICIAL CPU images. The deid-gateway calls
+# the analyzer over http east-west (Service DNS), passing our bank ad-hoc
+# recognizers per request. CPU-only; no GPU.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amboy-presidio-analyzer
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app: amboy-presidio-analyzer, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: amboy-presidio-analyzer}}
+  template:
+    metadata: {labels: {app: amboy-presidio-analyzer, demo: amboy}}
+    spec:
+      serviceAccountName: amboy
+      containers:
+        - name: analyzer
+          image: mcr.microsoft.com/presidio-analyzer:latest
+          ports: [{containerPort: 3000}]
+          readinessProbe:
+            httpGet: {path: /health, port: 3000}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 250m, memory: 700Mi}   # spaCy en_core_web_lg
+            limits: {cpu: "1", memory: 2Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amboy-presidio-analyzer
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  selector: {app: amboy-presidio-analyzer}
+  ports: [{port: 3000, targetPort: 3000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amboy-presidio-anonymizer
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app: amboy-presidio-anonymizer, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: amboy-presidio-anonymizer}}
+  template:
+    metadata: {labels: {app: amboy-presidio-anonymizer, demo: amboy}}
+    spec:
+      serviceAccountName: amboy
+      containers:
+        - name: anonymizer
+          image: mcr.microsoft.com/presidio-anonymizer:latest
+          ports: [{containerPort: 3000}]
+          readinessProbe:
+            httpGet: {path: /health, port: 3000}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amboy-presidio-anonymizer
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  selector: {app: amboy-presidio-anonymizer}
+  ports: [{port: 3000, targetPort: 3000}]
