@@ -1,0 +1,10 @@
+# Generated synthetic data — reproducible from data/generate.py (seeded)
+data/out/
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Local kube/oc artifacts
+.kubeconfig
+*.tmp
