@@ -33,6 +33,11 @@ spec:
               mc anonymous set none amboy/amboy-deid || true
               echo "amboy buckets ready (idempotent)"
           env:
+            # OpenShift runs this as an arbitrary UID with no writable HOME; point
+            # mc's config at /tmp so `mc alias set` doesn't fail on `mkdir /.mc`
+            # (which otherwise loops forever and blocks the ArgoCD sync wave).
+            - {name: HOME, value: "/tmp"}
+            - {name: MC_CONFIG_DIR, value: "/tmp/.mc"}
             - {name: S3_ENDPOINT, value: "http://minio.iis-ai-data.svc:9000"}
             - name: S3_ACCESS_KEY
               valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_ACCESS_KEY}}
