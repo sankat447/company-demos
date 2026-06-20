@@ -17,6 +17,8 @@ case "$ROLE" in
     exec streamlit run app/ui/app.py \
       --server.address=0.0.0.0 --server.port="${STREAMLIT_PORT:-8501}" \
       --server.headless=true --browser.gatherUsageStats=false ;;
+  seed)
+    exec python -m app.seed ;;
   *)
     echo "[amboy] unknown AMBOY_ROLE='${ROLE}' (deid_gateway|metrics_engine|compare_agent|ui)" >&2
     exit 64 ;;

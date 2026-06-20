@@ -24,8 +24,9 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY build/requirements.txt /app/build/requirements.txt
 RUN pip install --no-cache-dir -r /app/build/requirements.txt
 
-# Application code (one tree, role chosen at runtime).
+# Application code (one tree, role chosen at runtime) + the seed generator.
 COPY app/ /app/app/
+COPY data/ /app/data/
 COPY build/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 

@@ -1,0 +1,33 @@
+# Standalone ArgoCD Application for the Amboy NPI-Safe demo.
+# Applied by deploy.sh (oc apply). Does NOT edit the baremetal platform app-of-apps,
+# so the demo is fully independent and destroy.sh can delete just this Application
+# (the finalizer cascade-prunes all children across the iis-ai-* tiers).
+#
+# The `amboy-creds` Secret is bootstrapped out-of-band by deploy.sh and is
+# deliberately NOT in the synced path — so selfHeal/prune never blanks it
+# (police-department / NYCHHC lesson: git-empty secrets get wiped on sync).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: amboy-demo
+  namespace: openshift-gitops
+  labels:
+    demo: amboy
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io   # cascade-prune children on delete
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sankat447/company-demos
+    targetRevision: sanjeev-dev                 # deploy.sh can override via GIT_REVISION
+    path: amboy/gitops/manifests                # kustomize base
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: iis-ai-ai                         # default ns; resources set their own
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false                    # iis-ai-* tiers are platform-managed
+      - ServerSideApply=true
