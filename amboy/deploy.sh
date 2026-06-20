@@ -58,7 +58,10 @@ ok "amboy-creds ready (no argocd tracking label → never pruned)"
 # ── 2. in-cluster image build (internal registry, single image / 4 roles) ────
 info "Phase 2 — in-cluster build (this can take several minutes — torch + MiniLM)"
 oc -n "$NS_AI" apply -f "$DEMO_DIR/build/buildconfig.yaml" >/dev/null
-oc -n "$NS_AI" start-build amboy --from-dir="$DEMO_DIR" --follow
+# --wait makes start-build return non-zero on build failure (--follow alone does not),
+# so a broken image aborts the deploy instead of silently continuing.
+oc -n "$NS_AI" start-build amboy --from-dir="$DEMO_DIR" --follow --wait \
+  || err "image build FAILED — see: oc -n $NS_AI logs build/amboy-<n>"
 ok "image built → image-registry…/$NS_AI/amboy:latest"
 
 # ── 3. standalone ArgoCD Application ─────────────────────────────────────────
