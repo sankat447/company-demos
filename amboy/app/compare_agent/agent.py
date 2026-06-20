@@ -65,6 +65,7 @@ def _run_langgraph(task: str):
 
     model = ChatOpenAI(model=config.LLM_MODEL, base_url=config.PORTKEY_BASE_URL,
                        api_key=config.PORTKEY_API_KEY or "portkey", temperature=0,
+                       max_tokens=config.LLM_MAX_TOKENS,  # required by Anthropic via Portkey
                        default_headers=_portkey_headers())
     agent = create_react_agent(model, [get_metrics, flag_policy, compute_scenario, retrieve],
                                state_modifier=SYSTEM_PROMPT)

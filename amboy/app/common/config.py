@@ -35,6 +35,8 @@ S3_BUCKET_DEID = _b("AMBOY_S3_BUCKET_DEID", "amboy-deid")  # de-identified only
 PORTKEY_BASE_URL = _b("AMBOY_PORTKEY_BASE_URL", "http://portkey.iis-ai-ai.svc:8787/v1")
 PORTKEY_API_KEY = _b("AMBOY_PORTKEY_API_KEY", "")          # virtual key, injected by deploy
 LLM_MODEL = _b("AMBOY_LLM_MODEL", "gpt-4o-mini")           # routed by Portkey; Claude via Portkey also OK
+# Anthropic REQUIRES max_tokens on every request — must be set or Portkey 400s.
+LLM_MAX_TOKENS = int(_b("AMBOY_LLM_MAX_TOKENS", "1024"))
 
 # ── Vault transit (iis-ai-system) — reversible HMAC tokenization ──────────────
 VAULT_ADDR = _b("AMBOY_VAULT_ADDR", "http://vault.iis-ai-system.svc:8200")
