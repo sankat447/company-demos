@@ -1,0 +1,45 @@
+# compare-agent — LangGraph agent that narrates VERIFIED numbers only, via Portkey
+# (the egress trust boundary). Same amboy image, AMBOY_ROLE=compare_agent.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amboy-compare-agent
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app: amboy-compare-agent, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "3"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: amboy-compare-agent}}
+  template:
+    metadata: {labels: {app: amboy-compare-agent, demo: amboy}}
+    spec:
+      serviceAccountName: amboy
+      containers:
+        - name: compare-agent
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+          env:
+            - {name: AMBOY_ROLE, value: "compare_agent"}
+            - {name: PORT, value: "8080"}
+            - name: AMBOY_PG_PASSWORD
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: PG_PASSWORD}}
+            - name: AMBOY_PORTKEY_API_KEY
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: PORTKEY_API_KEY}}
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amboy-compare-agent
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  selector: {app: amboy-compare-agent}
+  ports: [{port: 8080, targetPort: 8080}]

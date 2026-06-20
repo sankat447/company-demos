@@ -19,6 +19,8 @@ resources:
   - 30-deid-gateway.yaml
   # M5 — deterministic engine
   - 40-metrics-engine.yaml
+  # M6 — narrate-only agent
+  - 50-compare-agent.yaml
 
 configMapGenerator:
   - name: amboy-schema-sql
