@@ -21,6 +21,8 @@ resources:
   - 40-metrics-engine.yaml
   # M6 — narrate-only agent
   - 50-compare-agent.yaml
+  # M7 — UI + edge-TLS Route
+  - 60-ui.yaml
 
 configMapGenerator:
   - name: amboy-schema-sql

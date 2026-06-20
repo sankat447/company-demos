@@ -1,0 +1,54 @@
+# report-compare-ui (Streamlit) in iis-ai-ui. Pulls the image built in iis-ai-ai
+# (RoleBinding in build/buildconfig.yaml grants iis-ai-ui SAs the puller role).
+# The UI is the ONLY edge-exposed surface (edge-TLS Route on the self-signed
+# wildcard); all east-west calls use plain http Service DNS.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amboy-ui
+  namespace: iis-ai-ui
+  labels: {demo: amboy, app: amboy-ui, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: amboy-ui}}
+  template:
+    metadata: {labels: {app: amboy-ui, demo: amboy}}
+    spec:
+      serviceAccountName: amboy
+      containers:
+        - name: ui
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+          env:
+            - {name: AMBOY_ROLE, value: "ui"}
+            - {name: STREAMLIT_PORT, value: "8501"}
+          ports: [{containerPort: 8501}]
+          readinessProbe:
+            httpGet: {path: /_stcore/health, port: 8501}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amboy-ui
+  namespace: iis-ai-ui
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  selector: {app: amboy-ui}
+  ports: [{port: 8501, targetPort: 8501}]
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: amboy-ui
+  namespace: iis-ai-ui
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  to: {kind: Service, name: amboy-ui}
+  port: {targetPort: 8501}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
