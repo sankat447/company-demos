@@ -16,7 +16,9 @@ POD="$(oc -n "$NS_AI" get pod -l app=amboy-deid-gateway -o jsonpath='{.items[0].
 [ -n "$POD" ] || fail "deid-gateway pod not found — deploy first"
 
 info "running live invariants inside $POD"
-oc -n "$NS_AI" exec "$POD" -- python - <<'PY'
+# -i is REQUIRED: without it oc doesn't forward the heredoc to `python -`, which
+# then reads empty stdin and exits 0 (a silent false-positive).
+oc -n "$NS_AI" exec -i "$POD" -- python - <<'PY'
 import sys, httpx
 from app.common import config, pii_patterns
 
