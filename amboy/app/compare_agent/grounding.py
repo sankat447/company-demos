@@ -60,15 +60,20 @@ def verified_numbers(tool_outputs) -> set:
 def check(narrative: str, tool_outputs) -> dict:
     """Return grounding verdict. Years 1990-2100 are always allowed as labels."""
     verified = verified_numbers(tool_outputs)
+    # Compare on MAGNITUDE: the engine stores declines as negative abs_change /
+    # pct_change, while a narrative states them as positive ("down 0.44pp"), often
+    # with a typographic minus the regex can't read as a sign.
+    verified_abs = {abs(v) for v in verified}
     stated = extract_numbers(narrative, material_only=True)
     ungrounded = []
     for n in stated:
-        if n in verified:
+        a = abs(n)
+        if a in verified_abs:
             continue
-        if 1990 <= n <= 2100 and float(n).is_integer():  # year labels
+        if 1990 <= a <= 2100 and float(a).is_integer():  # year labels
             continue
         # tolerate rounding drift vs any verified figure (0.5% or 0.01 abs)
-        if any(abs(n - v) <= max(0.01, abs(v) * 0.005) for v in verified):
+        if any(abs(a - av) <= max(0.01, av * 0.005) for av in verified_abs):
             continue
         ungrounded.append(n)
     score = 1.0 if not stated else round(1 - len(ungrounded) / len(stated), 3)
