@@ -5,12 +5,21 @@ comparison + risk flags (compare-agent) -> gated 'reveal loan detail' wired to t
 Keycloak npi-reveal role (deid-gateway /detokenize). NPI never appears here unless
 an authorized reveal is explicitly performed and audited.
 """
-import json
+import os
+import sys
 
-import httpx
-import streamlit as st
+# `streamlit run app/ui/app.py` puts this file's dir (/app/app/ui) first on
+# sys.path; since the file is app.py it shadows the `app` package and
+# `from app.common import config` fails ("'app' is not a package"). Prepend the
+# repo root so the package resolves regardless of streamlit's path ordering.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.common import config
+import json  # noqa: E402
+
+import httpx  # noqa: E402
+import streamlit as st  # noqa: E402
+
+from app.common import config  # noqa: E402
 
 st.set_page_config(page_title="Amboy — NPI-Safe Report Compare", page_icon="🏦", layout="wide")
 st.title("🏦 Amboy — NPI-Safe Investment & Credit Report Comparison")
