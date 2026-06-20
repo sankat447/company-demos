@@ -1,0 +1,39 @@
+# Idempotent: enables Vault transit and creates ONE key `amboy-npi-tokenize`,
+# used for BOTH the deterministic token (transit HMAC -> same value -> same token)
+# AND reversible storage (transit encrypt/decrypt of the original NPI value).
+# Vault runs in DEV mode on the platform (root token) — demo only; prod = real Vault.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: amboy-vault-transit-init
+  namespace: iis-ai-system
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  backoffLimit: 8
+  template:
+    metadata: {labels: {demo: amboy}}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: vault
+          image: docker.io/hashicorp/vault:1.13.3
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              until vault status >/dev/null 2>&1 || [ $? -eq 2 ]; do
+                echo "waiting for vault..."; sleep 3; done
+              vault secrets enable -path=transit transit 2>/dev/null \
+                || echo "transit already enabled"
+              vault write -f transit/keys/amboy-npi-tokenize 2>/dev/null \
+                || echo "key amboy-npi-tokenize already exists"
+              vault read transit/keys/amboy-npi-tokenize
+              echo "amboy transit key ready (idempotent)"
+          env:
+            - {name: VAULT_ADDR, value: "http://vault.iis-ai-system.svc:8200"}
+            - name: VAULT_TOKEN
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: VAULT_TOKEN}}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 300m, memory: 128Mi}

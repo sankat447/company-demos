@@ -1,0 +1,25 @@
+# Amboy NPI-Safe demo — kustomize base. ArgoCD syncs this dir.
+# Resources carry their OWN namespace (they span iis-ai-{ai,ui,data,system}),
+# so we deliberately do NOT set a kustomize `namespace:` (which would flatten them).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs: {demo: amboy, app.kubernetes.io/part-of: amboy}
+    includeSelectors: false
+
+resources:
+  # M3 — bootstrap
+  - 00-serviceaccount.yaml
+  - 10-bootstrap-pgvector.yaml
+  - 11-bootstrap-minio.yaml
+  - 12-bootstrap-vault.yaml
+
+configMapGenerator:
+  - name: amboy-schema-sql
+    namespace: iis-ai-data
+    files:
+      - 01-schema.sql=sql/01-schema.sql
+
+generatorOptions:
+  disableNameSuffixHash: true   # stable name so the init Job's volume ref is fixed

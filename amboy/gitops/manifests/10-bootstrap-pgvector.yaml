@@ -1,0 +1,41 @@
+# Idempotent: applies amboy schema (CREATE ... IF NOT EXISTS) to the reused
+# platform Postgres. Re-runs are safe. Schema SQL comes from the kustomize-
+# generated ConfigMap `amboy-schema-sql` (hash suffix disabled for a stable name).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: amboy-pgvector-init
+  namespace: iis-ai-data
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  backoffLimit: 8
+  template:
+    metadata: {labels: {demo: amboy}}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: docker.io/pgvector/pgvector:pg16
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              until pg_isready -h "$PGHOST" -p 5432 -U "$PGUSER"; do
+                echo "waiting for postgres..."; sleep 3; done
+              psql "host=$PGHOST port=5432 dbname=$PGDATABASE user=$PGUSER password=$PGPASSWORD" \
+                -v ON_ERROR_STOP=1 -f /sql/01-schema.sql
+              echo "amboy schema applied (idempotent)"
+          env:
+            - {name: PGHOST, value: "iis-ai-postgres-primary.iis-ai-data.svc"}
+            - {name: PGUSER, value: "rhoai_admin"}
+            - {name: PGDATABASE, value: "rhoai_demo"}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: PG_PASSWORD}}
+          volumeMounts: [{name: sql, mountPath: /sql}]
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+      volumes:
+        - name: sql
+          configMap: {name: amboy-schema-sql}
