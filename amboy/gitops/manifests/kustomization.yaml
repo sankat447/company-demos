@@ -17,6 +17,8 @@ resources:
   # M4 — privacy gateway
   - 20-presidio.yaml
   - 30-deid-gateway.yaml
+  # M5 — deterministic engine
+  - 40-metrics-engine.yaml
 
 configMapGenerator:
   - name: amboy-schema-sql

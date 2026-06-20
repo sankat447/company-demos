@@ -1,0 +1,43 @@
+# metrics-engine — deterministic /compare /scenario /flag_policy over NPI-free
+# facts. Same amboy image, AMBOY_ROLE=metrics_engine. Needs only the PG password.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amboy-metrics-engine
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app: amboy-metrics-engine, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: amboy-metrics-engine}}
+  template:
+    metadata: {labels: {app: amboy-metrics-engine, demo: amboy}}
+    spec:
+      serviceAccountName: amboy
+      containers:
+        - name: metrics-engine
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+          env:
+            - {name: AMBOY_ROLE, value: "metrics_engine"}
+            - {name: PORT, value: "8080"}
+            - name: AMBOY_PG_PASSWORD
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: PG_PASSWORD}}
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amboy-metrics-engine
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  selector: {app: amboy-metrics-engine}
+  ports: [{port: 8080, targetPort: 8080}]
