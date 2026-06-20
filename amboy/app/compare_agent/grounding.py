@@ -18,12 +18,20 @@ def _norm(tok: str):
         return None
 
 
-def extract_numbers(text: str) -> set:
+def extract_numbers(text: str, material_only: bool = False) -> set:
+    """Extract numeric tokens. With material_only, keep only figures that could be
+    a real financial claim — those with a decimal/comma/%/$ or magnitude >= 100 —
+    so cosmetic single digits (markdown '### 1.', 'Tier 1') don't trip grounding."""
     out = set()
     for m in _NUM_RE.finditer(text or ""):
-        v = _norm(m.group(0))
-        if v is not None:
-            out.add(v)
+        tok = m.group(0)
+        v = _norm(tok)
+        if v is None:
+            continue
+        if material_only and not (
+                any(c in tok for c in ".,%$") or abs(v) >= 100):
+            continue
+        out.add(v)
     return out
 
 
@@ -52,7 +60,7 @@ def verified_numbers(tool_outputs) -> set:
 def check(narrative: str, tool_outputs) -> dict:
     """Return grounding verdict. Years 1990-2100 are always allowed as labels."""
     verified = verified_numbers(tool_outputs)
-    stated = extract_numbers(narrative)
+    stated = extract_numbers(narrative, material_only=True)
     ungrounded = []
     for n in stated:
         if n in verified:
