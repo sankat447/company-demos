@@ -21,6 +21,11 @@ spec:
           env:
             - {name: AMBOY_ROLE, value: "compare_agent"}
             - {name: PORT, value: "8080"}
+            # LLM via Portkey routed to Anthropic. Set PORTKEY_API_KEY (deploy.sh)
+            # to your Anthropic/Claude key; Portkey forwards it as the upstream
+            # provider credential. Keeps "LLM only via Portkey" intact.
+            - {name: AMBOY_PORTKEY_PROVIDER, value: "anthropic"}
+            - {name: AMBOY_LLM_MODEL, value: "claude-sonnet-4-6"}
             - name: AMBOY_PG_PASSWORD
               valueFrom: {secretKeyRef: {name: amboy-creds, key: PG_PASSWORD}}
             - name: AMBOY_PORTKEY_API_KEY
