@@ -23,12 +23,24 @@ resources:
   - 50-compare-agent.yaml
   # M7 — UI + edge-TLS Route
   - 60-ui.yaml
+  # M8 — governance (n8n workflow + Grafana dashboard) — see 70/71 below
 
 configMapGenerator:
   - name: amboy-schema-sql
     namespace: iis-ai-data
     files:
       - 01-schema.sql=sql/01-schema.sql
+  - name: amboy-n8n-workflow            # M8 — import into the running n8n
+    namespace: iis-ai-ui
+    files:
+      - workflow.json=assets/n8n-workflow.json
+  - name: amboy-grafana-dashboard       # M8 — picked up by the Grafana dashboard sidecar
+    namespace: iis-ai-ui
+    options:
+      labels:
+        grafana_dashboard: "1"
+    files:
+      - amboy-governance.json=assets/grafana-dashboard.json
 
 generatorOptions:
-  disableNameSuffixHash: true   # stable name so the init Job's volume ref is fixed
+  disableNameSuffixHash: true   # stable names so volume/sidecar refs are fixed
