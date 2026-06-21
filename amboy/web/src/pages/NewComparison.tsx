@@ -37,6 +37,7 @@ function DropZone({ label, file, onPick }: { label: string; file: File | null; o
 export function NewComparison() {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [name, setName] = useState("");
   const [fileA, setFileA] = useState<File | null>(null);
   const [fileB, setFileB] = useState<File | null>(null);
   const [summary, setSummary] = useState<ComparisonStatus | null>(null);
@@ -55,8 +56,10 @@ export function NewComparison() {
 
   async function indexUploads() {
     if (!fileA || !fileB) { toast("Choose both documents (A and B)"); return; }
+    // The report name becomes the indexed comparison id (sanitized); falls back
+    // to a generated id only if left blank.
+    const cid = name.trim().replace(/[:%/]/g, "").slice(0, 60) || `cmp-${Date.now().toString(36)}`;
     setBusy(true);
-    const cid = `cmp-${Date.now().toString(36)}`;
     try {
       for (const [side, f] of [["A", fileA], ["B", fileB]] as const) {
         const fd = new FormData();
@@ -66,10 +69,10 @@ export function NewComparison() {
         fd.append("actor", "ui");
         await uploadDocument(fd);
       }
-      const s = await api.get<ComparisonStatus>(`/comparisons/${cid}/status`);
+      const s = await api.get<ComparisonStatus>(`/comparisons/${encodeURIComponent(cid)}/status`);
       setSummary(s);
       toast("Both documents de-identified and indexed");
-      setTimeout(() => nav(`/c/${cid}`), 700);
+      setTimeout(() => nav(`/c/${encodeURIComponent(cid)}`), 700);
     } catch (e) {
       toast(`Indexing failed: ${(e as Error).message}`);
     } finally { setBusy(false); }
@@ -94,6 +97,13 @@ export function NewComparison() {
         Drop two reports to compare. Each is de-identified in-cluster before indexing —
         NPI never reaches the model. PDF and DOCX are extracted to text first.
       </p>
+      <label className="block">
+        <span className="text-[13px] text-ink font-bold">Report name</span>
+        <input value={name} onChange={(e) => setName(e.target.value)}
+               placeholder="e.g. Q2 Portfolio Review"
+               className="mt-1 w-full rounded-card border border-line bg-paper px-3 py-2 text-[14px]" />
+        <span className="text-[11px] text-slate">This name is used to index the comparison.</span>
+      </label>
       <div className="flex gap-3">
         <DropZone label="Report A" file={fileA} onPick={setFileA} />
         <DropZone label="Report B" file={fileB} onPick={setFileB} />

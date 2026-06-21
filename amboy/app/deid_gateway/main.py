@@ -72,6 +72,10 @@ class DetokenizeRequest(BaseModel):
     token: str
 
 
+class PurgeRequest(BaseModel):
+    comparison_id: str
+
+
 class RetrieveRequest(BaseModel):
     query: str
     report_id: str | None = None
@@ -172,6 +176,48 @@ async def ingest_document(
 
     return {"ok": True, "report_id": report_id, "comparison_id": comparison_id,
             "side": side, "chunks_indexed": len(chunks), "tokens_stored": n_tokens["count"]}
+
+
+@app.post("/purge_comparison")
+def purge_comparison(req: PurgeRequest):
+    """Delete a comparison's footprint to free space: index chunks + (seeded)
+    facts in Postgres, and any stored raw/deid objects in MinIO. Audited (BUC-14)."""
+    import re
+    cid = req.comparison_id
+    m = re.search(r"(\d{4})-(\d{4})$", cid)
+    seeded_ids = [f"AMB-FY{m.group(1)}", f"AMB-FY{m.group(2)}"] if m else []
+
+    with db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM amboy.chunks WHERE report_id = ANY(%s) OR report_id LIKE %s",
+                    (seeded_ids, f"{cid}::%"))
+        n_chunks = cur.rowcount
+        n_facts = 0
+        if seeded_ids:
+            for tbl in ("report_facts", "sector_facts", "loan_facts"):
+                cur.execute(f"DELETE FROM amboy.{tbl} WHERE report_id = ANY(%s)", (seeded_ids,))
+                n_facts += cur.rowcount
+        db.audit(cur, "ui", "delete", cid, {"chunks_deleted": n_chunks, "facts_deleted": n_facts})
+
+    # Remove stored objects (seeded reports keep raw + de-id objects; uploads keep none).
+    n_objs = 0
+    try:
+        c = objstore.client()
+        targets = []
+        if seeded_ids:
+            targets += [(config.S3_BUCKET_RAW, "report_2024.json"), (config.S3_BUCKET_RAW, "report_2025.json")]
+            targets += [(config.S3_BUCKET_DEID, f"{rid}.json") for rid in seeded_ids]
+        for bucket, key in targets:
+            try:
+                c.delete_object(Bucket=bucket, Key=key)
+                n_objs += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return {"ok": True, "comparison_id": cid, "chunks_deleted": n_chunks,
+            "facts_deleted": n_facts, "objects_deleted": n_objs}
 
 
 @app.post("/detokenize")

@@ -30,6 +30,12 @@ export async function uploadDocument(form: FormData): Promise<{ chunks_indexed: 
   return res.json();
 }
 
+// Purge a comparison's index rows + facts + stored objects (free space).
+export function purgeComparison(comparisonId: string) {
+  return api.post<{ chunks_deleted: number; objects_deleted: number }>(
+    "/purge_comparison", { comparison_id: comparisonId });
+}
+
 // Reveal a sealed token via deid-gateway (never an LLM). Returns token->value map.
 export async function detokenize(token: string, reason: string): Promise<string | null> {
   const res = await fetch(`/api/detokenize?reason=${encodeURIComponent(reason)}`, {
