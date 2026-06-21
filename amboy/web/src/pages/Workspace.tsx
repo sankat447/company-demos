@@ -18,8 +18,9 @@ const fmt = (v: number, unit: string | null) =>
 export function Workspace() {
   const { id = "AMB-2024-2025" } = useParams();
   const [sp] = useSearchParams();
-  const yearA = Number(sp.get("ya") || 2024);
-  const yearB = Number(sp.get("yb") || 2025);
+  const yearA = Number(sp.get("ya") || 0);
+  const yearB = Number(sp.get("yb") || 0);
+  const hasMetrics = yearA > 0 && yearB > 0;   // uploaded comparisons have no verified facts
   const ridA = `AMB-FY${yearA}`, ridB = `AMB-FY${yearB}`;
 
   const [tab, setTab] = useState<"dash" | "insight">("dash");
@@ -28,11 +29,13 @@ export function Workspace() {
 
   const compare = useQuery({
     queryKey: ["compare", id],
+    enabled: hasMetrics,
     queryFn: () => api.post<CompareResult>("/compare",
       { report_id_a: ridA, report_id_b: ridB, year_a: yearA, year_b: yearB }),
   });
   const flags = useQuery({
     queryKey: ["flags", id],
+    enabled: hasMetrics,
     queryFn: () => api.post<{ flags: Flag[] }>("/flag_policy", { report_id: ridB }),
   });
 
@@ -55,17 +58,27 @@ export function Workspace() {
     <div className="grid lg:grid-cols-2 gap-6 items-start">
       {/* LEFT — tabbed */}
       <section aria-label="Comparison panel" className="space-y-3">
-        <div className="flex gap-1 rounded-full bg-paper border border-line p-1 w-fit" role="tablist">
-          {(["dash", "insight"] as const).map((t) => (
-            <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-              className={`px-3 py-1 rounded-full text-[12px] font-bold ${tab === t ? "bg-navy text-white" : "text-slate"}`}>
-              {t === "dash" ? "Dashboard" : "Insight"}
-              {t === "insight" && pinned && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-gold align-middle" />}
-            </button>
-          ))}
-        </div>
+        {hasMetrics && (
+          <div className="flex gap-1 rounded-full bg-paper border border-line p-1 w-fit" role="tablist">
+            {(["dash", "insight"] as const).map((t) => (
+              <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+                className={`px-3 py-1 rounded-full text-[12px] font-bold ${tab === t ? "bg-navy text-white" : "text-slate"}`}>
+                {t === "dash" ? "Dashboard" : "Insight"}
+                {t === "insight" && pinned && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-gold align-middle" />}
+              </button>
+            ))}
+          </div>
+        )}
 
-        {tab === "dash" ? (
+        {!hasMetrics ? (
+          <div className="bg-surface border border-line rounded-card shadow-card p-6 text-[14px] text-slate space-y-2">
+            <div className="font-bold text-ink">Chat-grounded comparison</div>
+            <p>These documents were de-identified and indexed for chat. Verified-metric
+              tiles and charts appear for the structured Amboy 2024/2025 reports; for
+              free-form uploads, ask questions on the right — every answer is grounded in
+              the indexed (de-identified) text and cites its sources.</p>
+          </div>
+        ) : tab === "dash" ? (
           <>
             <h2 className="text-[12px] font-bold tracking-wide text-navy">VERIFIED COMPARISON · computed in code</h2>
             {compare.isLoading && <p className="text-slate text-[14px]">Loading verified figures…</p>}

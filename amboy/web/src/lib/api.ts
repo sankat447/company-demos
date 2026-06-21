@@ -22,6 +22,14 @@ export const api = {
   post: <T>(p: string, body: unknown) => req<T>(p, { method: "POST", body: JSON.stringify(body) }),
 };
 
+// Upload a document (PDF/DOCX/TXT/MD) for de-identification + indexing.
+// No Content-Type header — the browser sets the multipart boundary.
+export async function uploadDocument(form: FormData): Promise<{ chunks_indexed: number; tokens_stored: number }> {
+  const res = await fetch("/api/ingest_document", { method: "POST", headers: authHeaders(), body: form });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return res.json();
+}
+
 // Reveal a sealed token via deid-gateway (never an LLM). Returns token->value map.
 export async function detokenize(token: string, reason: string): Promise<string | null> {
   const res = await fetch(`/api/detokenize?reason=${encodeURIComponent(reason)}`, {

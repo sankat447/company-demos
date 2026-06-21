@@ -49,15 +49,17 @@ def _report_ids(year_a: int, year_b: int):
     return [f"AMB-FY{year_a}", f"AMB-FY{year_b}"]
 
 
-def retrieve(question: str, report_ids, k: int = 6):
-    """Top-k de-identified chunks across the comparison's reports (tokens only)."""
+def retrieve(question: str, report_ids, comparison_id: str, k: int = 6):
+    """Top-k de-identified chunks (tokens only) for the comparison — matches both
+    the seeded year-based reports (AMB-FYxxxx) and uploaded docs (comparison_id::side)."""
     qv = embeddings.to_pgvector(embeddings.embed(question))
     with db.connect() as conn:
         cur = conn.cursor()
         cur.execute(
             "SELECT id, report_id, fiscal_year, deid_text FROM amboy.chunks "
-            "WHERE report_id = ANY(%s) ORDER BY embedding <=> %s::vector LIMIT %s",
-            (list(report_ids), qv, k))
+            "WHERE report_id = ANY(%s) OR report_id LIKE %s "
+            "ORDER BY embedding <=> %s::vector LIMIT %s",
+            (list(report_ids), f"{comparison_id}::%", qv, k))
         return [{"id": f"chunk:{r[0]}", "report_id": r[1], "fy": r[2], "text": r[3]}
                 for r in cur.fetchall()]
 
@@ -79,7 +81,7 @@ def stream(req):
     t0 = time.perf_counter()
     report_ids = _report_ids(req.year_a, req.year_b)
     facts = _facts(req.year_a, req.year_b)
-    ctx = retrieve(req.message, report_ids)
+    ctx = retrieve(req.message, report_ids, req.comparison_id)
     ctx_block = "\n".join(f"[{c['id']}] (FY{c['fy']}) {c['text'][:600]}" for c in ctx)
     prompt = (f"VERIFIED NUMBERS:\n{json.dumps(facts)[:5000]}\n\n"
               f"DE-IDENTIFIED CONTEXT:\n{ctx_block}\n\nQUESTION: {req.message}")
@@ -128,21 +130,25 @@ def stream(req):
 
 
 def list_comparisons():
-    """Comparisons derived from indexed facts (report_facts/chunks present)."""
+    """Seeded comparisons (from report_facts) + uploaded ones (from chunk prefixes)."""
     with db.connect() as conn:
         cur = conn.cursor()
         cur.execute("SELECT DISTINCT fiscal_year FROM amboy.report_facts ORDER BY fiscal_year")
         years = [r[0] for r in cur.fetchall()]
         cur.execute("SELECT count(*) FROM amboy.chunks")
         n_chunks = cur.fetchone()[0]
+        cur.execute("SELECT DISTINCT split_part(report_id,'::',1) FROM amboy.chunks "
+                    "WHERE report_id LIKE '%::%' ORDER BY 1")
+        uploaded = [r[0] for r in cur.fetchall()]
     out = []
     for i in range(len(years) - 1):
         ya, yb = years[i], years[i + 1]
-        out.append({
-            "id": f"AMB-{ya}-{yb}", "label": f"Amboy · {ya} ▸ {yb}",
-            "year_a": ya, "year_b": yb,
-            "status": "indexed" if n_chunks else "empty",
-        })
+        out.append({"id": f"AMB-{ya}-{yb}", "label": f"Amboy · {ya} ▸ {yb}",
+                    "year_a": ya, "year_b": yb,
+                    "status": "indexed" if n_chunks else "empty", "kind": "seeded"})
+    for cid in uploaded:
+        out.append({"id": cid, "label": cid, "year_a": 0, "year_b": 0,
+                    "status": "indexed", "kind": "uploaded"})
     return {"comparisons": out}
 
 
@@ -159,14 +165,20 @@ def list_audit(limit: int = 100):
 
 
 def comparison_status(cid: str):
+    import re
+    m = re.search(r"(\d{4})-(\d{4})$", cid)  # seeded "AMB-2024-2025" → year-based ids
     with db.connect() as conn:
         cur = conn.cursor()
+        if m:
+            ids = [f"AMB-FY{m.group(1)}", f"AMB-FY{m.group(2)}"]
+            cur.execute("SELECT count(*) FROM amboy.chunks WHERE report_id = ANY(%s)", (ids,))
+        else:
+            cur.execute("SELECT count(*) FROM amboy.chunks WHERE report_id LIKE %s", (f"{cid}::%",))
+        chunks = cur.fetchone()[0]
         cur.execute("SELECT count(*) FROM amboy.token_vault")
         entities = cur.fetchone()[0]
         cur.execute("SELECT count(*) FROM amboy.report_facts")
         facts = cur.fetchone()[0]
-        cur.execute("SELECT count(*) FROM amboy.chunks")
-        chunks = cur.fetchone()[0]
     return {"comparison_id": cid,
             "status": "indexed" if chunks else "indexing",
             "entities_tokenized": entities, "facts_extracted": facts,
