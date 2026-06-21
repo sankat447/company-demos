@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ALL_ROLES, DEV_MODE, useAuth } from "../store/auth";
 import type { Role } from "../lib/types";
+import { Logo, IISAttribution } from "../components/Logo";
 
 // S1 — sign in. DEV_MODE shows a role picker (maps to X-Amboy-Roles); with OIDC
 // configured this would redirect to Keycloak.
@@ -17,9 +18,9 @@ export function SignIn() {
   return (
     <div className="min-h-full grid place-items-center bg-paper p-4">
       <div className="w-full max-w-md bg-surface rounded-card shadow-card border border-line">
-        <div className="bg-navy text-white px-5 py-4 rounded-t-card">
-          <div className="font-display text-[22px] font-bold">Amboy</div>
-          <div className="text-[12px] text-white/70">NPI-Safe Report Comparison &amp; Chat</div>
+        <div className="bg-navy text-white px-5 py-5 rounded-t-card">
+          <Logo variant="dark" size={36} />
+          <div className="text-[12px] text-white/70 mt-2">NPI-Safe Report Comparison &amp; Chat</div>
         </div>
         <div className="p-5 space-y-4">
           {DEV_MODE ? (
@@ -46,6 +47,7 @@ export function SignIn() {
             className="w-full rounded-full bg-gold text-navy font-bold py-2 disabled:opacity-50">
             Sign in
           </button>
+          <div className="pt-1 text-center"><IISAttribution /></div>
         </div>
       </div>
     </div>

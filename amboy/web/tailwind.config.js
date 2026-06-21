@@ -6,6 +6,7 @@ export default {
       colors: {
         ink: "#14193D",
         navy: "#1E2761",
+        amboyblue: "#1B9DD9", // brand mark blue (Amboy Bank logo)
         gold: "#C8A24B",
         teal: "#0E7C86", // positive deltas / improvement
         red: "#C0392B",  // flags & sealed NPI

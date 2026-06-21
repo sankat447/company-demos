@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "../store/auth";
 import { useToasts } from "../lib/toast";
+import { Logo, IISAttribution } from "./Logo";
 
 function Toaster() {
   const { toasts } = useToasts();
@@ -21,11 +22,13 @@ export function Layout({ children }: { children: ReactNode }) {
   const nav = useNavigate();
   const canAudit = hasRole("npi-audit") || hasRole("npi-compliance") || hasRole("npi-admin");
   return (
-    <div className="min-h-full">
+    <div className="min-h-full flex flex-col">
       <header className="bg-navy text-white">
         <div className="mx-auto max-w-[1280px] px-4 h-14 flex items-center gap-4">
-          <Link to="/" className="font-display text-[18px] font-bold">Amboy</Link>
-          <span className="text-[12px] text-white/60">NPI-Safe Report Comparison</span>
+          <Link to="/" aria-label="Amboy Bank home"><Logo variant="dark" size={30} /></Link>
+          <span className="hidden md:inline text-[12px] text-white/60 border-l border-white/20 pl-4">
+            NPI-Safe Report Comparison
+          </span>
           <nav className="ml-auto flex items-center gap-4 text-[13px]">
             <Link to="/" className="hover:text-gold">Comparisons</Link>
             {canAudit && <Link to="/governance" className="hover:text-gold">Governance</Link>}
@@ -38,7 +41,13 @@ export function Layout({ children }: { children: ReactNode }) {
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-[1280px] px-4 py-6">{children}</main>
+      <main className="mx-auto max-w-[1280px] px-4 py-6 flex-1 w-full">{children}</main>
+      <footer className="border-t border-line bg-surface">
+        <div className="mx-auto max-w-[1280px] px-4 py-4 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[12px] text-slate">Amboy Bank · NPI-safe analytics</span>
+          <IISAttribution />
+        </div>
+      </footer>
       <Toaster />
     </div>
   );
