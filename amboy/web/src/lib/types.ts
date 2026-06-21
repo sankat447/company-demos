@@ -40,3 +40,5 @@ export interface Flag {
   code: string; severity: string; metric: string;
   value: number; threshold: number; message: string;
 }
+// Figures extracted from two uploaded documents (document-stated, not verified).
+export interface DocMetric { label: string; a: number; b: number; unit?: string; cite?: string; }

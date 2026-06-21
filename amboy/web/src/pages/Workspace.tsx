@@ -6,6 +6,7 @@ import type { ChatMeta, CompareResult, Flag } from "../lib/types";
 import { streamChat } from "../hooks/useChatStream";
 import { ChatMessage } from "../components/ChatMessage";
 import { InsightCharts } from "../components/InsightCharts";
+import { DocCompareCharts } from "../components/DocCompareCharts";
 import { KpiTile, RiskFlags } from "../components/ui";
 
 interface Msg { role: "user" | "assistant"; text: string; meta?: ChatMeta; }
@@ -71,13 +72,7 @@ export function Workspace() {
         )}
 
         {!hasMetrics ? (
-          <div className="bg-surface border border-line rounded-card shadow-card p-6 text-[14px] text-slate space-y-2">
-            <div className="font-bold text-ink">Chat-grounded comparison</div>
-            <p>These documents were de-identified and indexed for chat. Verified-metric
-              tiles and charts appear for the structured Amboy 2024/2025 reports; for
-              free-form uploads, ask questions on the right — every answer is grounded in
-              the indexed (de-identified) text and cites its sources.</p>
-          </div>
+          <DocCompareCharts comparisonId={id} />
         ) : tab === "dash" ? (
           <>
             <h2 className="text-[12px] font-bold tracking-wide text-navy">VERIFIED COMPARISON · computed in code</h2>

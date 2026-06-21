@@ -152,6 +152,50 @@ def list_comparisons():
     return {"comparisons": out}
 
 
+def compare_docs(comparison_id: str) -> dict:
+    """For uploaded free-form docs (no deterministic facts): extract comparable
+    figures that appear in BOTH de-identified documents, for charting on the left.
+    Numbers must be literally present in the text; result is labeled as
+    document-stated (NOT independently verified). Tokens are never resolved."""
+    import json
+    import re
+    with db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, report_id, deid_text FROM amboy.chunks "
+                    "WHERE report_id LIKE %s ORDER BY id", (f"{comparison_id}::%",))
+        rows = cur.fetchall()
+    if not rows:
+        return {"metrics": [], "note": "No indexed content for this comparison."}
+
+    ctx = "\n".join(f"[chunk:{r[0]}] (side {r[1].split('::')[-1]}) {r[2][:700]}" for r in rows[:20])
+    prompt = (
+        "From the two de-identified documents (side A and side B) below, extract up to 6 "
+        "numeric metrics that appear in BOTH and are directly comparable. Use ONLY numbers "
+        "literally present in the text — never invent or infer. Return STRICT JSON only "
+        "(no markdown, no prose), shape: "
+        '{"metrics":[{"label":"NPA ratio","a":1.6,"b":1.2,"unit":"%","cite":"chunk:3"}],"note":"..."}. '
+        'If nothing is directly comparable, return {"metrics":[],"note":"..."}.\n\nDOCUMENTS:\n' + ctx)
+    data = {"metrics": [], "note": ""}
+    try:
+        r = _client().chat.completions.create(
+            model=config.LLM_MODEL, temperature=0, max_tokens=config.LLM_MAX_TOKENS,
+            messages=[{"role": "system", "content": "You output only strict JSON. Never invent numbers; never resolve a token."},
+                      {"role": "user", "content": prompt}])
+        txt = r.choices[0].message.content or ""
+        m = re.search(r"\{.*\}", txt, re.S)
+        if m:
+            data = json.loads(m.group(0))
+    except Exception as e:
+        data = {"metrics": [], "note": f"extraction unavailable: {type(e).__name__}"}
+    try:
+        with db.connect() as conn:
+            db.audit(conn.cursor(), "chat-user", "tool_call", comparison_id,
+                     {"op": "compare_docs", "metrics": len(data.get("metrics", []))})
+    except Exception:
+        pass
+    return data
+
+
 def list_audit(limit: int = 100):
     """Append-only audit trail (NPI-free) for the governance view (BUC-11)."""
     with db.connect() as conn:

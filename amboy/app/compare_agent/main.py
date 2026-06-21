@@ -64,6 +64,15 @@ def audit(limit: int = 100):
     return chat.list_audit(limit)
 
 
+class CompareDocsReq(BaseModel):
+    comparison_id: str
+
+
+@app.post("/compare_docs")
+def compare_docs(req: CompareDocsReq):
+    return chat.compare_docs(req.comparison_id)
+
+
 @app.post("/chat")
 def chat_sse(req: ChatReq):
     return StreamingResponse(chat.stream(req), media_type="text/event-stream",
