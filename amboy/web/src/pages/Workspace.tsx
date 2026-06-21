@@ -5,9 +5,8 @@ import { api } from "../lib/api";
 import type { ChatMeta, CompareResult, Flag } from "../lib/types";
 import { streamChat } from "../hooks/useChatStream";
 import { ChatMessage } from "../components/ChatMessage";
-import { Markdown } from "../components/Markdown";
-import { TokenChip } from "../components/TokenChip";
-import { CitationPill, DraftBadge, KpiTile, RiskFlags } from "../components/ui";
+import { InsightCharts } from "../components/InsightCharts";
+import { KpiTile, RiskFlags } from "../components/ui";
 
 interface Msg { role: "user" | "assistant"; text: string; meta?: ChatMeta; }
 const SUGGESTED = ["What changed in NPAs?", "Top movers", "Is concentration a worry?",
@@ -81,45 +80,12 @@ export function Workspace() {
             </div>
           </>
         ) : (
-          <InsightPanel pinned={pinned} />
+          <InsightCharts compare={compare.data} flags={flags.data} highlight={pinned?.text} />
         )}
       </section>
 
       {/* RIGHT — chat */}
       <Chat id={id} yearA={yearA} yearB={yearB} onProject={project} />
-    </div>
-  );
-}
-
-function InsightPanel({ pinned }: { pinned: Msg | null }) {
-  if (!pinned) {
-    return (
-      <div className="bg-surface border border-line rounded-card shadow-card p-6 text-[14px] text-slate">
-        Ask a question in the chat, then choose <span className="font-bold text-teal">⤢ Project to panel</span> —
-        or the latest answer lands here automatically — to read it full-width.
-      </div>
-    );
-  }
-  const m = pinned.meta;
-  return (
-    <div className="bg-surface border border-line rounded-card shadow-card p-5 space-y-3">
-      <div className="text-[12px] font-bold tracking-wide text-navy">PROJECTED INSIGHT · grounded in verified data</div>
-      <Markdown text={pinned.text} />
-      {m && (
-        <div className="space-y-2 pt-1 border-t border-line">
-          {m.tokens.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] text-slate">Sealed references:</span>
-              {m.tokens.map((t) => <TokenChip key={t} token={t} />)}
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-slate">Sources:</span>
-            {m.citations.map((c) => <CitationPill key={c.id} c={c} />)}
-          </div>
-          {m.draft && !/DRAFT/.test(pinned.text) && <DraftBadge />}
-        </div>
-      )}
     </div>
   );
 }
