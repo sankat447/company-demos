@@ -5,20 +5,27 @@ import { api } from "../lib/api";
 import type { ChatMeta, CompareResult, Flag } from "../lib/types";
 import { streamChat } from "../hooks/useChatStream";
 import { ChatMessage } from "../components/ChatMessage";
-import { KpiTile, RiskFlags } from "../components/ui";
+import { Markdown } from "../components/Markdown";
+import { TokenChip } from "../components/TokenChip";
+import { CitationPill, DraftBadge, KpiTile, RiskFlags } from "../components/ui";
 
 interface Msg { role: "user" | "assistant"; text: string; meta?: ChatMeta; }
-const SUGGESTED = ["What changed in NPAs?", "Top movers", "Is concentration a worry?"];
+const SUGGESTED = ["What changed in NPAs?", "Top movers", "Is concentration a worry?",
+  "Summarize credit quality YoY"];
 const fmt = (v: number, unit: string | null) =>
   unit === "USD" ? `$${(v / 1e6).toFixed(1)}M` : unit === "pct" ? `${v}%` : `${v}`;
 
-// S4 — the hero. LEFT verified comparison; RIGHT grounded chat.
+// S4 — the hero. LEFT: tabbed Dashboard | Insight (projected answer). RIGHT: chat.
 export function Workspace() {
   const { id = "AMB-2024-2025" } = useParams();
   const [sp] = useSearchParams();
   const yearA = Number(sp.get("ya") || 2024);
   const yearB = Number(sp.get("yb") || 2025);
   const ridA = `AMB-FY${yearA}`, ridB = `AMB-FY${yearB}`;
+
+  const [tab, setTab] = useState<"dash" | "insight">("dash");
+  const [pinned, setPinned] = useState<Msg | null>(null);
+  const project = (m: Msg) => { setPinned(m); setTab("insight"); };
 
   const compare = useQuery({
     queryKey: ["compare", id],
@@ -40,38 +47,79 @@ export function Workspace() {
     return want.map((m) => {
       const r = rows.find((x) => x.metric === m);
       if (!r) return null;
-      return {
-        label: label[m],
-        value: fmt(r[`y${yearB}`] as number, r.unit),
-        delta: `${r.pct_change ?? 0}% YoY`,
-        dir: r.direction,
-      };
+      return { label: label[m], value: fmt(r[`y${yearB}`] as number, r.unit),
+               delta: `${r.pct_change ?? 0}% YoY`, dir: r.direction };
     }).filter(Boolean) as { label: string; value: string; delta: string; dir: "up" | "down" | "flat" }[];
   }, [compare.data, yearB]);
 
   return (
-    <div className="grid lg:grid-cols-2 gap-6">
-      {/* LEFT — verified comparison */}
-      <section aria-label="Verified comparison">
-        <h2 className="text-[12px] font-bold tracking-wide text-navy mb-2">
-          VERIFIED COMPARISON · computed in code
-        </h2>
-        {compare.isLoading && <p className="text-slate text-[14px]">Loading verified figures…</p>}
-        <div className="grid grid-cols-2 gap-3">
-          {kpis.map((k) => <KpiTile key={k.label} {...k} />)}
+    <div className="grid lg:grid-cols-2 gap-6 items-start">
+      {/* LEFT — tabbed */}
+      <section aria-label="Comparison panel" className="space-y-3">
+        <div className="flex gap-1 rounded-full bg-paper border border-line p-1 w-fit" role="tablist">
+          {(["dash", "insight"] as const).map((t) => (
+            <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+              className={`px-3 py-1 rounded-full text-[12px] font-bold ${tab === t ? "bg-navy text-white" : "text-slate"}`}>
+              {t === "dash" ? "Dashboard" : "Insight"}
+              {t === "insight" && pinned && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-gold align-middle" />}
+            </button>
+          ))}
         </div>
-        <div className="mt-4 bg-surface border border-line rounded-card shadow-card p-4">
-          <div className="text-[13px] font-bold text-ink mb-2">Year-over-year</div>
-          <YoY rows={compare.data?.comparison || []} ya={yearA} yb={yearB} />
-        </div>
-        <div className="mt-4 bg-surface border border-line rounded-card shadow-card p-4">
-          <div className="text-[13px] font-bold text-ink mb-2">Risk flags</div>
-          <RiskFlags flags={flags.data?.flags || []} />
-        </div>
+
+        {tab === "dash" ? (
+          <>
+            <h2 className="text-[12px] font-bold tracking-wide text-navy">VERIFIED COMPARISON · computed in code</h2>
+            {compare.isLoading && <p className="text-slate text-[14px]">Loading verified figures…</p>}
+            <div className="grid grid-cols-2 gap-3">{kpis.map((k) => <KpiTile key={k.label} {...k} />)}</div>
+            <div className="bg-surface border border-line rounded-card shadow-card p-4">
+              <div className="text-[13px] font-bold text-ink mb-2">Year-over-year</div>
+              <YoY rows={compare.data?.comparison || []} ya={yearA} yb={yearB} />
+            </div>
+            <div className="bg-surface border border-line rounded-card shadow-card p-4">
+              <div className="text-[13px] font-bold text-ink mb-2">Risk flags</div>
+              <RiskFlags flags={flags.data?.flags || []} />
+            </div>
+          </>
+        ) : (
+          <InsightPanel pinned={pinned} />
+        )}
       </section>
 
       {/* RIGHT — chat */}
-      <Chat id={id} yearA={yearA} yearB={yearB} />
+      <Chat id={id} yearA={yearA} yearB={yearB} onProject={project} />
+    </div>
+  );
+}
+
+function InsightPanel({ pinned }: { pinned: Msg | null }) {
+  if (!pinned) {
+    return (
+      <div className="bg-surface border border-line rounded-card shadow-card p-6 text-[14px] text-slate">
+        Ask a question in the chat, then choose <span className="font-bold text-teal">⤢ Project to panel</span> —
+        or the latest answer lands here automatically — to read it full-width.
+      </div>
+    );
+  }
+  const m = pinned.meta;
+  return (
+    <div className="bg-surface border border-line rounded-card shadow-card p-5 space-y-3">
+      <div className="text-[12px] font-bold tracking-wide text-navy">PROJECTED INSIGHT · grounded in verified data</div>
+      <Markdown text={pinned.text} />
+      {m && (
+        <div className="space-y-2 pt-1 border-t border-line">
+          {m.tokens.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-slate">Sealed references:</span>
+              {m.tokens.map((t) => <TokenChip key={t} token={t} />)}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-slate">Sources:</span>
+            {m.citations.map((c) => <CitationPill key={c.id} c={c} />)}
+          </div>
+          {m.draft && !/DRAFT/.test(pinned.text) && <DraftBadge />}
+        </div>
+      )}
     </div>
   );
 }
@@ -102,7 +150,9 @@ function YoY({ rows, ya, yb }: { rows: CompareResult["comparison"]; ya: number; 
   );
 }
 
-function Chat({ id, yearA, yearB }: { id: string; yearA: number; yearB: number }) {
+function Chat({ id, yearA, yearB, onProject }: {
+  id: string; yearA: number; yearB: number; onProject: (m: Msg) => void;
+}) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -115,11 +165,17 @@ function Chat({ id, yearA, yearB }: { id: string; yearA: number; yearB: number }
     setMsgs((m) => [...m, { role: "user", text }, { role: "assistant", text: "" }]);
     setBusy(true);
     try {
+      let finalMsg: Msg = { role: "assistant", text: "" };
       for await (const ev of streamChat({ comparison_id: id, year_a: yearA, year_b: yearB, message: text, history })) {
-        if (ev.type === "delta")
-          setMsgs((m) => { const c = [...m]; c[c.length - 1] = { ...c[c.length - 1], text: c[c.length - 1].text + ev.t }; return c; });
-        if (ev.type === "meta")
-          setMsgs((m) => { const c = [...m]; c[c.length - 1] = { ...c[c.length - 1], meta: ev.meta }; return c; });
+        if (ev.type === "delta") {
+          finalMsg = { ...finalMsg, text: finalMsg.text + ev.t };
+          setMsgs((m) => { const c = [...m]; c[c.length - 1] = finalMsg; return c; });
+        }
+        if (ev.type === "meta") {
+          finalMsg = { ...finalMsg, meta: ev.meta };
+          setMsgs((m) => { const c = [...m]; c[c.length - 1] = finalMsg; return c; });
+          onProject(finalMsg); // auto-project the completed answer to the left panel
+        }
         endRef.current?.scrollIntoView({ behavior: "smooth" });
       }
     } catch {
@@ -128,7 +184,7 @@ function Chat({ id, yearA, yearB }: { id: string; yearA: number; yearB: number }
   }
 
   return (
-    <section aria-label="Chat" className="flex flex-col bg-surface border border-line rounded-card shadow-card min-h-[560px]">
+    <section aria-label="Chat" className="flex flex-col bg-surface border border-line rounded-card shadow-card h-[640px]">
       <div className="px-4 py-3 border-b border-line">
         <div className="text-[12px] font-bold tracking-wide text-navy">CHAT · ask about these reports</div>
         <div className="text-[11px] text-slate">grounded in indexed, de-identified data + verified numbers</div>
@@ -145,7 +201,10 @@ function Chat({ id, yearA, yearB }: { id: string; yearA: number; yearB: number }
         {msgs.length === 0 && (
           <p className="text-slate text-[14px]">Ask how the two reports differ — try a suggested question.</p>
         )}
-        {msgs.map((m, i) => <ChatMessage key={i} role={m.role} text={m.text} meta={m.meta} />)}
+        {msgs.map((m, i) => (
+          <ChatMessage key={i} role={m.role} text={m.text} meta={m.meta}
+                       onProject={m.role === "assistant" && m.meta ? () => onProject(m) : undefined} />
+        ))}
         <div ref={endRef} />
       </div>
       <form className="p-3 border-t border-line flex gap-2"
@@ -153,8 +212,7 @@ function Chat({ id, yearA, yearB }: { id: string; yearA: number; yearB: number }
         <input value={input} onChange={(e) => setInput(e.target.value)}
                placeholder="Ask a comparison question…" aria-label="Ask a comparison question"
                className="flex-1 rounded-full border border-line bg-paper px-4 py-2 text-[14px]" />
-        <button type="submit" disabled={busy || !input.trim()}
-                aria-label="Send"
+        <button type="submit" disabled={busy || !input.trim()} aria-label="Send"
                 className="h-9 w-9 grid place-items-center rounded-full bg-gold text-navy font-bold disabled:opacity-50">↑</button>
       </form>
     </section>
