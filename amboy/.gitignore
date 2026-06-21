@@ -5,6 +5,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+# Web build artifacts
+web/node_modules/
+web/dist/
 # Local kube/oc artifacts
 .kubeconfig
 *.tmp

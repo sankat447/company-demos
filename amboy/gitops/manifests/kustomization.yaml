@@ -23,6 +23,8 @@ resources:
   - 50-compare-agent.yaml
   # M7 — UI + edge-TLS Route
   - 60-ui.yaml
+  # React web UI (BFF) — chat-driven workspace
+  - 61-web.yaml
   # M8 — governance (n8n workflow + Grafana dashboard) — see 70/71 below
 
 configMapGenerator:

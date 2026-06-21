@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Webfonts are optional — fallback stacks (Georgia / system-ui / ui-monospace)
+   render fully offline. If the cluster allows font egress, uncomment:
+   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Source+Serif+4:wght@600;700&display=swap'); */
+
+:root { color-scheme: light; }
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: #F7F8FB;       /* paper */
+  color: #14193D;            /* ink */
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible focus ring (a11y floor, WCAG-AA). */
+:where(a, button, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid #0E7C86;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Honor reduced motion (TC-49). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.font-display { font-family: "Source Serif 4", Georgia, serif; }

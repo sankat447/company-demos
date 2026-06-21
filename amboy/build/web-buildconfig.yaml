@@ -1,0 +1,34 @@
+# In-cluster build of the React UI image (internal registry). Built into iis-ai-ui
+# where the UI runs. Applied imperatively by deploy.sh:
+#   oc -n iis-ai-ui apply -f build/web-buildconfig.yaml
+#   oc -n iis-ai-ui start-build amboy-web --from-dir=web --follow --wait
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: amboy-web
+  namespace: iis-ai-ui
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  lookupPolicy: {local: true}
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: amboy-web
+  namespace: iis-ai-ui
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to: {kind: ImageStreamTag, name: amboy-web:latest}
+  resources:
+    requests: {cpu: "500m", memory: 1Gi}
+    limits: {cpu: "2", memory: 3Gi}
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2

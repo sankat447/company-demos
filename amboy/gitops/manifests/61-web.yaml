@@ -1,0 +1,50 @@
+# React UI (nginx BFF) in iis-ai-ui. Edge-TLS Route is the only browser-facing
+# surface; it proxies /api/* to the in-cluster amboy services. Coexists with the
+# Streamlit amboy-ui until cut-over.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amboy-web
+  namespace: iis-ai-ui
+  labels: {demo: amboy, app: amboy-web, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: amboy-web}}
+  template:
+    metadata: {labels: {app: amboy-web, demo: amboy}}
+    spec:
+      serviceAccountName: amboy
+      containers:
+        - name: web
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ui/amboy-web:latest
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /, port: 8080}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amboy-web
+  namespace: iis-ai-ui
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  selector: {app: amboy-web}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: amboy-web
+  namespace: iis-ai-ui
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  to: {kind: Service, name: amboy-web}
+  port: {targetPort: 8080}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}

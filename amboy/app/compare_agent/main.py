@@ -59,6 +59,11 @@ def comparison_status(cid: str):
     return chat.comparison_status(cid)
 
 
+@app.get("/audit")
+def audit(limit: int = 100):
+    return chat.list_audit(limit)
+
+
 @app.post("/chat")
 def chat_sse(req: ChatReq):
     return StreamingResponse(chat.stream(req), media_type="text/event-stream",

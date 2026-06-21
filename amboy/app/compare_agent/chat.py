@@ -146,6 +146,18 @@ def list_comparisons():
     return {"comparisons": out}
 
 
+def list_audit(limit: int = 100):
+    """Append-only audit trail (NPI-free) for the governance view (BUC-11)."""
+    with db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT ts, actor, action, resource, outcome, detail FROM amboy.audit_log "
+            "ORDER BY ts DESC LIMIT %s", (min(int(limit), 500),))
+        rows = [{"ts": str(ts), "actor": a, "action": ac, "resource": r,
+                 "outcome": o, "detail": d} for ts, a, ac, r, o, d in cur.fetchall()]
+    return {"rows": rows}
+
+
 def comparison_status(cid: str):
     with db.connect() as conn:
         cur = conn.cursor()
