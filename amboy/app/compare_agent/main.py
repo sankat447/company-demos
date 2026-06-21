@@ -4,12 +4,21 @@ MLflow eval run."""
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.common import config, db
-from app.compare_agent import agent
+from app.compare_agent import agent, chat
 
 app = FastAPI(title="amboy-compare-agent")
+
+
+class ChatReq(BaseModel):
+    comparison_id: str = "AMB-2024-2025"
+    year_a: int = 2024
+    year_b: int = 2025
+    message: str
+    history: list[dict] = []
 
 
 class AnalyzeRequest(BaseModel):
@@ -38,6 +47,22 @@ def _mlflow_log(req: AnalyzeRequest, result: dict):
 @app.get("/healthz")
 def healthz():
     return {"ok": True, "role": "compare_agent"}
+
+
+@app.get("/comparisons")
+def comparisons():
+    return chat.list_comparisons()
+
+
+@app.get("/comparisons/{cid}/status")
+def comparison_status(cid: str):
+    return chat.comparison_status(cid)
+
+
+@app.post("/chat")
+def chat_sse(req: ChatReq):
+    return StreamingResponse(chat.stream(req), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/analyze")
