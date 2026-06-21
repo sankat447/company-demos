@@ -42,3 +42,5 @@ export interface Flag {
 }
 // Figures extracted from two uploaded documents (document-stated, not verified).
 export interface DocMetric { label: string; a: number; b: number; unit?: string; cite?: string; }
+export interface DocFlag { text: string; severity?: string; cite?: string; }
+export interface DocCompare { metrics: DocMetric[]; flags?: DocFlag[]; note?: string; }

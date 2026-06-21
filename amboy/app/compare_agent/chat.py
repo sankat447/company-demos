@@ -165,17 +165,21 @@ def compare_docs(comparison_id: str) -> dict:
                     "WHERE report_id LIKE %s ORDER BY id", (f"{comparison_id}::%",))
         rows = cur.fetchall()
     if not rows:
-        return {"metrics": [], "note": "No indexed content for this comparison."}
+        return {"metrics": [], "flags": [], "note": "No indexed content for this comparison."}
 
-    ctx = "\n".join(f"[chunk:{r[0]}] (side {r[1].split('::')[-1]}) {r[2][:700]}" for r in rows[:20])
+    ctx = "\n".join(f"[chunk:{r[0]}] (side {r[1].split('::')[-1]}) {r[2][:900]}" for r in rows[:30])
     prompt = (
-        "From the two de-identified documents (side A and side B) below, extract up to 6 "
-        "numeric metrics that appear in BOTH and are directly comparable. Use ONLY numbers "
-        "literally present in the text — never invent or infer. Return STRICT JSON only "
-        "(no markdown, no prose), shape: "
-        '{"metrics":[{"label":"NPA ratio","a":1.6,"b":1.2,"unit":"%","cite":"chunk:3"}],"note":"..."}. '
-        'If nothing is directly comparable, return {"metrics":[],"note":"..."}.\n\nDOCUMENTS:\n' + ctx)
-    data = {"metrics": [], "note": ""}
+        "You compare two de-identified documents (side A and side B). Extract a structured "
+        "comparison using ONLY numbers literally present in the text — never invent, infer, "
+        "or resolve a [TOKEN]. Return STRICT JSON only (no markdown), shape:\n"
+        '{"metrics":[{"label":"NPA ratio","a":1.6,"b":1.2,"unit":"%","cite":"chunk:3"}],'
+        '"flags":[{"text":"CRE concentration above policy","severity":"high","cite":"chunk:5"}],'
+        '"note":"one-line summary"}\n'
+        "Rules: up to 10 metrics that appear in BOTH docs and are directly comparable; "
+        "unit is one of %, $, $M, $B, x, bps, or '' ; severity is high|medium|low; "
+        "flags are risks/observations the documents themselves state (omit if none). "
+        'If nothing is comparable, return {"metrics":[],"flags":[],"note":"..."}.\n\nDOCUMENTS:\n' + ctx)
+    data = {"metrics": [], "flags": [], "note": ""}
     try:
         r = _client().chat.completions.create(
             model=config.LLM_MODEL, temperature=0, max_tokens=config.LLM_MAX_TOKENS,
