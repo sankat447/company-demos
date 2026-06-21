@@ -18,6 +18,8 @@ python-jose[cryptography]==3.3.0 # verify Keycloak OIDC JWT for /detokenize
 # Document text extraction for uploads (PDF / DOCX)
 pypdf==4.2.0
 python-docx==1.1.2
+# Branded chat-transcript PDF export
+reportlab==4.2.2
 
 # Local CPU embeddings (baked model — de-identified text is NEVER sent out to vectorize)
 sentence-transformers==3.0.1

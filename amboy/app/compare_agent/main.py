@@ -4,7 +4,7 @@ MLflow eval run."""
 from __future__ import annotations
 
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.common import config, db
@@ -71,6 +71,19 @@ class CompareDocsReq(BaseModel):
 @app.post("/compare_docs")
 def compare_docs(req: CompareDocsReq):
     return chat.compare_docs(req.comparison_id)
+
+
+class ChatPdfReq(BaseModel):
+    title: str = "Amboy comparison"
+    generated_at: str | None = None
+    messages: list[dict] = []
+
+
+@app.post("/chat_pdf")
+def chat_pdf(req: ChatPdfReq):
+    pdf = chat.build_chat_pdf(req.title, req.messages, req.generated_at)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="amboy-chat.pdf"'})
 
 
 @app.post("/chat")

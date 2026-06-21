@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { api, authHeaders } from "../lib/api";
+import { toast } from "../lib/toast";
 import type { ChatMeta, CompareResult, Flag } from "../lib/types";
 import { streamChat } from "../hooks/useChatStream";
 import { ChatMessage } from "../components/ChatMessage";
@@ -132,6 +133,31 @@ function Chat({ id, yearA, yearB, onProject }: {
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
+  async function downloadPdf() {
+    if (!msgs.length) return;
+    try {
+      const res = await fetch("/api/chat_pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          title: id,
+          generated_at: new Date().toLocaleString(),
+          messages: msgs.filter((m) => m.text).map((m) => ({ role: m.role, text: m.text })),
+        }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${id.replace(/[^A-Za-z0-9_-]+/g, "_")}-chat.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast("Couldn’t generate the PDF — please retry.");
+    }
+  }
+
   async function send(text: string) {
     if (!text.trim() || busy) return;
     setInput("");
@@ -160,7 +186,14 @@ function Chat({ id, yearA, yearB, onProject }: {
   return (
     <section aria-label="Chat" className="flex flex-col bg-surface border border-line rounded-card shadow-card h-[640px]">
       <div className="px-4 py-3 border-b border-line">
-        <div className="text-[12px] font-bold tracking-wide text-navy">CHAT · ask about these reports</div>
+        <div className="flex items-center justify-between">
+          <div className="text-[12px] font-bold tracking-wide text-navy">CHAT · ask about these reports</div>
+          <button onClick={downloadPdf} disabled={!msgs.length}
+                  className="text-[12px] font-bold text-teal hover:underline disabled:opacity-40 disabled:no-underline"
+                  aria-label="Download this conversation as a branded PDF">
+            ⤓ Download PDF
+          </button>
+        </div>
         <div className="text-[11px] text-slate">grounded in indexed, de-identified data + verified numbers</div>
         <div className="mt-2 flex flex-wrap gap-2">
           {SUGGESTED.map((s) => (
