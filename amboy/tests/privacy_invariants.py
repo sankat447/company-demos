@@ -55,13 +55,14 @@ def _deidentify(reports):
     deid_loans = []
     for rep in reports:
         for loan in rep["loan_appendix"]:
+            atok = deid.deidentify_value("ACCOUNT", loan["loan_id"], tok, on_token)
             btok = deid.deidentify_value("PERSON", loan["borrower_name"], tok, on_token)
             for field, et in (("ssn", "US_SSN"), ("phone", "PHONE"),
                               ("email", "EMAIL"), ("street_address", "ADDRESS")):
                 deid.deidentify_value(et, loan[field], tok, on_token)
             deid_notes = deid.deidentify_text(loan["notes"], tok, on_token)
             deid_loans.append({
-                "loan_id": loan["loan_id"], "borrower_token": btok,
+                "loan_id": atok, "borrower_token": btok,
                 "sector": loan["sector"], "risk_grade": loan["risk_grade"],
                 "balance_usd": loan["balance_usd"], "status": loan["status"],
                 "notes": deid_notes,

@@ -19,6 +19,7 @@ _LABEL_MAP = {
     "US_SSN": "US_SSN", "US_SSN_LAST4": "US_SSN", "PHONE_NUMBER": "PHONE",
     "EMAIL_ADDRESS": "EMAIL", "STREET_ADDRESS": "ADDRESS", "LOCATION": "ADDRESS",
     "PERSON": "PERSON", "CREDIT_CARD": "CREDIT_CARD", "IBAN_CODE": "IBAN",
+    "ACCOUNT_NUMBER": "ACCOUNT", "ACCOUNT_NUMBER_PROSE": "ACCOUNT",
 }
 
 # Custom Presidio ad-hoc recognizers (bank prose our broad regexes encode).
@@ -34,6 +35,12 @@ AD_HOC_RECOGNIZERS = [
         "supported_entity": "PHONE_NUMBER",
         "patterns": [{"name": "phone_555_block",
                       "regex": pii_patterns.PHONE_RE.pattern, "score": 0.8}],
+    },
+    {
+        "name": "amboy_account",
+        "supported_entity": "ACCOUNT_NUMBER",
+        "patterns": [{"name": "amb_loan_id",
+                      "regex": pii_patterns.ACCOUNT_RE.pattern, "score": 0.9}],
     },
 ]
 
