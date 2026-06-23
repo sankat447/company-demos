@@ -3,6 +3,7 @@ import { Layout } from "./components/Layout";
 import { useAuth } from "./store/auth";
 import { SignIn } from "./pages/SignIn";
 import { Home } from "./pages/Home";
+import { UploadArtifact } from "./pages/UploadArtifact";
 import { NewComparison } from "./pages/NewComparison";
 import { Workspace } from "./pages/Workspace";
 import { Governance } from "./pages/Governance";
@@ -19,6 +20,7 @@ export default function App() {
     <Routes>
       <Route path="/signin" element={<SignIn />} />
       <Route path="/" element={<Protected><Home /></Protected>} />
+      <Route path="/upload" element={<Protected><UploadArtifact /></Protected>} />
       <Route path="/new" element={<Protected><NewComparison /></Protected>} />
       <Route path="/c/:id" element={<Protected><Workspace /></Protected>} />
       <Route path="/governance" element={<Protected><Governance /></Protected>} />

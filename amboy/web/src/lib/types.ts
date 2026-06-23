@@ -52,4 +52,19 @@ export interface DetectResult {
   filename: string; text: string; spans: DetectSpan[];
   highlighted_html: string; counts: { total: number };
 }
+// Function 1 — stored de-identified artifacts.
+export interface Artifact {
+  id: string; name: string; filename: string; kind: string;
+  entities: number; deid_chars: number; created_at: string;
+}
+export interface ArtifactDetail {
+  id: string; name: string; filename: string; deid_text: string;
+  highlighted_html: string; entities: number;
+}
+// Function 2 — comparability of two artifacts.
+export interface ComparableField { label: string; a: number | null; b: number | null; unit?: string; }
+export interface Comparability {
+  comparable: boolean; reason: string; suggested_name: string;
+  fields: ComparableField[]; artifact_a: string; artifact_b: string;
+}
 export interface DocCompare { metrics: DocMetric[]; flags?: DocFlag[]; note?: string; }

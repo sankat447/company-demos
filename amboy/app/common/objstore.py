@@ -21,6 +21,13 @@ def get_json(bucket: str, key: str) -> dict:
     return json.loads(body)
 
 
+def delete(bucket: str, key: str) -> None:
+    try:
+        client().delete_object(Bucket=bucket, Key=key)
+    except Exception:
+        pass
+
+
 def put_json(bucket: str, key: str, obj: dict) -> None:
     data = json.dumps(obj, indent=2).encode()
     c = client()

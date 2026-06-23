@@ -266,6 +266,104 @@ def commit(req: CommitReq):
             "side": req.side, "chunks_indexed": len(chunks), "tokens_stored": n_tokens["count"]}
 
 
+import hashlib as _hashlib
+import re as _re
+
+
+def _slug(s: str) -> str:
+    return _re.sub(r"[^a-z0-9]+", "-", (s or "artifact").lower()).strip("-")[:40] or "artifact"
+
+
+def _token_highlight_html(deid_text: str, name: str, filename: str, n: int) -> str:
+    """De-identified document with the [TYPE:hex] tokens highlighted — shows WHERE
+    PII was (and its type) without ever exposing the raw value."""
+    pieces, cur = [], 0
+    for m in pii_patterns.TOKEN_RE.finditer(deid_text):
+        pieces.append(_html.escape(deid_text[cur:m.start()]))
+        pieces.append(f'<mark class="t">{_html.escape(m.group(0))}</mark>')
+        cur = m.end()
+    pieces.append(_html.escape(deid_text[cur:]))
+    return (f"<!doctype html><meta charset='utf-8'><title>De-identified artifact — {_html.escape(name)}</title>"
+            "<style>body{font-family:Inter,system-ui,sans-serif;margin:24px;color:#14193D}"
+            "h1{font-size:18px;color:#1E2761}mark.t{background:#fdecea;color:#7a241b;border:1px solid #f3c4bd;"
+            "border-radius:4px;padding:0 2px;font-family:ui-monospace,monospace;font-size:11px}"
+            "pre{white-space:pre-wrap;background:#F7F8FB;border:1px solid #E2E8F0;border-radius:8px;padding:14px;font-size:12px}"
+            ".f{color:#5A6B86;font-size:11px;margin-top:18px}</style>"
+            f"<h1>AMBOY BANK — de-identified artifact · {_html.escape(name)}</h1>"
+            f"<p style='font-size:12px;color:#5A6B86'>{_html.escape(filename)} · {n} entities tokenized · "
+            "highlighted tokens mark where NPI was protected (raw values never stored).</p>"
+            f"<pre>{''.join(pieces)}</pre>"
+            "<p class='f'>AI solution by IIS · iistech.com — NPI-safe artifact</p>")
+
+
+class ArtifactReq(BaseModel):
+    name: str
+    filename: str = ""
+    kind: str = ""
+    text: str                      # raw text from /detect
+    accepted: list[dict] = []      # spans the human approved
+    actor: str = "ui"
+
+
+@app.post("/commit_artifact")
+def commit_artifact(req: ArtifactReq):
+    """Function 1 commit: tokenize accepted spans -> store a DE-IDENTIFIED,
+    token-highlighted artifact in MinIO + registry. Does NOT index (that's
+    Function 2). Raw text is transient."""
+    text = req.text
+    n_tokens = {"count": 0}
+    with db.connect() as conn:
+        cur = conn.cursor()
+
+        def persist(token, etype, value):
+            db.upsert_token(cur, token, etype, _tok.encrypt(value))
+            n_tokens["count"] += 1
+
+        for sp in sorted(req.accepted, key=lambda s: int(s["start"]), reverse=True):
+            s, e = int(sp["start"]), int(sp["end"])
+            token = deid.deidentify_value(sp.get("type", "PII"), text[s:e], _tok, persist)
+            text = text[:s] + token + text[e:]
+        deid_text = text
+        aid = f"{_slug(req.name)}-{_hashlib.sha256((req.name + req.filename + deid_text).encode()).hexdigest()[:6]}"
+        key = f"artifacts/{aid}.json"
+        objstore.put_json(config.S3_BUCKET_DEID, key, {
+            "id": aid, "name": req.name, "filename": req.filename, "kind": req.kind,
+            "deid_text": deid_text, "entities": len(req.accepted),
+            "highlighted_html": _token_highlight_html(deid_text, req.name, req.filename, len(req.accepted))})
+        db.insert_artifact(cur, aid, req.name, req.filename, req.kind, len(req.accepted), len(deid_text), key)
+        db.audit(cur, req.actor, "ingest", aid,
+                 {"phase": "artifact", "entities": len(req.accepted), "tokens": n_tokens["count"]})
+    return {"ok": True, "artifact_id": aid, "name": req.name,
+            "entities": len(req.accepted), "deid_chars": len(deid_text)}
+
+
+@app.get("/artifacts")
+def artifacts():
+    with db.connect() as conn:
+        return {"artifacts": db.list_artifacts(conn.cursor())}
+
+
+@app.get("/artifacts/{aid}")
+def artifact(aid: str):
+    with db.connect() as conn:
+        key = db.get_artifact_key(conn.cursor(), aid)
+    if not key:
+        return {"error": "not found"}
+    return objstore.get_json(config.S3_BUCKET_DEID, key)
+
+
+@app.delete("/artifacts/{aid}")
+def delete_artifact(aid: str):
+    with db.connect() as conn:
+        cur = conn.cursor()
+        key = db.get_artifact_key(cur, aid)
+        if key:
+            objstore.delete(config.S3_BUCKET_DEID, key)
+        db.delete_artifact(cur, aid)
+        db.audit(cur, "ui", "delete", aid, {"phase": "artifact"})
+    return {"ok": True, "deleted": aid}
+
+
 @app.post("/ingest_document")
 async def ingest_document(
     file: UploadFile = File(...),
@@ -321,6 +419,8 @@ def purge_comparison(req: PurgeRequest):
             for tbl in ("report_facts", "sector_facts", "loan_facts"):
                 cur.execute(f"DELETE FROM amboy.{tbl} WHERE report_id = ANY(%s)", (seeded_ids,))
                 n_facts += cur.rowcount
+        cur.execute("DELETE FROM amboy.comparison_metrics WHERE comparison_id=%s", (cid,))
+        cur.execute("DELETE FROM amboy.comparisons WHERE id=%s", (cid,))
         db.audit(cur, "ui", "delete", cid, {"chunks_deleted": n_chunks, "facts_deleted": n_facts})
 
     # Remove stored objects (seeded reports keep raw + de-id objects; uploads keep none).

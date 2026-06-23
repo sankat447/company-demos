@@ -148,16 +148,110 @@ def list_comparisons():
         cur.execute("SELECT DISTINCT split_part(report_id,'::',1) FROM amboy.chunks "
                     "WHERE report_id LIKE '%::%' ORDER BY 1")
         uploaded = [r[0] for r in cur.fetchall()]
-    out = []
+        registered = db.list_registered_comparisons(cur)
+    out, seen = [], set()
     for i in range(len(years) - 1):
         ya, yb = years[i], years[i + 1]
-        out.append({"id": f"AMB-{ya}-{yb}", "label": f"Amboy · {ya} ▸ {yb}",
-                    "year_a": ya, "year_b": yb,
+        cid = f"AMB-{ya}-{yb}"
+        out.append({"id": cid, "label": f"Amboy · {ya} ▸ {yb}", "year_a": ya, "year_b": yb,
                     "status": "indexed" if n_chunks else "empty", "kind": "seeded"})
-    for cid in uploaded:
-        out.append({"id": cid, "label": cid, "year_a": 0, "year_b": 0,
+        seen.add(cid)
+    for c in registered:                       # Function-2 comparisons (named)
+        if c["id"] in seen:
+            continue
+        out.append({"id": c["id"], "label": c["label"], "year_a": 0, "year_b": 0,
                     "status": "indexed", "kind": "uploaded"})
+        seen.add(c["id"])
+    for cid in uploaded:                        # any indexed but unregistered
+        if cid not in seen:
+            out.append({"id": cid, "label": cid, "year_a": 0, "year_b": 0,
+                        "status": "indexed", "kind": "uploaded"})
+            seen.add(cid)
     return {"comparisons": out}
+
+
+def _artifact_text(aid: str) -> str:
+    r = httpx.get(f"{config.DEID_GATEWAY_URL}/artifacts/{aid}", timeout=30)
+    r.raise_for_status()
+    return r.json().get("deid_text", "")
+
+
+def _chunk(text: str, size: int = 900, max_chunks: int = 200):
+    chunks, cur = [], ""
+    for para in (text or "").split("\n"):
+        para = para.strip()
+        if not para:
+            continue
+        if len(cur) + len(para) + 1 > size and cur:
+            chunks.append(cur); cur = ""
+        cur = f"{cur} {para}".strip()
+        if len(chunks) >= max_chunks:
+            break
+    if cur and len(chunks) < max_chunks:
+        chunks.append(cur)
+    return chunks
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def comparability(artifact_a: str, artifact_b: str) -> dict:
+    """Function 2: judge whether two de-identified artifacts are comparable and,
+    if so, extract the comparable fields. Uses ONLY numbers present; tokens opaque."""
+    import json
+    import re
+    ta, tb = _artifact_text(artifact_a), _artifact_text(artifact_b)
+    prompt = (
+        "You are deciding whether two de-identified documents are COMPARABLE (same kind "
+        "of report / same entity across periods or scenarios). Use ONLY values literally "
+        "present; never invent; never resolve a [TOKEN]. Return STRICT JSON only:\n"
+        '{"comparable":true,"reason":"...","suggested_name":"...","fields":'
+        '[{"label":"NPA ratio","a":1.62,"b":1.18,"unit":"%"}]}\n'
+        "fields = up to 12 numeric metrics that appear in BOTH and are directly comparable.\n\n"
+        f"DOCUMENT A:\n{ta[:4000]}\n\nDOCUMENT B:\n{tb[:4000]}")
+    out = {"comparable": False, "reason": "", "suggested_name": "", "fields": []}
+    try:
+        r = _client().chat.completions.create(
+            model=config.LLM_MODEL, temperature=0, max_tokens=config.LLM_MAX_TOKENS,
+            messages=[{"role": "system", "content": "You output only strict JSON. Never invent numbers."},
+                      {"role": "user", "content": prompt}])
+        m = re.search(r"\{.*\}", r.choices[0].message.content or "", re.S)
+        if m:
+            out = json.loads(m.group(0))
+    except Exception as e:
+        out["reason"] = f"comparability check unavailable: {type(e).__name__}"
+    out["artifact_a"], out["artifact_b"] = artifact_a, artifact_b
+    return out
+
+
+def index_comparison(comparison_id: str, label: str, artifact_a: str, artifact_b: str,
+                     accepted_fields, year_a: int = 0, year_b: int = 0) -> dict:
+    """Function 2 commit: embed + index both artifacts' de-id text under
+    comparison_id::A/::B, store the human-accepted comparable fields, register it."""
+    ta, tb = _artifact_text(artifact_a), _artifact_text(artifact_b)
+    total = 0
+    with db.connect() as conn:
+        cur = conn.cursor()
+        for side, text, yr in (("A", ta, year_a), ("B", tb, year_b)):
+            rid = f"{comparison_id}::{side}"
+            cur.execute("DELETE FROM amboy.chunks WHERE report_id=%s", (rid,))
+            for ch in _chunk(text):
+                db.insert_chunk(cur, rid, yr or None, "document", ch,
+                                embeddings.to_pgvector(embeddings.embed(ch)))
+                total += 1
+        for f in (accepted_fields or []):
+            db.upsert_comparison_metric(cur, comparison_id, f["label"], _num(f.get("a")),
+                                        _num(f.get("b")), f.get("unit"))
+        db.register_comparison(cur, comparison_id, label or comparison_id, artifact_a, artifact_b)
+        db.audit(cur, "ui", "tool_call", comparison_id,
+                 {"op": "index_comparison", "artifacts": [artifact_a, artifact_b],
+                  "chunks": total, "metrics": len(accepted_fields or [])})
+    return {"ok": True, "comparison_id": comparison_id, "chunks_indexed": total,
+            "metrics": len(accepted_fields or [])}
 
 
 def compare_docs(comparison_id: str) -> dict:
@@ -167,6 +261,13 @@ def compare_docs(comparison_id: str) -> dict:
     document-stated (NOT independently verified). Tokens are never resolved."""
     import json
     import re
+    # Prefer the human-accepted comparable fields stored at index time (Function 2).
+    with db.connect() as conn:
+        stored = db.fetch_comparison_metrics(conn.cursor(), comparison_id)
+    if stored:
+        return {"metrics": [{"label": m["label"], "a": m["a"], "b": m["b"], "unit": m["unit"] or ""}
+                            for m in stored], "flags": [],
+                "note": "Human-accepted comparable fields."}
     with db.connect() as conn:
         cur = conn.cursor()
         cur.execute("SELECT id, report_id, deid_text FROM amboy.chunks "

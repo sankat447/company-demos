@@ -37,6 +37,30 @@ export function commitDocument(body: object) {
   return api.post<{ chunks_indexed: number; tokens_stored: number }>("/commit", body);
 }
 
+// Function 1 — store a de-identified artifact + explorer.
+export function commitArtifact(body: object) {
+  return api.post<{ artifact_id: string; name: string; entities: number }>("/commit_artifact", body);
+}
+export function listArtifacts() {
+  return api.get<{ artifacts: import("./types").Artifact[] }>("/artifacts");
+}
+export function getArtifact(id: string) {
+  return api.get<import("./types").ArtifactDetail>(`/artifacts/${encodeURIComponent(id)}`);
+}
+export async function deleteArtifact(id: string) {
+  const r = await fetch(`/api/artifacts/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() });
+  if (!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+
+// Function 2 — comparability + indexing.
+export function comparability(a: string, b: string) {
+  return api.post<import("./types").Comparability>("/comparability", { artifact_a: a, artifact_b: b });
+}
+export function indexComparison(body: object) {
+  return api.post<{ comparison_id: string; chunks_indexed: number }>("/index_comparison", body);
+}
+
 // Upload a document (PDF/DOCX/TXT/MD) for de-identification + indexing.
 // No Content-Type header — the browser sets the multipart boundary.
 export async function uploadDocument(form: FormData): Promise<{ chunks_indexed: number; tokens_stored: number }> {

@@ -73,6 +73,60 @@ def get_ciphertext(cur, token):
     return row[0] if row else None
 
 
+# ── artifacts (Function 1) ───────────────────────────────────────────────────
+def insert_artifact(cur, aid, name, filename, kind, entities, deid_chars, s3_key):
+    cur.execute(
+        """INSERT INTO amboy.artifacts (id,name,filename,kind,entities,deid_chars,s3_key)
+           VALUES (%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, entities=EXCLUDED.entities,
+             deid_chars=EXCLUDED.deid_chars, s3_key=EXCLUDED.s3_key""",
+        (aid, name, filename, kind, entities, deid_chars, s3_key))
+
+
+def list_artifacts(cur):
+    cur.execute("SELECT id,name,filename,kind,entities,deid_chars,created_at "
+                "FROM amboy.artifacts ORDER BY created_at DESC")
+    return [{"id": i, "name": n, "filename": f, "kind": k, "entities": e,
+             "deid_chars": d, "created_at": str(c)} for i, n, f, k, e, d, c in cur.fetchall()]
+
+
+def get_artifact_key(cur, aid):
+    cur.execute("SELECT s3_key FROM amboy.artifacts WHERE id=%s", (aid,))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def delete_artifact(cur, aid):
+    cur.execute("DELETE FROM amboy.artifacts WHERE id=%s", (aid,))
+
+
+# ── comparisons registry + accepted metrics (Function 2) ─────────────────────
+def register_comparison(cur, cid, label, a, b):
+    cur.execute(
+        """INSERT INTO amboy.comparisons (id,label,artifact_a,artifact_b)
+           VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO UPDATE
+             SET label=EXCLUDED.label, artifact_a=EXCLUDED.artifact_a, artifact_b=EXCLUDED.artifact_b""",
+        (cid, label, a, b))
+
+
+def list_registered_comparisons(cur):
+    cur.execute("SELECT id,label FROM amboy.comparisons ORDER BY created_at DESC")
+    return [{"id": i, "label": l} for i, l in cur.fetchall()]
+
+
+def upsert_comparison_metric(cur, cid, label, a, b, unit):
+    cur.execute(
+        """INSERT INTO amboy.comparison_metrics (comparison_id,label,a,b,unit)
+           VALUES (%s,%s,%s,%s,%s) ON CONFLICT (comparison_id,label) DO UPDATE
+             SET a=EXCLUDED.a, b=EXCLUDED.b, unit=EXCLUDED.unit""",
+        (cid, label, a, b, unit))
+
+
+def fetch_comparison_metrics(cur, cid):
+    cur.execute("SELECT label,a,b,unit FROM amboy.comparison_metrics WHERE comparison_id=%s", (cid,))
+    return [{"label": l, "a": a, "b": b, "unit": u} for l, a, b, u in cur.fetchall()]
+
+
 def audit(cur, actor, action, resource=None, detail=None, outcome="ok"):
     """Append-only audit row. `detail` MUST be NPI-free (counts/ids only)."""
     cur.execute(

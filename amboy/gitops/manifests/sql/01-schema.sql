@@ -86,6 +86,39 @@ CREATE TRIGGER audit_no_mutate
     BEFORE UPDATE OR DELETE ON amboy.audit_log
     FOR EACH ROW EXECUTE FUNCTION amboy.audit_no_mutate();
 
+-- ── Artifacts (Function 1) — de-identified documents stored in MinIO ─────────
+-- Content (de-id text + token-highlighted HTML) lives in MinIO; this row is the
+-- browsable registry. No NPI here — only counts + the S3 key.
+CREATE TABLE IF NOT EXISTS amboy.artifacts (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    filename   TEXT,
+    kind       TEXT,
+    entities   INT DEFAULT 0,
+    deid_chars INT DEFAULT 0,
+    s3_key     TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ── Comparisons (Function 2) — indexed pairs of artifacts ────────────────────
+CREATE TABLE IF NOT EXISTS amboy.comparisons (
+    id         TEXT PRIMARY KEY,
+    label      TEXT,
+    artifact_a TEXT,
+    artifact_b TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Human-accepted comparable fields for a comparison (drives the dashboard).
+CREATE TABLE IF NOT EXISTS amboy.comparison_metrics (
+    comparison_id TEXT NOT NULL,
+    label         TEXT NOT NULL,
+    a             DOUBLE PRECISION,
+    b             DOUBLE PRECISION,
+    unit          TEXT,
+    PRIMARY KEY (comparison_id, label)
+);
+
 -- Vector index for similarity retrieval over de-identified chunks.
 CREATE INDEX IF NOT EXISTS chunks_embedding_idx
     ON amboy.chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 50);

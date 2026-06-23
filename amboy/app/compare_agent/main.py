@@ -73,6 +73,32 @@ def compare_docs(req: CompareDocsReq):
     return chat.compare_docs(req.comparison_id)
 
 
+class ComparabilityReq(BaseModel):
+    artifact_a: str
+    artifact_b: str
+
+
+@app.post("/comparability")
+def comparability(req: ComparabilityReq):
+    return chat.comparability(req.artifact_a, req.artifact_b)
+
+
+class IndexComparisonReq(BaseModel):
+    comparison_id: str
+    label: str = ""
+    artifact_a: str
+    artifact_b: str
+    accepted_fields: list[dict] = []
+    year_a: int = 0
+    year_b: int = 0
+
+
+@app.post("/index_comparison")
+def index_comparison(req: IndexComparisonReq):
+    return chat.index_comparison(req.comparison_id, req.label, req.artifact_a, req.artifact_b,
+                                 req.accepted_fields, req.year_a, req.year_b)
+
+
 class ChatPdfReq(BaseModel):
     title: str = "Amboy comparison"
     generated_at: str | None = None

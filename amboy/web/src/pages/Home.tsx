@@ -28,10 +28,14 @@ export function Home() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="font-display text-[28px] font-bold text-ink">Your comparisons</h1>
-        <Link to="/new" className="rounded-full bg-navy text-white text-[13px] font-bold px-4 py-2">
-          + New comparison
-        </Link>
+        <div>
+          <h1 className="font-display text-[28px] font-bold text-ink">Analyze</h1>
+          <p className="text-[13px] text-slate">Select an indexed comparison to open its dashboard + chat.</p>
+        </div>
+        <div className="flex gap-2">
+          <Link to="/upload" className="rounded-full border border-line text-navy text-[13px] font-bold px-4 py-2">Upload artifact</Link>
+          <Link to="/new" className="rounded-full bg-navy text-white text-[13px] font-bold px-4 py-2">+ New comparison</Link>
+        </div>
       </div>
 
       {isLoading && <p className="text-slate text-[14px]">Loading comparisons…</p>}
