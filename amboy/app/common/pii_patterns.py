@@ -31,10 +31,12 @@ PHONE_RE = re.compile(
     r"(?<!\d)(?:\+?1[-.\s])?\(?(\d{3})\)?[-.\s](\d{3})[-.\s](\d{4})\b"
 )
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
-# Account / loan number, e.g. AMB-2024-0002. The negative lookahead on the last
-# group excludes a 4-digit YEAR so the internal comparison id (AMB-2024-2025) and
-# report ids (AMB-FY2024) are NOT mistaken for accounts.
-ACCOUNT_RE = re.compile(r"\bAMB-\d{4}-(?!(?:19|20)\d{2}\b)\d{4}\b")
+# Account / loan number, e.g. AMB-2024-0002. The trailing 4 digits may contain
+# stray spaces from PDF text extraction ("AMB-2024-00 02"), so allow single
+# spaces/tabs between them. The negative lookahead on the last group excludes a
+# 4-digit YEAR so the internal comparison id (AMB-2024-2025) and report ids
+# (AMB-FY2024) are NOT mistaken for accounts.
+ACCOUNT_RE = re.compile(r"\bAMB-\d{4}-(?!(?:19|20)\d{2})\d(?:[ \t]?\d){3}\b")
 # Account number stated in prose: "account number 123456789", "acct no. ...".
 ACCOUNT_PROSE_RE = re.compile(r"(?i)\b(?:account|acct)\s*(?:number|no\.?|num|#)\s*:?\s*\d{6,}")
 # Street address: number + name + common suffix (catches restated addresses in prose)
