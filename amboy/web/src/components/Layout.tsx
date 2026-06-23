@@ -1,8 +1,41 @@
-import { Link, useNavigate } from "react-router-dom";
-import type { ReactNode } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Fragment, type ReactNode } from "react";
 import { useAuth } from "../store/auth";
 import { useToasts } from "../lib/toast";
 import { Logo, IISAttribution } from "./Logo";
+
+// Workflow stage bar — the three functions as a pipeline; active stage highlighted.
+const STAGES = [
+  { to: "/upload", n: 1, label: "Upload Artifact", match: (p: string) => p.startsWith("/upload") },
+  { to: "/new", n: 2, label: "Compare", match: (p: string) => p.startsWith("/new") },
+  { to: "/", n: 3, label: "Analyze", match: (p: string) => p === "/" || p.startsWith("/c/") },
+];
+
+function StageBar() {
+  const { pathname } = useLocation();
+  return (
+    <div className="bg-surface border-b border-line">
+      <div className="mx-auto max-w-[1280px] px-4 py-3 flex items-center justify-center gap-2 flex-wrap">
+        {STAGES.map((s, i) => {
+          const active = s.match(pathname);
+          return (
+            <Fragment key={s.to}>
+              {i > 0 && <span className="text-gold font-bold text-[18px] leading-none select-none" aria-hidden>»</span>}
+              <Link to={s.to} aria-current={active ? "step" : undefined}
+                className={`flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-bold border transition
+                  ${active ? "bg-navy text-white border-navy shadow-card"
+                           : "bg-paper text-slate border-line hover:border-navy hover:text-navy"}`}>
+                <span className={`grid place-items-center h-5 w-5 rounded-full text-[11px]
+                  ${active ? "bg-gold text-navy" : "bg-white border border-line text-slate"}`}>{s.n}</span>
+                {s.label}
+              </Link>
+            </Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function Toaster() {
   const { toasts } = useToasts();
@@ -43,6 +76,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </nav>
         </div>
       </header>
+      <StageBar />
       <main className="mx-auto max-w-[1280px] px-4 py-6 flex-1 w-full">{children}</main>
       <footer className="border-t border-line bg-surface">
         <div className="mx-auto max-w-[1280px] px-4 py-4 flex flex-wrap items-center justify-between gap-2">
