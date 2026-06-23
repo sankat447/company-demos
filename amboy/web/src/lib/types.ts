@@ -43,4 +43,13 @@ export interface Flag {
 // Figures extracted from two uploaded documents (document-stated, not verified).
 export interface DocMetric { label: string; a: number; b: number; unit?: string; cite?: string; }
 export interface DocFlag { text: string; severity?: string; cite?: string; }
+// PII review (step 2): a detected span the human accepts/rejects before tokenizing.
+export interface DetectSpan {
+  id: string; start: number; end: number; type: string; label: string;
+  score: number; source: string; text: string; description: string;
+}
+export interface DetectResult {
+  filename: string; text: string; spans: DetectSpan[];
+  highlighted_html: string; counts: { total: number };
+}
 export interface DocCompare { metrics: DocMetric[]; flags?: DocFlag[]; note?: string; }

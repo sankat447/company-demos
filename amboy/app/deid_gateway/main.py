@@ -8,17 +8,85 @@
 """
 from __future__ import annotations
 
+import html as _html
 import io
 
+import httpx
 from fastapi import Depends, FastAPI, File, Form, UploadFile
 from pydantic import BaseModel
 
-from app.common import config, db, deid, embeddings, objstore
+from app.common import config, db, deid, embeddings, objstore, pii_patterns
 from app.common.auth import require_npi_reveal
 from app.common.tokenizer import Tokenizer
 
 app = FastAPI(title="amboy-deid-gateway")
 _tok = Tokenizer()  # vault backend by default
+
+_TYPE_DESC = {
+    "PERSON": "Person name", "US_SSN": "Social Security / tax number",
+    "PHONE": "Telephone number", "EMAIL": "Email address",
+    "ADDRESS": "Postal address", "ACCOUNT": "Account / loan number",
+    "CREDIT_CARD": "Payment card number", "DOB": "Date of birth",
+    "CREDENTIAL": "Credential",
+}
+
+
+def _detect_spans(text: str):
+    """Union of the hosted PII model (Piiranha) and the deterministic regex floor
+    (incl. the AMB account format). Returns merged spans — NO tokenization."""
+    raw = []
+    try:                                   # hosted model (amboy-pii-model)
+        r = httpx.post(f"{config.PII_MODEL_URL}/detect", json={"text": text}, timeout=60.0)
+        r.raise_for_status()
+        for s in r.json().get("spans", []):
+            raw.append({"start": s["start"], "end": s["end"], "type": s["type"],
+                        "label": s.get("label", s["type"]), "score": s.get("score", 1.0),
+                        "source": "model"})
+    except Exception:
+        pass
+    for label, rx in pii_patterns.DETECTORS.items():   # deterministic floor
+        et = deid._LABEL_MAP.get(label, label)
+        for m in rx.finditer(text):
+            raw.append({"start": m.start(), "end": m.end(), "type": et,
+                        "label": label, "score": 1.0, "source": "rule"})
+    # merge overlaps: earliest start, then longest
+    raw.sort(key=lambda s: (s["start"], -(s["end"] - s["start"]), -s["score"]))
+    out, last_end, i = [], -1, 0
+    for s in raw:
+        if s["start"] >= last_end:
+            s = {**s, "id": f"s{i}", "text": text[s["start"]:s["end"]],
+                 "description": _TYPE_DESC.get(s["type"], s["type"].replace("_", " ").title())}
+            out.append(s); last_end = s["end"]; i += 1
+    return out
+
+
+def _highlight_html(text: str, spans, filename: str) -> str:
+    """Standalone, downloadable HTML: the document with every detected span
+    highlighted + a legend + an entity table. (Reviewer's own document.)"""
+    pieces, cur = [], 0
+    for s in sorted(spans, key=lambda x: x["start"]):
+        pieces.append(_html.escape(text[cur:s["start"]]))
+        pieces.append(f'<mark class="t" title="{s["type"]} · {s["source"]} · {s["score"]}">'
+                      f'{_html.escape(text[s["start"]:s["end"]])}'
+                      f'<sub>{s["type"]}</sub></mark>')
+        cur = s["end"]
+    pieces.append(_html.escape(text[cur:]))
+    rows = "".join(f"<tr><td>{_html.escape(s['text'][:60])}</td><td>{s['type']}</td>"
+                   f"<td>{s['description']}</td><td>{s['source']}</td><td>{s['score']}</td></tr>"
+                   for s in spans)
+    return (f"<!doctype html><meta charset='utf-8'><title>PII review — {_html.escape(filename)}</title>"
+            "<style>body{font-family:Inter,system-ui,sans-serif;margin:24px;color:#14193D}"
+            "h1{font-size:18px;color:#1E2761}mark.t{background:#fdecea;color:#7a241b;border:1px solid #f3c4bd;"
+            "border-radius:4px;padding:0 2px}mark.t sub{font-size:8px;color:#C0392B;margin-left:2px}"
+            "pre{white-space:pre-wrap;background:#F7F8FB;border:1px solid #E2E8F0;border-radius:8px;padding:14px;font-family:ui-monospace,monospace;font-size:12px}"
+            "table{border-collapse:collapse;margin-top:14px;font-size:12px}td,th{border:1px solid #E2E8F0;padding:5px 8px;text-align:left}"
+            "th{background:#1E2761;color:#fff}.f{color:#5A6B86;font-size:11px;margin-top:18px}</style>"
+            f"<h1>AMBOY BANK — PII/NPI review · {_html.escape(filename)}</h1>"
+            f"<p style='font-size:12px;color:#5A6B86'>{len(spans)} entities detected (model + rules). "
+            "Highlighted below; nothing is tokenized until you approve.</p>"
+            f"<pre>{''.join(pieces)}</pre>"
+            "<table><tr><th>Text</th><th>Type</th><th>Description</th><th>Source</th><th>Score</th></tr>"
+            f"{rows}</table><p class='f'>AI solution by IIS · iistech.com — de-identification preview</p>")
 
 
 def _extract_text(filename: str, raw: bytes) -> str:
@@ -141,6 +209,61 @@ def ingest(req: IngestRequest):
 
     return {"ok": True, "report_id": report_id, "fiscal_year": fy,
             "loans": len(report["loan_appendix"]), "tokens_stored": n_tokens["count"]}
+
+
+@app.post("/detect")
+async def detect(file: UploadFile = File(...)):
+    """Step 2: run the uploaded doc through the PII model + rules and return the
+    detected spans + a downloadable highlighted document. Tokenizes NOTHING and
+    persists NOTHING — this is the human-review preview."""
+    raw = await file.read()
+    text = _extract_text(file.filename, raw)
+    spans = _detect_spans(text)
+    return {"filename": file.filename, "text": text, "spans": spans,
+            "highlighted_html": _highlight_html(text, spans, file.filename),
+            "counts": {"total": len(spans)}}
+
+
+class CommitReq(BaseModel):
+    comparison_id: str
+    side: str = "A"
+    text: str
+    accepted: list[dict] = []     # [{start,end,type}] the human approved
+    year: int = 0
+    actor: str = "ui"
+
+
+@app.post("/commit")
+def commit(req: CommitReq):
+    """Step 3: tokenize ONLY the human-accepted spans, then chunk + embed + index.
+    The raw text is used transiently and never persisted."""
+    report_id = f"{req.comparison_id}::{req.side}"
+    n_tokens = {"count": 0}
+    text = req.text
+    with db.connect() as conn:
+        cur = conn.cursor()
+
+        def persist(token, etype, value):
+            db.upsert_token(cur, token, etype, _tok.encrypt(value))
+            n_tokens["count"] += 1
+
+        # replace accepted spans right-to-left so offsets stay valid
+        for sp in sorted(req.accepted, key=lambda s: int(s["start"]), reverse=True):
+            s, e = int(sp["start"]), int(sp["end"])
+            token = deid.deidentify_value(sp.get("type", "PII"), text[s:e], _tok, persist)
+            text = text[:s] + token + text[e:]
+
+        chunks = _chunk(text)
+        cur.execute("DELETE FROM amboy.chunks WHERE report_id=%s", (report_id,))
+        for ch in chunks:
+            db.insert_chunk(cur, report_id, req.year or None, "document", ch,
+                            embeddings.to_pgvector(embeddings.embed(ch)))
+        db.audit(cur, req.actor, "ingest", report_id,
+                 {"chunks": len(chunks), "tokens": n_tokens["count"],
+                  "accepted_spans": len(req.accepted), "phase": "commit"})
+
+    return {"ok": True, "report_id": report_id, "comparison_id": req.comparison_id,
+            "side": req.side, "chunks_indexed": len(chunks), "tokens_stored": n_tokens["count"]}
 
 
 @app.post("/ingest_document")

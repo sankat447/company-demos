@@ -22,6 +22,21 @@ export const api = {
   post: <T>(p: string, body: unknown) => req<T>(p, { method: "POST", body: JSON.stringify(body) }),
 };
 
+// Step 2: detect PII in an uploaded doc (no tokenizing). Returns spans + a
+// downloadable highlighted document for human review.
+export async function detectDocument(file: File): Promise<import("./types").DetectResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/api/detect", { method: "POST", headers: authHeaders(), body: fd });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+// Step 3: tokenize ONLY the accepted spans, then index.
+export function commitDocument(body: object) {
+  return api.post<{ chunks_indexed: number; tokens_stored: number }>("/commit", body);
+}
+
 // Upload a document (PDF/DOCX/TXT/MD) for de-identification + indexing.
 // No Content-Type header — the browser sets the multipart boundary.
 export async function uploadDocument(form: FormData): Promise<{ chunks_indexed: number; tokens_stored: number }> {
