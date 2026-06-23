@@ -40,6 +40,9 @@ oc whoami >/dev/null 2>&1 || err "not authenticated (set KUBECONFIG / oc login)"
 for ns in "$NS_AI" "$NS_UI" "$NS_DATA" "$NS_SYS"; do
   oc get ns "$ns" >/dev/null 2>&1 || err "namespace $ns missing — deploy the platform stack first"
 done
+# Register iis-ai-ai as a Data Science Project so the KServe PII model
+# (amboy-pii-model InferenceService) shows in the OpenShift AI dashboard.
+oc label ns "$NS_AI" opendatahub.io/dashboard=true --overwrite >/dev/null 2>&1 || true
 ok "cluster $(oc whoami --show-server) ; namespaces present"
 
 # ── 1. out-of-band Secret amboy-creds (NOT in git → ArgoCD never blanks it) ──
