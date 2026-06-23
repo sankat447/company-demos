@@ -17,6 +17,8 @@ case "$ROLE" in
     exec streamlit run app/ui/app.py \
       --server.address=0.0.0.0 --server.port="${STREAMLIT_PORT:-8501}" \
       --server.headless=true --browser.gatherUsageStats=false ;;
+  pii_model)
+    exec uvicorn app.pii_model.main:app --host 0.0.0.0 --port "${PORT}" ;;
   seed)
     exec python -m app.seed ;;
   *)

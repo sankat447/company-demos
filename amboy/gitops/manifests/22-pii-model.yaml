@@ -1,0 +1,44 @@
+# amboy-pii-model — locally hosted PII/NPI detection model (Piiranha / DeBERTa),
+# CPU token-classification, baked into the image. Same amboy image, role=pii_model.
+# (Can be promoted to a KServe InferenceService on RHOAI; runs here as a CPU
+# microservice for reliable, GPU-free inference.)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amboy-pii-model
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app: amboy-pii-model, app.kubernetes.io/part-of: amboy}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: amboy-pii-model}}
+  template:
+    metadata: {labels: {app: amboy-pii-model, demo: amboy}}
+    spec:
+      serviceAccountName: amboy
+      containers:
+        - name: pii-model
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+          env:
+            - {name: AMBOY_ROLE, value: "pii_model"}
+            - {name: PORT, value: "8080"}
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 40      # model warm-up on startup
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests: {cpu: 500m, memory: 1.5Gi}
+            limits: {cpu: "2", memory: 4Gi}   # DeBERTa token-classification on CPU
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amboy-pii-model
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  selector: {app: amboy-pii-model}
+  ports: [{port: 8080, targetPort: 8080}]

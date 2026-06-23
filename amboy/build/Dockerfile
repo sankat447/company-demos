@@ -35,6 +35,12 @@ RUN chmod +x /app/entrypoint.sh
 RUN python -c "from sentence_transformers import SentenceTransformer; \
 import os; SentenceTransformer(os.environ['AMBOY_EMBED_MODEL'])"
 
+# Bake the Piiranha PII/NPI detection model (CPU token-classification) so the
+# pii-model role starts offline with no model pull at runtime.
+ENV AMBOY_PII_MODEL=iiiorg/piiranha-v1-detect-personal-information
+RUN python -c "import os; from transformers import AutoTokenizer, AutoModelForTokenClassification; \
+m=os.environ['AMBOY_PII_MODEL']; AutoTokenizer.from_pretrained(m); AutoModelForTokenClassification.from_pretrained(m)"
+
 # OpenShift runs containers with an arbitrary non-root UID in the root group.
 RUN chgrp -R 0 /app && chmod -R g=u /app
 USER 1001

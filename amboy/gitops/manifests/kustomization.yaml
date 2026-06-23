@@ -16,6 +16,7 @@ resources:
   - 12-bootstrap-vault.yaml
   # M4 — privacy gateway
   - 20-presidio.yaml
+  - 22-pii-model.yaml
   - 30-deid-gateway.yaml
   # M5 — deterministic engine
   - 40-metrics-engine.yaml

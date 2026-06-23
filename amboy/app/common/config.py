@@ -43,6 +43,9 @@ VAULT_ADDR = _b("AMBOY_VAULT_ADDR", "http://vault.iis-ai-system.svc:8200")
 VAULT_TOKEN = _b("AMBOY_VAULT_TOKEN", "Demo1234#")          # DEV-mode root token (demo only)
 VAULT_TRANSIT_KEY = _b("AMBOY_VAULT_TRANSIT_KEY", "amboy-npi-tokenize")
 
+# ── Local PII/NPI detection model (iis-ai-ai) — Piiranha/DeBERTa, CPU ─────────
+PII_MODEL_URL = _b("AMBOY_PII_MODEL_URL", "http://amboy-pii-model.iis-ai-ai.svc:8080")
+
 # ── Presidio official CPU services (iis-ai-ai) ───────────────────────────────
 PRESIDIO_ANALYZER_URL = _b("AMBOY_PRESIDIO_ANALYZER_URL", "http://amboy-presidio-analyzer.iis-ai-ai.svc:3000")
 PRESIDIO_ANONYMIZER_URL = _b("AMBOY_PRESIDIO_ANONYMIZER_URL", "http://amboy-presidio-anonymizer.iis-ai-ai.svc:3000")

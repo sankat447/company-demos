@@ -24,6 +24,12 @@ reportlab==4.2.2
 # Local CPU embeddings (baked model — de-identified text is NEVER sent out to vectorize)
 sentence-transformers==3.0.1
 
+# Local PII/NPI detection model (Piiranha / DeBERTa) — token-classification on CPU,
+# hosted in-cluster (amboy-pii-model role). transformers comes via sentence-transformers
+# but is pinned here for clarity; sentencepiece is required by the DeBERTa-v3 tokenizer.
+transformers==4.41.2
+sentencepiece==0.2.0
+
 # Agent (talks to the LLM ONLY via Portkey's OpenAI-compatible endpoint).
 # langchain-core is intentionally UNPINNED: langgraph + langchain-openai resolve a
 # mutually-compatible 0.2.x (pinning core==0.2.11 made the build ResolutionImpossible).
