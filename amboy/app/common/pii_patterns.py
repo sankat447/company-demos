@@ -36,7 +36,7 @@ EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
 # spaces/tabs between them. The negative lookahead on the last group excludes a
 # 4-digit YEAR so the internal comparison id (AMB-2024-2025) and report ids
 # (AMB-FY2024) are NOT mistaken for accounts.
-ACCOUNT_RE = re.compile(r"\bAMB-\s?\d{4}\s?-\s?(?!(?:19|20)\d{2})\d(?:\s?\d){3}\b")
+ACCOUNT_RE = re.compile(r"\bAMB-\s?\d{4}\s?-\s?(?!(?:19|20)\d{2}\b)\d(?:\s?\d){3,}\b")
 # Account number stated in prose: "account number 123456789", "acct no. ...".
 ACCOUNT_PROSE_RE = re.compile(r"(?i)\b(?:account|acct)\s*(?:number|no\.?|num|#)\s*:?\s*\d{6,}")
 # Street address: number + name + common suffix (catches restated addresses in prose)
