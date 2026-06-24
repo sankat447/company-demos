@@ -37,10 +37,38 @@ TYPE_DESC = {
 }
 
 
+BASE_VERSION = os.environ.get("AMBOY_PII_BASE_VERSION", "piiranha-base-v1")
+
+
+def _base_local():
+    """Pull the base model from in-stack MinIO to a local dir (deploy-from-S3, no
+    external traffic). Returns the local path, or None to fall back to the baked copy."""
+    try:
+        from app.common import config, objstore
+        c = objstore.client()
+        prefix = f"models/base/{BASE_VERSION}/"
+        objs = c.list_objects_v2(Bucket=config.S3_BUCKET_DEID, Prefix=prefix).get("Contents", [])
+        if not objs:
+            return None
+        local = os.path.join("/tmp/amboy-base", BASE_VERSION)
+        if not (os.path.isdir(local) and os.listdir(local)):
+            for o in objs:
+                rel = o["Key"][len(prefix):]
+                if not rel:
+                    continue
+                dst = os.path.join(local, rel)
+                os.makedirs(os.path.dirname(dst) or local, exist_ok=True)
+                c.download_file(config.S3_BUCKET_DEID, o["Key"], dst)
+        return local
+    except Exception:
+        return None
+
+
 @lru_cache(maxsize=1)
 def _pipe():
     from transformers import pipeline  # lazy/heavy
-    return pipeline("token-classification", model=MODEL, tokenizer=MODEL,
+    src = _base_local() or MODEL       # S3-first; baked HF id as fallback
+    return pipeline("token-classification", model=src, tokenizer=src,
                     aggregation_strategy="simple", device=-1)
 
 

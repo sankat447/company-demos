@@ -1,0 +1,31 @@
+# One-off: publish the baked base PII model (Piiranha) into in-stack MinIO so it
+# is stored locally and served from S3. Idempotent. Applied by deploy.sh:
+#   oc -n iis-ai-ai apply -f build/seed-base-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: amboy-seed-base
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata: {labels: {demo: amboy}}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: amboy
+      containers:
+        - name: seed-base
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+          env:
+            - {name: AMBOY_ROLE, value: "seed_base"}
+            - name: AMBOY_S3_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_ACCESS_KEY}}
+            - name: AMBOY_S3_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_SECRET_KEY}}
+            - name: AMBOY_PG_PASSWORD
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: PG_PASSWORD}}
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "1", memory: 2Gi}

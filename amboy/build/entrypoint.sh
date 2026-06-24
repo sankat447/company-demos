@@ -21,6 +21,8 @@ case "$ROLE" in
     exec uvicorn app.pii_model.main:app --host 0.0.0.0 --port "${PORT}" ;;
   seed)
     exec python -m app.seed ;;
+  seed_base)
+    exec python -m app.seed_base ;;
   *)
     echo "[amboy] unknown AMBOY_ROLE='${ROLE}' (deid_gateway|metrics_engine|compare_agent|ui)" >&2
     exit 64 ;;
