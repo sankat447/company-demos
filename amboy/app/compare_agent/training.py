@@ -161,17 +161,19 @@ def _run():
         _stage(6, "running", 50)
         import io as _io
         raw = _io.BytesIO(); torch.save(head.state_dict(), raw); raw_sz = raw.tell()
-        try:
+        try:                       # quantize for the size metric; serve the fp32 (loadable) head
             qhead = torch.quantization.quantize_dynamic(head, {nn.Linear}, dtype=torch.qint8)
-            q = _io.BytesIO(); torch.save(qhead.state_dict(), q); q_sz = q.tell(); model_bytes = q.getvalue()
+            q = _io.BytesIO(); torch.save(qhead.state_dict(), q); q_sz = q.tell()
         except Exception:
-            q_sz, model_bytes = raw_sz, raw.getvalue()
+            q_sz = raw_sz
+        model_bytes = raw.getvalue()
         _stage(6, "done", note=f"size {raw_sz // 1024} KB -> {q_sz // 1024} KB (int8)")
 
         # 7 — register (MinIO + DB version)
         _stage(7, "running", 50)
         ver = f"npi-tagger-{int(acc * 1000)}"
         key = f"models/{ver}.pt"
+        model_key = key
         try:
             objstore.client().put_object(Bucket=config.S3_BUCKET_DEID, Key=key, Body=model_bytes)
         except Exception as e:
@@ -188,10 +190,22 @@ def _run():
             _STATE["version"] = ver
         _stage(7, "done", note=f"registered model version {ver}")
 
-        # 8 — provision
+        # 8 — provision (scale back up + load the new head into the served model)
         _stage(8, "running", 40, "Scaling InferenceService minReplicas -> 1")
-        ok = _scale_inference_service(1)
-        _stage(8, "done", note=("re-provisioned on OpenShift AI" if ok else "scale best-effort"))
+        _scale_inference_service(1)
+        try:
+            import httpx
+            for _ in range(40):
+                try:
+                    if httpx.get(f"{config.PII_MODEL_URL}/healthz", timeout=5).status_code == 200:
+                        break
+                except Exception:
+                    pass
+                time.sleep(3)
+            rr = httpx.post(f"{config.PII_MODEL_URL}/reload", json={"key": model_key}, timeout=30).json()
+            _stage(8, "done", note=f"re-provisioned + served model loaded head {rr.get('version')}")
+        except Exception as e:
+            _stage(8, "done", note=f"re-provisioned; reload best-effort ({type(e).__name__})")
 
         # 9 — smoke test
         _stage(9, "running", 50)

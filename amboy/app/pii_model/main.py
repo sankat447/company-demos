@@ -44,12 +44,74 @@ def _pipe():
                     aggregation_strategy="simple", device=-1)
 
 
+# ── Learned head (fine-tuned in the Model Training console) ──────────────────
+# A small classifier over MiniLM features that adds org-specific NPI classes
+# (e.g. ACCOUNT) the base model misses. Loaded from MinIO; reloaded after a
+# training run's Provision step so /detect's behavior changes live (the
+# before/after "InstructLab" experience).
+HEAD_LABELS = ["O", "PERSON", "US_SSN", "PHONE", "EMAIL", "ADDRESS", "ACCOUNT"]
+HEAD_MIN = float(os.environ.get("AMBOY_HEAD_SCORE_MIN", "0.6"))
+_HEAD = {"model": None, "version": None}
+_WORD_RE = __import__("re").compile(r"\S+")
+
+
+def _load_head(key: str | None = None) -> bool:
+    try:
+        import io
+        import torch
+        import torch.nn as nn
+        from app.common import config, objstore
+        c = objstore.client()
+        if not key:
+            objs = c.list_objects_v2(Bucket=config.S3_BUCKET_DEID, Prefix="models/").get("Contents", [])
+            if not objs:
+                return False
+            key = sorted(objs, key=lambda o: o["LastModified"])[-1]["Key"]
+        data = c.get_object(Bucket=config.S3_BUCKET_DEID, Key=key)["Body"].read()
+        head = nn.Sequential(nn.Linear(384, 128), nn.ReLU(), nn.Linear(128, len(HEAD_LABELS)))
+        head.load_state_dict(torch.load(io.BytesIO(data), map_location="cpu"))
+        head.eval()
+        _HEAD["model"] = head
+        _HEAD["version"] = key.split("/")[-1].replace(".pt", "")
+        return True
+    except Exception:
+        return False
+
+
+def _head_spans(text: str):
+    if _HEAD["model"] is None:
+        return []
+    import torch
+    from app.common import embeddings
+    toks = [(m.group(0), m.start(), m.end()) for m in _WORD_RE.finditer(text)]
+    if not toks:
+        return []
+    feats = torch.tensor(embeddings.embed_batch([t[0] for t in toks]))
+    with torch.no_grad():
+        probs = torch.softmax(_HEAD["model"](feats), dim=1)
+        score, idx = probs.max(1)
+    out = []
+    for (w, s, e), sc, ix in zip(toks, score.tolist(), idx.tolist()):
+        lbl = HEAD_LABELS[ix]
+        if lbl != "O" and sc >= HEAD_MIN:
+            out.append({"start": s, "end": e, "score": round(sc, 3),
+                        "label": lbl, "type": lbl, "text": w, "source": "learned"})
+    return out
+
+
+@app.post("/reload")
+def reload(body: dict | None = None):
+    ok = _load_head((body or {}).get("key"))
+    return {"ok": ok, "version": _HEAD["version"]}
+
+
 @app.on_event("startup")
 def _warm():
     try:
         _pipe()("warm up")
     except Exception:
         pass  # readiness still flips; first /detect will surface a real error
+    _load_head()  # pick up the latest fine-tuned head, if any
 
 
 class DetectReq(BaseModel):
@@ -84,6 +146,8 @@ def detect(req: DetectReq):
         if pos + WIN >= len(text):
             break
         pos += WIN - OVERLAP
+
+    spans += _head_spans(text)   # learned head adds org-specific classes (e.g. ACCOUNT)
 
     # de-dup overlapping spans from the sliding windows (keep highest score)
     spans.sort(key=lambda s: (s["start"], -(s["end"] - s["start"]), -s["score"]))

@@ -22,6 +22,11 @@ spec:
         env:
           - {name: AMBOY_ROLE, value: pii_model}
           - {name: PORT, value: "8080"}
+          # S3 creds so the served model can load the fine-tuned head from MinIO.
+          - name: AMBOY_S3_ACCESS_KEY
+            valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_ACCESS_KEY}}
+          - name: AMBOY_S3_SECRET_KEY
+            valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_SECRET_KEY}}
         ports:
           - {containerPort: 8080, protocol: TCP}
         resources:

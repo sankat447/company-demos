@@ -1,6 +1,65 @@
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getTrainingStatus, listModelVersions, startTraining } from "../lib/api";
+import { detectText, getTrainingStatus, listModelVersions, startTraining } from "../lib/api";
 import { toast } from "../lib/toast";
+
+// Before/after probe — the "InstructLab" experience: probe NPI, see it missed,
+// train, probe again, see it handled.
+function Probe() {
+  const [text, setText] = useState(
+    "Loan AMB-2024-100364 for borrower Jane Doe; SSN 900-12-3456; phone (732) 555-0142.");
+  const [before, setBefore] = useState<string[] | null>(null);
+  const [after, setAfter] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function run(which: "before" | "after") {
+    setBusy(true);
+    try {
+      const r = await detectText(text);
+      const types = [...new Set(r.spans.map((s) => s.type))].sort();
+      which === "before" ? setBefore(types) : setAfter(types);
+    } catch { toast("Probe failed"); } finally { setBusy(false); }
+  }
+
+  const Card = ({ title, types }: { title: string; types: string[] | null }) => {
+    const has = types?.includes("ACCOUNT");
+    return (
+      <div className="flex-1 bg-paper border border-line rounded-card p-3">
+        <div className="text-[12px] font-bold text-ink">{title}</div>
+        {types == null ? <div className="text-[12px] text-slate mt-1">not run yet</div> : (
+          <>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {types.length ? types.map((t) => (
+                <span key={t} className={`font-mono text-[11px] px-1.5 py-0.5 rounded ${t === "ACCOUNT" ? "bg-teal/15 text-teal" : "bg-navy/10 text-navy"}`}>{t}</span>
+              )) : <span className="text-[12px] text-slate">nothing detected</span>}
+            </div>
+            <div className="mt-2 text-[12px] font-bold" style={{ color: has ? "#0E7C86" : "#C0392B" }}>
+              ACCOUNT {has ? "✓ detected" : "✗ not handled"}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="bg-surface border border-line rounded-card shadow-card p-4 space-y-3">
+      <div className="text-[12px] font-bold tracking-wide text-navy">TEST THE MODEL · before / after</div>
+      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2}
+        className="w-full rounded-card border border-line bg-paper p-2 text-[12px] font-mono" />
+      <div className="flex gap-3">
+        <Card title="Before training" types={before} />
+        <Card title="After training" types={after} />
+      </div>
+      <div className="flex gap-2">
+        <button onClick={() => run("before")} disabled={busy}
+          className="rounded-full border border-line text-navy text-[12px] font-bold px-3 py-1.5 disabled:opacity-50">Run probe (before)</button>
+        <button onClick={() => run("after")} disabled={busy}
+          className="rounded-full border border-teal text-teal text-[12px] font-bold px-3 py-1.5 disabled:opacity-50">Run probe (after)</button>
+      </div>
+    </div>
+  );
+}
 
 // Model Training / MLOps console — separate route (/model-training), not in the
 // workflow stage bar. Runs a real, CPU-bounded NPI-tagger fine-tune and visualizes
@@ -48,6 +107,8 @@ export function ModelTraining() {
           {running ? "Training…" : "▸ Start training"}
         </button>
       </div>
+
+      <Probe />
 
       {/* overall progress */}
       <div className="bg-surface border border-line rounded-card shadow-card p-4">

@@ -57,6 +57,9 @@ export async function deleteArtifact(id: string) {
 export function startTraining() { return api.post<{ ok: boolean; reason?: string }>("/training/start", {}); }
 export function getTrainingStatus() { return api.get<import("./types").TrainingStatus>("/training/status"); }
 export function listModelVersions() { return api.get<{ versions: import("./types").ModelVersion[] }>("/training/versions"); }
+export function detectText(text: string) {
+  return api.post<{ spans: { type: string; text: string; source: string }[] }>("/detect_text", { text });
+}
 
 // Function 2 — comparability + indexing.
 export function comparability(a: string, b: string) {

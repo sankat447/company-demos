@@ -210,6 +210,16 @@ def ingest(req: IngestRequest):
             "loans": len(report["loan_appendix"]), "tokens_stored": n_tokens["count"]}
 
 
+class TextReq(BaseModel):
+    text: str
+
+
+@app.post("/detect_text")
+def detect_text(req: TextReq):
+    """Lightweight text probe (model + rules) for the before/after training demo."""
+    return {"spans": _detect_spans(req.text or "")}
+
+
 @app.post("/detect")
 async def detect(file: UploadFile = File(...)):
     """Step 2: run the uploaded doc through the PII model + rules and return the
