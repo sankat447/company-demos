@@ -119,6 +119,16 @@ CREATE TABLE IF NOT EXISTS amboy.comparison_metrics (
     PRIMARY KEY (comparison_id, label)
 );
 
+-- ── Model versions (Model Training console) ─────────────────────────────────
+CREATE TABLE IF NOT EXISTS amboy.model_versions (
+    version    TEXT PRIMARY KEY,
+    name       TEXT,
+    accuracy   DOUBLE PRECISION,
+    classes    INT,
+    s3_key     TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Vector index for similarity retrieval over de-identified chunks.
 CREATE INDEX IF NOT EXISTS chunks_embedding_idx
     ON amboy.chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 50);

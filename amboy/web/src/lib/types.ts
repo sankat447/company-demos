@@ -67,4 +67,11 @@ export interface Comparability {
   comparable: boolean; reason: string; suggested_name: string;
   fields: ComparableField[]; artifact_a: string; artifact_b: string;
 }
+// Model Training console.
+export interface TrainingStage { key: string; title: string; desc: string; status: string; pct: number; }
+export interface TrainingStatus {
+  run_id: string | null; status: string; stages: TrainingStage[];
+  version: string | null; metrics: Record<string, number>; log: string[];
+}
+export interface ModelVersion { version: string; name: string; accuracy: number; classes: number; created_at: string; }
 export interface DocCompare { metrics: DocMetric[]; flags?: DocFlag[]; note?: string; }

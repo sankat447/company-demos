@@ -8,7 +8,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.common import config, db
-from app.compare_agent import agent, chat
+from app.compare_agent import agent, chat, training
 
 app = FastAPI(title="amboy-compare-agent")
 
@@ -47,6 +47,22 @@ def _mlflow_log(req: AnalyzeRequest, result: dict):
 @app.get("/healthz")
 def healthz():
     return {"ok": True, "role": "compare_agent"}
+
+
+@app.post("/training/start")
+def training_start():
+    return training.start()
+
+
+@app.get("/training/status")
+def training_status():
+    return training.status()
+
+
+@app.get("/training/versions")
+def training_versions():
+    with db.connect() as conn:
+        return {"versions": db.list_model_versions(conn.cursor())}
 
 
 @app.get("/comparisons")

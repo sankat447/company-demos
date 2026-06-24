@@ -127,6 +127,21 @@ def fetch_comparison_metrics(cur, cid):
     return [{"label": l, "a": a, "b": b, "unit": u} for l, a, b, u in cur.fetchall()]
 
 
+def register_model_version(cur, version, name, accuracy, classes, s3_key):
+    cur.execute(
+        """INSERT INTO amboy.model_versions (version,name,accuracy,classes,s3_key)
+           VALUES (%s,%s,%s,%s,%s) ON CONFLICT (version) DO UPDATE
+             SET accuracy=EXCLUDED.accuracy, classes=EXCLUDED.classes, s3_key=EXCLUDED.s3_key""",
+        (version, name, accuracy, classes, s3_key))
+
+
+def list_model_versions(cur):
+    cur.execute("SELECT version,name,accuracy,classes,created_at FROM amboy.model_versions "
+                "ORDER BY created_at DESC")
+    return [{"version": v, "name": n, "accuracy": a, "classes": c, "created_at": str(t)}
+            for v, n, a, c, t in cur.fetchall()]
+
+
 def audit(cur, actor, action, resource=None, detail=None, outcome="ok"):
     """Append-only audit row. `detail` MUST be NPI-free (counts/ids only)."""
     cur.execute(

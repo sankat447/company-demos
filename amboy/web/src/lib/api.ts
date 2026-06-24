@@ -53,6 +53,11 @@ export async function deleteArtifact(id: string) {
   return r.json();
 }
 
+// Model Training console.
+export function startTraining() { return api.post<{ ok: boolean; reason?: string }>("/training/start", {}); }
+export function getTrainingStatus() { return api.get<import("./types").TrainingStatus>("/training/status"); }
+export function listModelVersions() { return api.get<{ versions: import("./types").ModelVersion[] }>("/training/versions"); }
+
 // Function 2 — comparability + indexing.
 export function comparability(a: string, b: string) {
   return api.post<import("./types").Comparability>("/comparability", { artifact_a: a, artifact_b: b });
