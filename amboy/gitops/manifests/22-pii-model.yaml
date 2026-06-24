@@ -30,8 +30,8 @@ spec:
         ports:
           - {containerPort: 8080, protocol: TCP}
         resources:
-          requests: {cpu: 500m, memory: 1.5Gi}
-          limits: {cpu: "2", memory: 4Gi}
+          requests: {cpu: "1", memory: 1.5Gi}
+          limits: {cpu: "4", memory: 4Gi}   # headroom for concurrent chunk detection
 ---
 # Stable ClusterIP the gateway calls. KServe's own service naming has varied
 # across reconciles (sometimes only the headless -predictor exists), so we own a

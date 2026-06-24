@@ -31,19 +31,44 @@ _TYPE_DESC = {
 }
 
 
+_MODEL_CHUNK = 2400      # chars per model call (DeBERTa CPU pass is the bottleneck)
+_MODEL_OVERLAP = 240     # keep entities that straddle a chunk boundary
+
+
+def _model_spans(text: str):
+    """Call the hosted model over the text in overlapping chunks, concurrently, so a
+    large document never trips the per-call timeout (which would silently drop ALL
+    model spans — incl. the learned ACCOUNT — leaving only the regex floor)."""
+    if len(text) <= _MODEL_CHUNK:
+        pieces = [(0, text)]
+    else:
+        step = _MODEL_CHUNK - _MODEL_OVERLAP
+        pieces = [(i, text[i:i + _MODEL_CHUNK]) for i in range(0, len(text), step)]
+
+    def _call(op):
+        off, piece = op
+        try:
+            r = httpx.post(f"{config.PII_MODEL_URL}/detect", json={"text": piece}, timeout=90.0)
+            r.raise_for_status()
+            return [{"start": off + s["start"], "end": off + s["end"], "type": s["type"],
+                     "label": s.get("label", s["type"]), "score": s.get("score", 1.0),
+                     "source": "model"} for s in r.json().get("spans", [])]
+        except Exception:
+            return []
+
+    from concurrent.futures import ThreadPoolExecutor
+    out = []
+    with ThreadPoolExecutor(max_workers=min(8, len(pieces))) as ex:
+        for spans in ex.map(_call, pieces):
+            out += spans
+    return out
+
+
 def _detect_spans(text: str):
-    """Union of the hosted PII model (Piiranha) and the deterministic regex floor
-    (incl. the AMB account format). Returns merged spans — NO tokenization."""
-    raw = []
-    try:                                   # hosted model (amboy-pii-model)
-        r = httpx.post(f"{config.PII_MODEL_URL}/detect", json={"text": text}, timeout=60.0)
-        r.raise_for_status()
-        for s in r.json().get("spans", []):
-            raw.append({"start": s["start"], "end": s["end"], "type": s["type"],
-                        "label": s.get("label", s["type"]), "score": s.get("score", 1.0),
-                        "source": "model"})
-    except Exception:
-        pass
+    """Union of the hosted PII model (Piiranha + learned head) and the deterministic
+    regex floor. Returns merged spans — NO tokenization."""
+    text = text or ""
+    raw = list(_model_spans(text))
     for label, rx in pii_patterns.DETECTORS.items():   # deterministic floor
         et = deid._LABEL_MAP.get(label, label)
         for m in rx.finditer(text):
