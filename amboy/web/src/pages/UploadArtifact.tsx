@@ -74,7 +74,7 @@ export function UploadArtifact() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-[28px] font-bold text-ink">Upload artifact</h1>
+        <h1 className="font-display text-[28px] font-bold text-ink">Sensitive Document Intake</h1>
         <p className="text-[14px] text-slate mt-1">
           Drag a document → the PII/NPI model highlights what it finds → you accept or reject each →
           a de-identified copy is stored (raw values never persisted).

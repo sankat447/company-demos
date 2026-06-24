@@ -29,7 +29,7 @@ export function Home() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-[28px] font-bold text-ink">Analyze</h1>
+          <h1 className="font-display text-[28px] font-bold text-ink">AI Insights from Documents</h1>
           <p className="text-[13px] text-slate">Select an indexed comparison to open its dashboard + chat.</p>
         </div>
         <div className="flex gap-2">

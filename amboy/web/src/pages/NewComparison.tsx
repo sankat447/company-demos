@@ -54,7 +54,7 @@ export function NewComparison() {
 
   return (
     <div className="space-y-4 max-w-4xl">
-      <h1 className="font-display text-[28px] font-bold text-ink">New comparison</h1>
+      <h1 className="font-display text-[28px] font-bold text-ink">Compare and Vectorize Documents</h1>
 
       {step === 1 && (
         <div className="space-y-3">

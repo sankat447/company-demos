@@ -6,9 +6,9 @@ import { Logo, IISAttribution } from "./Logo";
 
 // Workflow stage bar — the three functions as a pipeline; active stage highlighted.
 const STAGES = [
-  { to: "/upload", n: 1, label: "Upload Artifact", match: (p: string) => p.startsWith("/upload") },
-  { to: "/new", n: 2, label: "Compare", match: (p: string) => p.startsWith("/new") },
-  { to: "/", n: 3, label: "Analyze", match: (p: string) => p === "/" || p.startsWith("/c/") },
+  { to: "/upload", n: 1, label: "Sensitive Document Intake", match: (p: string) => p.startsWith("/upload") },
+  { to: "/new", n: 2, label: "Compare and Vectorize Documents", match: (p: string) => p.startsWith("/new") },
+  { to: "/", n: 3, label: "AI Insights from Documents", match: (p: string) => p === "/" || p.startsWith("/c/") },
 ];
 
 function StageBar() {
