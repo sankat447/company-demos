@@ -80,7 +80,9 @@ def _pipe():
 HEAD_LABELS = ["O", "PERSON", "US_SSN", "PHONE", "EMAIL", "ADDRESS", "ACCOUNT"]
 HEAD_MIN = float(os.environ.get("AMBOY_HEAD_SCORE_MIN", "0.6"))
 _HEAD = {"model": None, "version": None}
-_WORD_RE = __import__("re").compile(r"\S+")
+# Candidate tokens: runs of non-space AND non-CSV-delimiter chars, so an account
+# number stays a standalone token inside structured/CSV text (AMB-2024-100006,Lisa,…).
+_CAND_RE = __import__("re").compile(r"[^\s,;|\t]+")
 
 
 def _load_head(key: str | None = None) -> bool:
@@ -92,9 +94,12 @@ def _load_head(key: str | None = None) -> bool:
         c = objstore.client()
         if not key:
             objs = c.list_objects_v2(Bucket=config.S3_BUCKET_DEID, Prefix="models/").get("Contents", [])
-            if not objs:
+            # Only fine-tuned head artifacts: top-level models/*.pt — NOT the base
+            # model files under models/base/ (which are newer and would mis-select).
+            heads = [o for o in objs if o["Key"].endswith(".pt") and not o["Key"].startswith("models/base/")]
+            if not heads:
                 return False
-            key = sorted(objs, key=lambda o: o["LastModified"])[-1]["Key"]
+            key = sorted(heads, key=lambda o: o["LastModified"])[-1]["Key"]
         data = c.get_object(Bucket=config.S3_BUCKET_DEID, Key=key)["Body"].read()
         head = nn.Sequential(nn.Linear(384, 128), nn.ReLU(), nn.Linear(128, len(HEAD_LABELS)))
         head.load_state_dict(torch.load(io.BytesIO(data), map_location="cpu"))
@@ -111,7 +116,10 @@ def _head_spans(text: str):
         return []
     import torch
     from app.common import embeddings
-    toks = [(m.group(0), m.start(), m.end()) for m in _WORD_RE.finditer(text)]
+    # Only digit-bearing candidate tokens (ACCOUNT numbers contain digits) — also a
+    # big speedup on documents. CSV-delimiter splitting frees account numbers from rows.
+    toks = [(m.group(0), m.start(), m.end()) for m in _CAND_RE.finditer(text)
+            if any(c.isdigit() for c in m.group(0))]
     if not toks:
         return []
     feats = torch.tensor(embeddings.embed_batch([t[0] for t in toks]))
@@ -120,17 +128,37 @@ def _head_spans(text: str):
         score, idx = probs.max(1)
     out = []
     for (w, s, e), sc, ix in zip(toks, score.tolist(), idx.tolist()):
-        lbl = HEAD_LABELS[ix]
-        if lbl != "O" and sc >= HEAD_MIN:
+        # The head's unique job is ACCOUNT (the base model + regex floor cover the
+        # rest); emitting only ACCOUNT avoids noisy mislabels on CSV number columns.
+        if HEAD_LABELS[ix] == "ACCOUNT" and sc >= HEAD_MIN:
             out.append({"start": s, "end": e, "score": round(sc, 3),
-                        "label": lbl, "type": lbl, "text": w, "source": "learned"})
+                        "label": "ACCOUNT", "type": "ACCOUNT", "text": w, "source": "learned"})
     return out
 
 
 @app.post("/reload")
 def reload(body: dict | None = None):
-    ok = _load_head((body or {}).get("key"))
+    body = body or {}
+    if body.get("unload"):          # switch to base-only serving (drop the head)
+        _HEAD["model"] = None
+        _HEAD["version"] = None
+        return {"ok": True, "version": None}
+    ok = _load_head(body.get("key"))
     return {"ok": ok, "version": _HEAD["version"]}
+
+
+ACTIVE_KEY = os.environ.get("AMBOY_ACTIVE_KEY", "models/active.txt")
+
+
+def _active_choice():
+    """The deliberately-served version, persisted by the Switch/Provision steps:
+    'base' → serve base-only; '<version>' → that head; None → fall back to latest."""
+    try:
+        from app.common import config, objstore
+        v = objstore.client().get_object(Bucket=config.S3_BUCKET_DEID, Key=ACTIVE_KEY)["Body"].read().decode().strip()
+        return v or None
+    except Exception:
+        return None
 
 
 @app.on_event("startup")
@@ -139,11 +167,23 @@ def _warm():
         _pipe()("warm up")
     except Exception:
         pass  # readiness still flips; first /detect will surface a real error
-    _load_head()  # pick up the latest fine-tuned head, if any
+    choice = _active_choice()        # honor the operator's Switch choice across restarts
+    if choice == "base":
+        pass                         # base-only (no head)
+    elif choice:
+        _load_head(f"models/{choice}.pt")
+    else:
+        _load_head()                 # no marker yet → latest fine-tuned head, if any
+    try:
+        from app.common import embeddings  # warm MiniLM now so the head's first
+        embeddings.embed_batch(["warm up"])  # /detect doesn't pay the ~2.7s cold load
+    except Exception:
+        pass
 
 
 class DetectReq(BaseModel):
     text: str
+    include_head: bool = True   # set False for base-only detection (training terminal "before")
 
 
 def _canon(label: str) -> str:
@@ -152,7 +192,8 @@ def _canon(label: str) -> str:
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "role": "pii_model", "model": MODEL}
+    return {"ok": True, "role": "pii_model", "model": MODEL,
+            "base_version": BASE_VERSION, "head_version": _HEAD["version"]}
 
 
 @app.post("/detect")
@@ -175,7 +216,8 @@ def detect(req: DetectReq):
             break
         pos += WIN - OVERLAP
 
-    spans += _head_spans(text)   # learned head adds org-specific classes (e.g. ACCOUNT)
+    if req.include_head:
+        spans += _head_spans(text)   # learned head adds org-specific classes (e.g. ACCOUNT)
 
     # de-dup overlapping spans from the sliding windows (keep highest score)
     spans.sort(key=lambda s: (s["start"], -(s["end"] - s["start"]), -s["score"]))

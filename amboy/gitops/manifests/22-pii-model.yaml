@@ -32,3 +32,18 @@ spec:
         resources:
           requests: {cpu: 500m, memory: 1.5Gi}
           limits: {cpu: "2", memory: 4Gi}
+---
+# Stable ClusterIP the gateway calls. KServe's own service naming has varied
+# across reconciles (sometimes only the headless -predictor exists), so we own a
+# fixed Service -> predictor pods on 8080. This is what config.PII_MODEL_URL hits.
+apiVersion: v1
+kind: Service
+metadata:
+  name: amboy-pii-model
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  selector:
+    serving.kserve.io/inferenceservice: amboy-pii-model
+    component: predictor
+  ports: [{name: http, port: 8080, targetPort: 8080, protocol: TCP}]

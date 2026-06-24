@@ -1,37 +1,50 @@
 """Model-training orchestration for the Model Training console.
 
-Runs a REAL but CPU-bounded fine-tune of an NPI token-classifier (a small head
-over the baked MiniLM features) on a synthetic NPI corpus that INCLUDES an
-ACCOUNT class — then packages, registers (MinIO + DB), and re-provisions the
-KServe model on OpenShift AI. Granular stage + % progress is exposed via
-status() for the UI to visualize. Each stage is guarded so the demo never hard-fails.
+InstructLab-style INTERACTIVE flow:
+  Start  → pre-training stages (init → load base → ingest → embed features), then
+           PAUSE at the interactive phase and open a terminal.
+  Terminal commands (the user drives the loop):
+    probe "<text>"  — detect PII/NPI; first time ACCOUNT (AMB-2024-…) is NOT found
+    train account   — real CPU fine-tune so AMB-2024-… is learned as an ACCOUNT
+    probe "<text>"  — now ACCOUNT is detected
+    done            — post-training stages (evaluate → compress → register →
+                      stop & re-provision on OpenShift AI → smoke) and serve it
+The served KServe model stays ONLINE during the terminal so `probe` works; the
+visible offline→online scaling on OpenShift AI happens only at `done`.
+Each stage/command is guarded so the demo never hard-fails.
 """
 from __future__ import annotations
 
 import os
 import random
+import re
 import threading
 import time
 
 from app.common import config, db, objstore
 
 STAGES = [
-    ("stop",       "Stop serving",              "Take the current PII model offline on OpenShift AI"),
-    ("load",       "Load base model",           "Load the base encoder + label space"),
-    ("ingest",     "Ingest NPI data",           "Gather the organization's NPI training corpus"),
-    ("decompose",  "Decompose (tokenize + label)", "Tokenize and assign BIO labels per token"),
-    ("train",      "Train",                     "Fine-tune the NPI tagger (gradient descent)"),
-    ("evaluate",   "Evaluate",                  "Score precision/recall on a held-out split"),
-    ("compress",   "Compress (quantize)",       "Quantize + shrink the model for CPU serving"),
-    ("register",   "Register version",          "Push the model artifact to MinIO + version registry"),
-    ("provision",  "Provision on OpenShift AI", "Re-deploy the KServe InferenceService"),
-    ("smoke",      "Online smoke test",         "Verify the served model answers /detect"),
+    ("init",        "Initialize session",        "Spin up a training session (model stays online)"),
+    ("load",        "Load base model",           "Load the base encoder + label space"),
+    ("ingest",      "Ingest NPI data",           "Gather the organization's NPI training corpus"),
+    ("decompose",   "Decompose (tokenize + embed)", "Tokenize and embed features per token"),
+    ("interactive", "Interactive training",      "Teach from the terminal: probe → train → probe"),
+    ("evaluate",    "Evaluate",                  "Score accuracy on a held-out split"),
+    ("compress",    "Compress (quantize)",       "Quantize + shrink the model for CPU serving"),
+    ("register",    "Register version",          "Push the model artifact to MinIO + version registry"),
+    ("provision",   "Stop → Provision on OpenShift AI", "Take offline, load new head, bring back online"),
+    ("smoke",       "Online smoke test",         "Verify the served model answers /detect"),
 ]
 LABELS = ["O", "PERSON", "US_SSN", "PHONE", "EMAIL", "ADDRESS", "ACCOUNT"]
+HEAD_MIN = 0.6
+DEFAULT_SAMPLE = "Loan AMB-2024-100364 for borrower Jane Doe; SSN 900-12-3456; phone (732) 555-0142."
+_WORD_RE = re.compile(r"\S+")
 
 _LOCK = threading.Lock()
 _STATE = {"run_id": None, "status": "idle", "stages": [], "version": None,
-          "metrics": {}, "log": [], "started_at": None}
+          "metrics": {}, "log": [], "terminal": []}
+# Heavy session objects (torch tensors / model) kept out of the JSON status.
+_SESSION = {"Xtr": None, "ytr": None, "Xte": None, "yte": None, "head": None, "acc": None}
 
 
 def _init_stages():
@@ -40,12 +53,19 @@ def _init_stages():
 
 def status():
     with _LOCK:
-        return {**_STATE, "stages": [dict(s) for s in _STATE["stages"]]}
+        return {**_STATE, "stages": [dict(s) for s in _STATE["stages"]],
+                "terminal": list(_STATE["terminal"])}
 
 
 def _log(msg):
     with _LOCK:
         _STATE["log"] = (_STATE["log"] + [msg])[-40:]
+
+
+def _term(text, kind="out"):
+    """Append a line to the interactive terminal (kind: in|out|sys|ok|warn)."""
+    with _LOCK:
+        _STATE["terminal"] = (_STATE["terminal"] + [{"k": kind, "t": text}])[-300:]
 
 
 def _stage(i, st, pct=None, note=None):
@@ -81,7 +101,28 @@ def _scale_inference_service(min_replicas: int):
         return False
 
 
-def _corpus(n_per_class=70):
+def _set_display_name(name: str):
+    """Best-effort: rewrite the KServe IS display-name so the OpenShift AI Model
+    Serving dashboard reflects the newly-trained version. Same SA-token path as scale."""
+    try:
+        import httpx
+        tok_path = "/var/run/secrets/kubernetes.io/serviceaccount"
+        token = open(f"{tok_path}/token").read().strip()
+        ns = open(f"{tok_path}/namespace").read().strip()
+        url = (f"https://kubernetes.default.svc/apis/serving.kserve.io/v1beta1/"
+               f"namespaces/{ns}/inferenceservices/amboy-pii-model")
+        body = {"metadata": {"annotations": {"openshift.io/display-name": name}}}
+        r = httpx.patch(url, json=body, timeout=20,
+                        headers={"Authorization": f"Bearer {token}",
+                                 "Content-Type": "application/merge-patch+json"},
+                        verify=f"{tok_path}/ca.crt")
+        return r.status_code in (200, 201)
+    except Exception as e:
+        _log(f"display-name update skipped: {type(e).__name__}")
+        return False
+
+
+def _corpus(n_per_class=120):
     """Synthetic NPI corpus (token, label) incl. ACCOUNT — the org's training data."""
     import sys
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "data"))
@@ -101,67 +142,207 @@ def _corpus(n_per_class=70):
     return rows
 
 
-def _run():
+# ── pre-training (runs on Start, then opens the terminal) ────────────────────
+def _pretrain():
     from app.common import embeddings
     try:
-        # 0 — stop
-        _stage(0, "running", 30, "Scaling InferenceService minReplicas -> 0")
-        ok = _scale_inference_service(0)
-        _stage(0, "done", note=("model offline" if ok else "scale best-effort (continuing)"))
+        _stage(0, "running", 50, "session started")
+        _stage(0, "done", note="training session ready (served model stays online)")
 
-        # 1 — load base
         _stage(1, "running", 40, f"Label space: {', '.join(LABELS)}")
         import torch
-        import torch.nn as nn
-        embeddings._model()  # warm MiniLM (the base encoder)
+        embeddings._model()  # warm the base encoder (MiniLM, 384-d)
         _stage(1, "done", note="base encoder ready (MiniLM, 384-d)")
 
-        # 2 — ingest
         _stage(2, "running", 50)
         rows = _corpus()
         _stage(2, "done", note=f"ingested {len(rows)} labeled NPI tokens")
 
-        # 3 — decompose
         _stage(3, "running", 30, "Embedding tokens -> features")
-        texts = [t for t, _ in rows]
         y = torch.tensor([LABELS.index(l) for _, l in rows])
-        X = torch.tensor(embeddings.embed_batch(texts))
+        X = torch.tensor(embeddings.embed_batch([t for t, _ in rows]))
         n = len(rows); cut = int(n * 0.8)
-        Xtr, ytr, Xte, yte = X[:cut], y[:cut], X[cut:], y[cut:]
+        with _LOCK:
+            _SESSION.update({"Xtr": X[:cut], "ytr": y[:cut], "Xte": X[cut:], "yte": y[cut:],
+                             "head": None, "acc": None})
         _stage(3, "done", note=f"{cut} train / {n - cut} eval examples")
 
-        # 4 — train (real gradient descent)
         _stage(4, "running", 0)
-        torch.manual_seed(0)
-        head = nn.Sequential(nn.Linear(384, 128), nn.ReLU(), nn.Linear(128, len(LABELS)))
-        opt = torch.optim.Adam(head.parameters(), lr=1e-3)
-        lossf = nn.CrossEntropyLoss()
-        EPOCHS = 30
-        for ep in range(EPOCHS):
-            opt.zero_grad()
-            loss = lossf(head(Xtr), ytr)
-            loss.backward(); opt.step()
-            _stage(4, "running", (ep + 1) / EPOCHS * 100)
-            if ep % 6 == 0 or ep == EPOCHS - 1:
-                _log(f"epoch {ep + 1}/{EPOCHS} loss={loss.item():.3f}")
-            time.sleep(0.15)  # let the UI breathe (visual progress)
-        _stage(4, "done", note=f"final loss {loss.item():.3f}")
-
-        # 5 — evaluate
-        _stage(5, "running", 60)
-        with torch.no_grad():
-            pred = head(Xte).argmax(1)
-            acc = (pred == yte).float().mean().item()
         with _LOCK:
-            _STATE["metrics"] = {"eval_accuracy": round(acc, 3), "epochs": EPOCHS,
-                                 "classes": len(LABELS), "train_n": cut}
+            _STATE["status"] = "interactive"
+        _help()
+        _term("Tip: start by running  probe   (uses the sample loan text).", "sys")
+    except Exception as e:
+        _fail(f"pre-training failed: {type(e).__name__}: {e}")
+
+
+def _help():
+    _term("Interactive NPI training — available commands:", "sys")
+    _term("  probe [\"text\"]   detect PII/NPI in the text (default: the sample loan)", "out")
+    _term("  train account    teach the model that AMB-2024-… is an ACCOUNT (NPI)", "out")
+    _term("  done             evaluate, register & re-provision the new model", "out")
+    _term("  help · clear", "out")
+
+
+# ── terminal command dispatch ────────────────────────────────────────────────
+def _arg(raw):
+    rest = raw.split(None, 1)[1].strip() if len(raw.split(None, 1)) > 1 else ""
+    if len(rest) >= 2 and rest[0] in "\"'" and rest[-1] == rest[0]:
+        rest = rest[1:-1]
+    return rest
+
+
+def _base_detect(text):
+    """Base PII/NPI from the served model WITHOUT the learned head (so ACCOUNT is
+    only added once the user trains it in this session)."""
+    import httpx
+    try:
+        r = httpx.post(f"{config.PII_MODEL_URL}/detect",
+                       json={"text": text, "include_head": False}, timeout=60)
+        return r.json().get("spans", [])
+    except Exception as e:
+        _term(f"(base model unreachable: {type(e).__name__})", "warn")
+        return []
+
+
+def _session_account_spans(text):
+    """ACCOUNT spans from the in-session working head (digit-bearing tokens only)."""
+    head = _SESSION.get("head")
+    if head is None:
+        return []
+    import torch
+    from app.common import embeddings
+    toks = [(m.group(0), m.start(), m.end()) for m in _WORD_RE.finditer(text)
+            if any(c.isdigit() for c in m.group(0))]
+    if not toks:
+        return []
+    feats = torch.tensor(embeddings.embed_batch([t[0] for t in toks]))
+    with torch.no_grad():
+        probs = torch.softmax(head(feats), 1)
+        score, idx = probs.max(1)
+    out = []
+    for (w, s, e), sc, ix in zip(toks, score.tolist(), idx.tolist()):
+        if LABELS[ix] == "ACCOUNT" and sc >= HEAD_MIN:
+            out.append({"start": s, "end": e, "type": "ACCOUNT", "text": w})
+    return out
+
+
+def _render(text, spans):
+    spans = sorted(spans, key=lambda s: s["start"])
+    out, pos = [], 0
+    for s in spans:
+        if s["start"] < pos:
+            continue
+        out.append(text[pos:s["start"]])
+        out.append(f"[{s['type']}]{text[s['start']:s['end']]}[/{s['type']}]")
+        pos = s["end"]
+    out.append(text[pos:])
+    return "".join(out)
+
+
+def _do_probe(raw):
+    text = _arg(raw) or DEFAULT_SAMPLE
+    base = _base_detect(text)
+    spans = base + _session_account_spans(text)
+    has_acct = any(s["type"] == "ACCOUNT" for s in spans)
+    _term(_render(text, spans), "out")
+    _term(f"Detected {len(spans)} PII/NPI entit{'y' if len(spans) == 1 else 'ies'}:", "out")
+    for s in sorted(spans, key=lambda s: s["start"]):
+        is_acct = s["type"] == "ACCOUNT"
+        tag = "   ← learned this session" if is_acct else ""
+        _term(f"  {s['type']:<8} {text[s['start']:s['end']]}{tag}", "ok" if is_acct else "out")
+    if has_acct:
+        _term("ACCOUNT numbers (AMB-2024-…) ARE recognized as NPI ✓", "ok")
+    else:
+        _term("ACCOUNT numbers (AMB-2024-…) are NOT recognized as NPI — run `train account`.", "warn")
+
+
+def _do_train(raw):
+    if _SESSION.get("Xtr") is None:
+        _term("training features not ready — restart the session", "warn")
+        return
+    import torch
+    import torch.nn as nn
+    _term("Teaching the model that AMB-2024-… is an ACCOUNT (NPI)…", "sys")
+    torch.manual_seed(0)
+    head = nn.Sequential(nn.Linear(384, 128), nn.ReLU(), nn.Linear(128, len(LABELS)))
+    opt = torch.optim.Adam(head.parameters(), lr=1e-3)
+    lossf = nn.CrossEntropyLoss()
+    Xtr, ytr = _SESSION["Xtr"], _SESSION["ytr"]
+    EP = 200
+    loss = None
+    for ep in range(EP):
+        opt.zero_grad()
+        loss = lossf(head(Xtr), ytr)
+        loss.backward(); opt.step()
+        _stage(4, "running", (ep + 1) / EP * 100)
+        if ep % 40 == 0 or ep == EP - 1:
+            _term(f"  epoch {ep + 1:>3}/{EP}  loss={loss.item():.3f}", "out")
+    with torch.no_grad():
+        acc = (head(_SESSION["Xte"]).argmax(1) == _SESSION["yte"]).float().mean().item()
+    with _LOCK:
+        _SESSION["head"] = head
+        _SESSION["acc"] = acc
+        _STATE["metrics"] = {"eval_accuracy": round(acc, 3), "epochs": EP, "classes": len(LABELS)}
+    _term(f"Training complete — held-out token accuracy {acc:.0%}. ACCOUNT class learned.", "ok")
+    _term("Re-run `probe` to see AMB-2024-… now detected, then `done` to serve.", "sys")
+
+
+def _do_done():
+    if _SESSION.get("head") is None:
+        _term("Nothing trained yet — run `train account` first.", "warn")
+        return
+    with _LOCK:
+        _STATE["status"] = "finalizing"
+    _stage(4, "done", note="interactive training complete")
+    _term("Finalizing: evaluate → compress → register → re-provision on OpenShift AI…", "sys")
+    threading.Thread(target=_finalize, daemon=True).start()
+
+
+def cmd(command: str):
+    with _LOCK:
+        st = _STATE["status"]
+    if st != "interactive":
+        reason = ("finalizing — please wait" if st == "finalizing"
+                  else "no interactive session — click Start training")
+        return {"ok": False, "reason": reason, **status()}
+    raw = (command or "").strip()
+    if raw:
+        _term(raw, "in")
+    c = raw.split(None, 1)[0].lower() if raw else ""
+    if c in ("help", "?", ""):
+        if c in ("help", "?"):
+            _help()
+    elif c in ("probe", "detect", "query"):
+        _do_probe(raw)
+    elif c in ("train", "teach", "learn"):
+        _do_train(raw)
+    elif c in ("done", "commit", "serve", "finish"):
+        _do_done()
+    elif c in ("clear", "cls"):
+        with _LOCK:
+            _STATE["terminal"] = []
+    else:
+        _term(f"unknown command: {c}   (type 'help')", "warn")
+    return {"ok": True, **status()}
+
+
+# ── post-training (runs on `done`) ───────────────────────────────────────────
+def _finalize():
+    import io as _io
+    import torch
+    import torch.nn as nn
+    try:
+        head, acc = _SESSION["head"], _SESSION["acc"]
+
+        _stage(5, "running", 60)
+        with _LOCK:
+            _STATE["metrics"] = {"eval_accuracy": round(acc, 3), "epochs": 200, "classes": len(LABELS)}
         _stage(5, "done", note=f"held-out token accuracy {acc:.1%}")
 
-        # 6 — compress (dynamic quantization)
         _stage(6, "running", 50)
-        import io as _io
         raw = _io.BytesIO(); torch.save(head.state_dict(), raw); raw_sz = raw.tell()
-        try:                       # quantize for the size metric; serve the fp32 (loadable) head
+        try:  # quantize only for the size metric; serve the fp32 (loadable) head
             qhead = torch.quantization.quantize_dynamic(head, {nn.Linear}, dtype=torch.qint8)
             q = _io.BytesIO(); torch.save(qhead.state_dict(), q); q_sz = q.tell()
         except Exception:
@@ -169,11 +350,9 @@ def _run():
         model_bytes = raw.getvalue()
         _stage(6, "done", note=f"size {raw_sz // 1024} KB -> {q_sz // 1024} KB (int8)")
 
-        # 7 — register (MinIO + DB version)
         _stage(7, "running", 50)
         ver = f"npi-tagger-{int(acc * 1000)}"
         key = f"models/{ver}.pt"
-        model_key = key
         try:
             objstore.client().put_object(Bucket=config.S3_BUCKET_DEID, Key=key, Body=model_bytes)
         except Exception as e:
@@ -189,60 +368,104 @@ def _run():
         with _LOCK:
             _STATE["version"] = ver
         _stage(7, "done", note=f"registered model version {ver}")
+        _term(f"Registered new version {ver} in MinIO + registry.", "ok")
 
-        # 8 — provision (scale back up + load the new head into the served model)
-        _stage(8, "running", 40, "Scaling InferenceService minReplicas -> 1")
+        # 8 — stop → provision (the visible OpenShift AI offline→online)
+        _stage(8, "running", 25, "Scaling InferenceService minReplicas -> 0 (offline)")
+        _term("Taking the served model offline on OpenShift AI…", "sys")
+        _scale_inference_service(0)
+        time.sleep(3)
+        _stage(8, "running", 55, "Scaling InferenceService minReplicas -> 1 (online)")
         _scale_inference_service(1)
+        import httpx
+        for _ in range(50):
+            try:
+                if httpx.get(f"{config.PII_MODEL_URL}/healthz", timeout=5).status_code == 200:
+                    break
+            except Exception:
+                pass
+            time.sleep(3)
         try:
-            import httpx
-            for _ in range(40):
-                try:
-                    if httpx.get(f"{config.PII_MODEL_URL}/healthz", timeout=5).status_code == 200:
-                        break
-                except Exception:
-                    pass
-                time.sleep(3)
-            rr = httpx.post(f"{config.PII_MODEL_URL}/reload", json={"key": model_key}, timeout=30).json()
+            rr = httpx.post(f"{config.PII_MODEL_URL}/reload", json={"key": key}, timeout=30).json()
+            _write_active(ver)
+            _set_display_name(f"Amboy PII/NPI Detector — {ver} (NPI fine-tuned, acc {acc:.0%})")
             _stage(8, "done", note=f"re-provisioned + served model loaded head {rr.get('version')}")
         except Exception as e:
             _stage(8, "done", note=f"re-provisioned; reload best-effort ({type(e).__name__})")
 
-        # 9 — smoke test
         _stage(9, "running", 50)
         try:
-            import httpx
-            for _ in range(30):
-                try:
-                    h = httpx.get(f"{config.PII_MODEL_URL}/healthz", timeout=5)
-                    if h.status_code == 200:
-                        break
-                except Exception:
-                    pass
-                time.sleep(3)
             d = httpx.post(f"{config.PII_MODEL_URL}/detect",
-                           json={"text": "Borrower Jane Doe SSN 900-12-3456"}, timeout=30)
-            _stage(9, "done", note=f"served model online: {len(d.json().get('spans', []))} spans on probe")
+                           json={"text": DEFAULT_SAMPLE}, timeout=30)
+            types = sorted({s["type"] for s in d.json().get("spans", [])})
+            _stage(9, "done", note=f"served model online: detects {', '.join(types)}")
+            _term(f"Smoke test OK — served model detects: {', '.join(types)}", "ok")
         except Exception as e:
             _stage(9, "done", note=f"served model probe: {type(e).__name__}")
 
         with _LOCK:
             _STATE["status"] = "complete"
+        _term(f"Done. Version {ver} is now serving on OpenShift AI.", "ok")
         _log("training run complete")
     except Exception as e:
-        with _LOCK:
-            _STATE["status"] = "error"
-            for s in _STATE["stages"]:
-                if s["status"] == "running":
-                    s["status"] = "failed"
-        _log(f"run failed: {type(e).__name__}: {e}")
+        _fail(f"finalize failed: {type(e).__name__}: {e}")
+
+
+def _fail(msg):
+    with _LOCK:
+        _STATE["status"] = "error"
+        for s in _STATE["stages"]:
+            if s["status"] == "running":
+                s["status"] = "failed"
+    _term(msg, "warn")
+    _log(msg)
+
+
+def _write_active(value: str):
+    """Persist the deliberately-served choice so it survives predictor restarts
+    ('base' or a version). pii_model reads models/active.txt on startup."""
+    try:
+        objstore.client().put_object(Bucket=config.S3_BUCKET_DEID,
+                                     Key="models/active.txt", Body=value.encode())
+    except Exception as e:
+        _log(f"active marker skipped: {type(e).__name__}")
+
+
+def switch(version: str):
+    """Hot-swap the served KServe model to a registry version (live /reload, no
+    restart). A head version (.pt) loads that head; the base version unloads the
+    head so the model serves base-only. Also updates the OpenShift AI display-name."""
+    import httpx
+    key = None
+    try:
+        with db.connect() as conn:
+            key = db.get_model_s3_key(conn.cursor(), version)
+    except Exception:
+        pass
+    if not key:
+        key = "models/base/" if "base" in version else f"models/{version}.pt"
+    try:
+        if key.endswith(".pt"):
+            rr = httpx.post(f"{config.PII_MODEL_URL}/reload", json={"key": key}, timeout=60).json()
+            _write_active(version)
+            _set_display_name(f"Amboy PII/NPI Detector — {version} (NPI fine-tuned)")
+            return {"ok": bool(rr.get("ok")), "version": version, "head_version": rr.get("version")}
+        # base prefix → serve base-only
+        httpx.post(f"{config.PII_MODEL_URL}/reload", json={"unload": True}, timeout=60)
+        _write_active("base")
+        _set_display_name("Amboy PII/NPI Detector (Piiranha · base)")
+        return {"ok": True, "version": version, "head_version": None}
+    except Exception as e:
+        return {"ok": False, "error": type(e).__name__}
 
 
 def start():
     with _LOCK:
-        if _STATE["status"] == "running":
-            return {"ok": False, "reason": "a run is already in progress"}
-        rid = f"run-{int(time.time())}" if False else "run-current"  # no wall-clock dependence
-        _STATE.update({"run_id": rid, "status": "running", "stages": _init_stages(),
-                       "version": None, "metrics": {}, "log": ["training run started"]})
-    threading.Thread(target=_run, daemon=True).start()
-    return {"ok": True, "run_id": _STATE["run_id"]}
+        if _STATE["status"] in ("pretraining", "interactive", "finalizing"):
+            return {"ok": False, "reason": "a training session is already in progress"}
+        _STATE.update({"run_id": "run-current", "status": "pretraining", "stages": _init_stages(),
+                       "version": None, "metrics": {}, "log": ["training session started"],
+                       "terminal": []})
+        _SESSION.update({"Xtr": None, "ytr": None, "Xte": None, "yte": None, "head": None, "acc": None})
+    threading.Thread(target=_pretrain, daemon=True).start()
+    return {"ok": True, "run_id": "run-current"}

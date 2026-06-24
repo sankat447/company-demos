@@ -69,9 +69,11 @@ export interface Comparability {
 }
 // Model Training console.
 export interface TrainingStage { key: string; title: string; desc: string; status: string; pct: number; }
+export interface TermLine { k: "in" | "out" | "sys" | "ok" | "warn"; t: string; }
 export interface TrainingStatus {
   run_id: string | null; status: string; stages: TrainingStage[];
   version: string | null; metrics: Record<string, number>; log: string[];
+  terminal?: TermLine[];
 }
 export interface ModelVersion { version: string; name: string; accuracy: number; classes: number; created_at: string; }
 export interface DocCompare { metrics: DocMetric[]; flags?: DocFlag[]; note?: string; }

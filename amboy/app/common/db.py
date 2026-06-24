@@ -142,6 +142,12 @@ def list_model_versions(cur):
             for v, n, a, c, t in cur.fetchall()]
 
 
+def get_model_s3_key(cur, version):
+    cur.execute("SELECT s3_key FROM amboy.model_versions WHERE version=%s", (version,))
+    r = cur.fetchone()
+    return r[0] if r else None
+
+
 def audit(cur, actor, action, resource=None, detail=None, outcome="ok"):
     """Append-only audit row. `detail` MUST be NPI-free (counts/ids only)."""
     cur.execute(

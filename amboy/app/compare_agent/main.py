@@ -59,10 +59,40 @@ def training_status():
     return training.status()
 
 
+class TrainCmdReq(BaseModel):
+    command: str
+
+
+@app.post("/training/cmd")
+def training_cmd(req: TrainCmdReq):
+    return training.cmd(req.command)
+
+
+class SwitchReq(BaseModel):
+    version: str
+
+
+@app.post("/training/switch")
+def training_switch(req: SwitchReq):
+    return training.switch(req.version)
+
+
 @app.get("/training/versions")
 def training_versions():
     with db.connect() as conn:
         return {"versions": db.list_model_versions(conn.cursor())}
+
+
+@app.get("/training/served")
+def training_served():
+    """What the live KServe model is actually serving (base + fine-tuned head)."""
+    import httpx
+    try:
+        h = httpx.get(f"{config.PII_MODEL_URL}/healthz", timeout=8).json()
+        return {"ok": True, "base_version": h.get("base_version"),
+                "head_version": h.get("head_version")}
+    except Exception as e:
+        return {"ok": False, "error": type(e).__name__}
 
 
 @app.get("/comparisons")

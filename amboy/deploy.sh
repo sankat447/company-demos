@@ -84,6 +84,33 @@ done
 echo "    sync=$sync health=$health"
 [ "${sync:-}" = "Synced" ] || warn "app not fully Synced yet — check: oc -n openshift-gitops get app amboy-demo"
 
+# ── 4b. pin the KServe model + agents to the freshly-built DIGEST ─────────────
+# The git manifests reference amboy:latest; KServe scale cycles and node :latest
+# caching can otherwise serve a stale image. Pin the exact digest (ArgoCD ignores
+# this field — see application.yaml ignoreDifferences). Best-effort.
+info "Phase 4b — pin model + agents to the built image digest"
+DIG="$(oc -n "$NS_AI" get istag amboy:latest -o jsonpath='{.image.metadata.name}' 2>/dev/null || true)"
+if [ -n "$DIG" ]; then
+  IMG="image-registry.openshift-image-registry.svc:5000/$NS_AI/amboy@${DIG}"
+  oc -n "$NS_AI" patch inferenceservice amboy-pii-model --type=json \
+    -p "[{\"op\":\"replace\",\"path\":\"/spec/predictor/containers/0/image\",\"value\":\"${IMG}\"}]" >/dev/null 2>&1 || true
+  for d in amboy-deid-gateway amboy-compare-agent; do
+    oc -n "$NS_AI" patch deploy "$d" --type=json \
+      -p "[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/image\",\"value\":\"${IMG}\"}]" >/dev/null 2>&1 || true
+  done
+  ok "pinned to digest ${DIG#sha256:}"
+else
+  warn "could not read amboy:latest digest — services stay on :latest"
+fi
+
+# ── 4c. seed the BASE PII model into in-stack MinIO (served from S3, no egress) ─
+info "Phase 4c — publish base PII model to MinIO (idempotent)"
+oc -n "$NS_AI" delete job amboy-seed-base --ignore-not-found >/dev/null 2>&1 || true
+oc -n "$NS_AI" apply -f "$DEMO_DIR/build/seed-base-job.yaml" >/dev/null
+oc -n "$NS_AI" wait --for=condition=complete job/amboy-seed-base --timeout=300s \
+  && ok "base PII model published to MinIO" \
+  || warn "seed-base job not complete — model falls back to the baked copy"
+
 # ── 5. seed synthetic reports into MinIO raw ─────────────────────────────────
 info "Phase 5 — seed synthetic reports into MinIO raw"
 oc -n "$NS_AI" delete job amboy-seed --ignore-not-found >/dev/null 2>&1 || true

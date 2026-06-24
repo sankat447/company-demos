@@ -31,3 +31,17 @@ spec:
     syncOptions:
       - CreateNamespace=false                    # iis-ai-* tiers are platform-managed
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true            # don't clobber ignored fields on sync
+                                                 # (model image digest + dynamic display-name)
+  # The git manifest pins the model image to amboy:latest, but deploy.sh patches the
+  # predictor to the exact freshly-built DIGEST after the build (KServe scale cycles +
+  # node :latest caching can otherwise serve a stale image). Let ArgoCD ignore that
+  # field so selfHeal doesn't revert the pin back to :latest.
+  ignoreDifferences:
+    - group: serving.kserve.io
+      kind: InferenceService
+      name: amboy-pii-model
+      jsonPointers:
+        - /spec/predictor/containers/0/image
+        # provision step rewrites the dashboard display-name to the served head version
+        - /metadata/annotations/openshift.io~1display-name

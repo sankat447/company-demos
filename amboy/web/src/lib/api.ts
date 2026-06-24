@@ -56,7 +56,14 @@ export async function deleteArtifact(id: string) {
 // Model Training console.
 export function startTraining() { return api.post<{ ok: boolean; reason?: string }>("/training/start", {}); }
 export function getTrainingStatus() { return api.get<import("./types").TrainingStatus>("/training/status"); }
+export function trainingCmd(command: string) {
+  return api.post<{ ok: boolean; reason?: string } & import("./types").TrainingStatus>("/training/cmd", { command });
+}
 export function listModelVersions() { return api.get<{ versions: import("./types").ModelVersion[] }>("/training/versions"); }
+export function getServedModel() { return api.get<{ ok: boolean; base_version?: string; head_version?: string }>("/training/served"); }
+export function switchModel(version: string) {
+  return api.post<{ ok: boolean; version?: string; head_version?: string | null; error?: string }>("/training/switch", { version });
+}
 export function detectText(text: string) {
   return api.post<{ spans: { type: string; text: string; source: string }[] }>("/detect_text", { text });
 }
