@@ -44,6 +44,10 @@ metadata:
   name: amboy-web
   namespace: iis-ai-ui
   labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+  annotations:
+    # long operations (index, detect, chat) embed many chunks on CPU — raise the
+    # edge timeout well above haproxy's 30s default so they aren't cut off.
+    haproxy.router.openshift.io/timeout: "300s"
 spec:
   to: {kind: Service, name: amboy-web}
   port: {targetPort: 8080}
