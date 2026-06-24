@@ -239,9 +239,10 @@ def index_comparison(comparison_id: str, label: str, artifact_a: str, artifact_b
         for side, text, yr in (("A", ta, year_a), ("B", tb, year_b)):
             rid = f"{comparison_id}::{side}"
             cur.execute("DELETE FROM amboy.chunks WHERE report_id=%s", (rid,))
-            for ch in _chunk(text):
-                db.insert_chunk(cur, rid, yr or None, "document", ch,
-                                embeddings.to_pgvector(embeddings.embed(ch)))
+            chunks = _chunk(text)
+            vecs = embeddings.embed_batch(chunks)        # one encode call (fast)
+            for ch, v in zip(chunks, vecs):
+                db.insert_chunk(cur, rid, yr or None, "document", ch, embeddings.to_pgvector(v))
                 total += 1
         for f in (accepted_fields or []):
             db.upsert_comparison_metric(cur, comparison_id, f["label"], _num(f.get("a")),

@@ -19,6 +19,13 @@ def embed(text: str):
     return _model().encode(text or "", normalize_embeddings=True).tolist()
 
 
+def embed_batch(texts):
+    """Embed many chunks in ONE encode call (far faster than per-chunk on CPU)."""
+    if not texts:
+        return []
+    return _model().encode(list(texts), normalize_embeddings=True, batch_size=32).tolist()
+
+
 def to_pgvector(vec) -> str:
     """Format a vector for a pgvector column literal: '[0.1,0.2,...]'."""
     return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"

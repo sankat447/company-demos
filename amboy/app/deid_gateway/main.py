@@ -255,9 +255,9 @@ def commit(req: CommitReq):
 
         chunks = _chunk(text)
         cur.execute("DELETE FROM amboy.chunks WHERE report_id=%s", (report_id,))
-        for ch in chunks:
-            db.insert_chunk(cur, report_id, req.year or None, "document", ch,
-                            embeddings.to_pgvector(embeddings.embed(ch)))
+        vecs = embeddings.embed_batch(chunks)
+        for ch, v in zip(chunks, vecs):
+            db.insert_chunk(cur, report_id, req.year or None, "document", ch, embeddings.to_pgvector(v))
         db.audit(cur, req.actor, "ingest", report_id,
                  {"chunks": len(chunks), "tokens": n_tokens["count"],
                   "accepted_spans": len(req.accepted), "phase": "commit"})
@@ -389,9 +389,9 @@ async def ingest_document(
         deid_text = deid.deidentify_text(text, _tok, persist_token)
         chunks = _chunk(deid_text)
         cur.execute("DELETE FROM amboy.chunks WHERE report_id=%s", (report_id,))  # idempotent re-ingest
-        for ch in chunks:
-            db.insert_chunk(cur, report_id, year or None, "document", ch,
-                            embeddings.to_pgvector(embeddings.embed(ch)))
+        vecs = embeddings.embed_batch(chunks)
+        for ch, v in zip(chunks, vecs):
+            db.insert_chunk(cur, report_id, year or None, "document", ch, embeddings.to_pgvector(v))
         db.audit(cur, actor, "ingest", report_id,
                  {"chunks": len(chunks), "tokens": n_tokens["count"],
                   "kind": (file.filename or "").split(".")[-1].lower()})
