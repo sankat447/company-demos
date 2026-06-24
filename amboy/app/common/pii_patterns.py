@@ -31,14 +31,9 @@ PHONE_RE = re.compile(
     r"(?<!\d)(?:\+?1[-.\s])?\(?(\d{3})\)?[-.\s](\d{3})[-.\s](\d{4})\b"
 )
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
-# Account / loan number, e.g. AMB-2024-0002. The trailing 4 digits may contain
-# stray spaces from PDF text extraction ("AMB-2024-00 02"), so allow single
-# spaces/tabs between them. The negative lookahead on the last group excludes a
-# 4-digit YEAR so the internal comparison id (AMB-2024-2025) and report ids
-# (AMB-FY2024) are NOT mistaken for accounts.
-ACCOUNT_RE = re.compile(r"\bAMB-\s?\d{4}\s?-\s?(?!(?:19|20)\d{2}\b)\d(?:\s?\d){3,}\b")
-# Account number stated in prose: "account number 123456789", "acct no. ...".
-ACCOUNT_PROSE_RE = re.compile(r"(?i)\b(?:account|acct)\s*(?:number|no\.?|num|#)\s*:?\s*\d{6,}")
+# NOTE: account/loan-number detection is intentionally NOT a regex rule — it is
+# meant to be learned by the PII model (see the Model Training console). Do not
+# re-add an ACCOUNT recognizer here.
 # Street address: number + name + common suffix (catches restated addresses in prose)
 ADDRESS_RE = re.compile(
     r"\b\d{1,6}\s+[A-Z][A-Za-z0-9.\-]*(?:\s+[A-Z][A-Za-z0-9.\-]*){0,3}\s+"
@@ -54,8 +49,6 @@ DETECTORS = {
     "PHONE_NUMBER": PHONE_RE,
     "EMAIL_ADDRESS": EMAIL_RE,
     "STREET_ADDRESS": ADDRESS_RE,
-    "ACCOUNT_NUMBER": ACCOUNT_RE,
-    "ACCOUNT_NUMBER_PROSE": ACCOUNT_PROSE_RE,
 }
 
 # ── Safe synthetic ranges (generator MUST stay inside these) ─────────────────

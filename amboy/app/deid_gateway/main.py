@@ -183,21 +183,20 @@ def ingest(req: IngestRequest):
 
         # Loan appendix — tokenize structured PII + de-identify prose notes.
         for loan in report["loan_appendix"]:
-            atok = deid.deidentify_value("ACCOUNT", loan["loan_id"], _tok, persist_token)
             btok = deid.deidentify_value("PERSON", loan["borrower_name"], _tok, persist_token)
             for field, etype in (("ssn", "US_SSN"), ("phone", "PHONE"),
                                  ("email", "EMAIL"), ("street_address", "ADDRESS")):
                 deid.deidentify_value(etype, loan[field], _tok, persist_token)
             deid_notes = deid.deidentify_text(loan["notes"], _tok, persist_token)
 
-            db.upsert_loan_fact(cur, atok, report_id, fy, btok,
+            db.upsert_loan_fact(cur, loan["loan_id"], report_id, fy, btok,
                                 loan["sector"], loan["risk_grade"],
                                 float(loan["balance_usd"]), loan["status"])
             db.insert_chunk(cur, report_id, fy, "notes", deid_notes,
                             embeddings.to_pgvector(embeddings.embed(deid_notes)))
 
             deid_report["loan_appendix"].append({
-                "loan_id": atok, "borrower_token": btok,
+                "loan_id": loan["loan_id"], "borrower_token": btok,
                 "sector": loan["sector"], "risk_grade": loan["risk_grade"],
                 "balance_usd": loan["balance_usd"], "status": loan["status"],
                 "notes": deid_notes,
