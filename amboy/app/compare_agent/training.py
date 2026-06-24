@@ -39,6 +39,8 @@ LABELS = ["O", "PERSON", "US_SSN", "PHONE", "EMAIL", "ADDRESS", "ACCOUNT"]
 HEAD_MIN = 0.6
 DEFAULT_SAMPLE = "Loan AMB-2024-100364 for borrower Jane Doe; SSN 900-12-3456; phone (732) 555-0142."
 _WORD_RE = re.compile(r"\S+")
+_TOKEN_RE = re.compile(r"[^\s,;|\t]+")   # whitespace/CSV token boundaries
+ACCT_KEY = "models/account_patterns.json"
 
 _LOCK = threading.Lock()
 _STATE = {"run_id": None, "status": "idle", "stages": [], "version": None,
@@ -178,9 +180,13 @@ def _pretrain():
 
 def _help():
     _term("Interactive NPI training — available commands:", "sys")
-    _term("  probe [\"text\"]   detect PII/NPI in the text (default: the sample loan)", "out")
-    _term("  train account    teach the model that AMB-2024-… is an ACCOUNT (NPI)", "out")
-    _term("  done             evaluate, register & re-provision the new model", "out")
+    _term("  probe [\"text\"]        detect PII/NPI in the text (default: the sample loan)", "out")
+    _term("  train account          fine-tune the model so AMB-2024-… is learned as ACCOUNT", "out")
+    _term("  train account <regex>  register a deterministic ACCOUNT rule (100% match, live now)", "out")
+    _term("                         e.g.  train account AMB-\\d{4}-\\d{6}", "out")
+    _term("  rules                  list active ACCOUNT regex rules", "out")
+    _term("  forget account [regex] remove one rule, or all if no regex given", "out")
+    _term("  done                   evaluate, register & re-provision the fine-tuned model", "out")
     _term("  help · clear", "out")
 
 
@@ -242,8 +248,14 @@ def _render(text, spans):
 
 def _do_probe(raw):
     text = _arg(raw) or DEFAULT_SAMPLE
-    base = _base_detect(text)
-    spans = base + _session_account_spans(text)
+    spans = _base_detect(text) + _session_account_spans(text) + _pattern_account_spans(text)
+    # drop duplicate spans (a token may match both the head and a regex rule)
+    seen, uniq = set(), []
+    for s in sorted(spans, key=lambda z: (z["start"], -(z["end"] - z["start"]))):
+        if (s["start"], s["end"]) in seen:
+            continue
+        seen.add((s["start"], s["end"])); uniq.append(s)
+    spans = uniq
     has_acct = any(s["type"] == "ACCOUNT" for s in spans)
     _term(_render(text, spans), "out")
     _term(f"Detected {len(spans)} PII/NPI entit{'y' if len(spans) == 1 else 'ies'}:", "out")
@@ -252,12 +264,42 @@ def _do_probe(raw):
         tag = "   ← learned this session" if is_acct else ""
         _term(f"  {s['type']:<8} {text[s['start']:s['end']]}{tag}", "ok" if is_acct else "out")
     if has_acct:
-        _term("ACCOUNT numbers (AMB-2024-…) ARE recognized as NPI ✓", "ok")
+        _term("ACCOUNT numbers ARE recognized as NPI ✓", "ok")
     else:
-        _term("ACCOUNT numbers (AMB-2024-…) are NOT recognized as NPI — run `train account`.", "warn")
+        _term("ACCOUNT numbers are NOT recognized as NPI — run `train account` or "
+              "`train account <regex>`.", "warn")
 
 
 def _do_train(raw):
+    # `train account <regex>` (or `train <regex>`) → register a deterministic ACCOUNT
+    # rule: any whitespace/CSV token that FULL-matches the regex is flagged ACCOUNT,
+    # live immediately in document intake (no model retrain, 100% coverage).
+    parts = raw.split()
+    pattern = None
+    if len(parts) >= 3 and parts[1].lower() in ("account", "acct"):
+        pattern = raw.split(None, 2)[2].strip()
+    elif len(parts) == 2 and parts[1].lower() not in ("account", "acct"):
+        pattern = parts[1].strip()
+    if pattern:
+        if len(pattern) >= 2 and pattern[0] in "\"'" and pattern[-1] == pattern[0]:
+            pattern = pattern[1:-1]
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            _term(f"invalid regex: {e}", "warn"); return
+        rules = _account_rules_list()
+        if pattern not in rules:
+            rules.append(pattern)
+        try:
+            _save_account_rules(rules)
+        except Exception as e:
+            _term(f"could not save rule: {type(e).__name__}", "warn"); return
+        _term(f"Registered ACCOUNT rule (token full-match): {pattern}", "ok")
+        _term(f"Active ACCOUNT rules: {' | '.join(rules)}", "out")
+        _term("Live immediately in Sensitive Document Intake + probe — no `done` needed. "
+              "Re-run `probe` to confirm.", "sys")
+        return
+
     if _SESSION.get("Xtr") is None:
         _term("training features not ready — restart the session", "warn")
         return
@@ -299,6 +341,26 @@ def _do_done():
     threading.Thread(target=_finalize, daemon=True).start()
 
 
+def _do_rules():
+    rules = _account_rules_list()
+    if not rules:
+        _term("no ACCOUNT regex rules registered", "out"); return
+    _term(f"ACCOUNT regex rules ({len(rules)}):", "out")
+    for r in rules:
+        _term(f"  {r}", "out")
+
+
+def _do_forget(raw):
+    parts = raw.split()
+    pattern = raw.split(None, 2)[2].strip() if len(parts) >= 3 and parts[1].lower() in ("account", "acct") else None
+    rules = [r for r in _account_rules_list() if r != pattern] if pattern else []
+    try:
+        _save_account_rules(rules)
+    except Exception as e:
+        _term(f"forget failed: {type(e).__name__}", "warn"); return
+    _term(f"ACCOUNT rules now: {' | '.join(rules) if rules else '(none)'}", "ok")
+
+
 def cmd(command: str):
     with _LOCK:
         st = _STATE["status"]
@@ -317,6 +379,10 @@ def cmd(command: str):
         _do_probe(raw)
     elif c in ("train", "teach", "learn"):
         _do_train(raw)
+    elif c in ("rules", "list"):
+        _do_rules()
+    elif c in ("forget", "unlearn"):
+        _do_forget(raw)
     elif c in ("done", "commit", "serve", "finish"):
         _do_done()
     elif c in ("clear", "cls"):
@@ -429,6 +495,37 @@ def _write_active(value: str):
                                      Key="models/active.txt", Body=value.encode())
     except Exception as e:
         _log(f"active marker skipped: {type(e).__name__}")
+
+
+def _account_rules_list():
+    import json
+    try:
+        v = json.loads(objstore.client().get_object(Bucket=config.S3_BUCKET_DEID, Key=ACCT_KEY)["Body"].read())
+        return v if isinstance(v, list) else []
+    except Exception:
+        return []
+
+
+def _save_account_rules(rules):
+    import json
+    objstore.client().put_object(Bucket=config.S3_BUCKET_DEID, Key=ACCT_KEY, Body=json.dumps(rules).encode())
+
+
+def _pattern_account_spans(text):
+    """ACCOUNT spans from the registered regex rules (token full-match) — for the
+    terminal probe, mirroring what the gateway does on document intake."""
+    pats = []
+    for r in _account_rules_list():
+        try:
+            pats.append(re.compile(r))
+        except re.error:
+            pass
+    out = []
+    if pats:
+        for m in _TOKEN_RE.finditer(text):
+            if any(p.fullmatch(m.group(0)) for p in pats):
+                out.append({"start": m.start(), "end": m.end(), "type": "ACCOUNT", "text": m.group(0)})
+    return out
 
 
 def switch(version: str):

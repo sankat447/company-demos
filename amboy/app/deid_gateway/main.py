@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import html as _html
 import io
+import json
+import re
+import time
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, UploadFile
@@ -33,6 +36,46 @@ _TYPE_DESC = {
 
 _MODEL_CHUNK = 2400      # chars per model call (DeBERTa CPU pass is the bottleneck)
 _MODEL_OVERLAP = 240     # keep entities that straddle a chunk boundary
+
+# Custom ACCOUNT rules: operator-supplied regexes (terminal `train account <regex>`)
+# stored in MinIO. A whitespace/CSV token that FULL-matches any rule is flagged
+# ACCOUNT — deterministic, 100% coverage, immediate (no model retrain).
+_ACCT_KEY = "models/account_patterns.json"
+_TOKEN_RE = re.compile(r"[^\s,;|\t]+")
+_ACCT_CACHE = {"compiled": [], "ts": -1e9}
+
+
+def _account_rules():
+    """Compiled custom ACCOUNT regexes, refreshed from MinIO at most every 10s."""
+    now = time.time()
+    if now - _ACCT_CACHE["ts"] < 10:
+        return _ACCT_CACHE["compiled"]
+    try:
+        data = objstore.client().get_object(Bucket=config.S3_BUCKET_DEID, Key=_ACCT_KEY)["Body"].read()
+        compiled = []
+        for r in json.loads(data):
+            try:
+                compiled.append(re.compile(r))
+            except re.error:
+                pass
+        _ACCT_CACHE["compiled"] = compiled
+    except Exception:
+        pass                       # keep last-good on any error
+    _ACCT_CACHE["ts"] = now
+    return _ACCT_CACHE["compiled"]
+
+
+def _account_rule_spans(text: str):
+    rules = _account_rules()
+    if not rules:
+        return []
+    out = []
+    for m in _TOKEN_RE.finditer(text):
+        tok = m.group(0)
+        if any(p.fullmatch(tok) for p in rules):
+            out.append({"start": m.start(), "end": m.end(), "type": "ACCOUNT",
+                        "label": "ACCOUNT", "score": 1.0, "source": "rule"})
+    return out
 
 
 def _model_spans(text: str):
@@ -69,6 +112,7 @@ def _detect_spans(text: str):
     regex floor. Returns merged spans — NO tokenization."""
     text = text or ""
     raw = list(_model_spans(text))
+    raw += _account_rule_spans(text)                   # operator ACCOUNT regex rules
     for label, rx in pii_patterns.DETECTORS.items():   # deterministic floor
         et = deid._LABEL_MAP.get(label, label)
         for m in rx.finditer(text):
