@@ -6,6 +6,7 @@ import { Home } from "./pages/Home";
 import { UploadArtifact } from "./pages/UploadArtifact";
 import { NewComparison } from "./pages/NewComparison";
 import { Workspace } from "./pages/Workspace";
+import { ModelTraining } from "./pages/ModelTraining";
 import { Governance } from "./pages/Governance";
 import type { ReactNode } from "react";
 
@@ -23,6 +24,7 @@ export default function App() {
       <Route path="/upload" element={<Protected><UploadArtifact /></Protected>} />
       <Route path="/new" element={<Protected><NewComparison /></Protected>} />
       <Route path="/c/:id" element={<Protected><Workspace /></Protected>} />
+      <Route path="/model-training" element={<Protected><ModelTraining /></Protected>} />
       <Route path="/governance" element={<Protected><Governance /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

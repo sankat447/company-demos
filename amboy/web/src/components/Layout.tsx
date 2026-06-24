@@ -63,6 +63,7 @@ export function Layout({ children }: { children: ReactNode }) {
             NPI-Safe Report Comparison
           </span>
           <nav className="ml-auto flex items-center gap-4 text-[13px]">
+            <Link to="/model-training" className="hover:text-gold">Model Training</Link>
             {canAudit && <Link to="/governance" className="hover:text-gold">Governance</Link>}
             <span className="hidden sm:flex items-center gap-1 font-mono text-[11px] text-white/70">
               {roles.map((r) => <span key={r} className="bg-white/10 rounded px-1.5 py-0.5">{r}</span>)}
