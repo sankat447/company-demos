@@ -42,3 +42,7 @@ streamlit==1.36.0
 
 # MLflow eval logging
 mlflow-skinny==2.14.1
+
+# OpenShift AI Data Science Pipelines (KFP v2) — author/compile/submit + step executor
+kfp==2.9.0
+kfp-kubernetes==1.4.0

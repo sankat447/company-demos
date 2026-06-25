@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getServedModel, getTrainingStatus, listModelVersions, startTraining, switchModel, trainingCmd } from "../lib/api";
-import type { TermLine, TrainingStatus } from "../lib/types";
+import {
+  getPipelineLinks, getPipelineStatus, getServedModel, getTrainingStatus,
+  listModelVersions, runPipeline, switchModel, trainingCmd,
+} from "../lib/api";
+import type { TermLine } from "../lib/types";
 import { toast } from "../lib/toast";
-
-const BUSY = ["pretraining", "interactive", "finalizing"];
 
 // Render a terminal line, colorizing [TYPE]…[/TYPE] entity tags.
 function renderLine(t: string) {
@@ -27,27 +28,27 @@ function renderLine(t: string) {
     ));
 }
 
-// InstructLab-style interactive training terminal.
-function Terminal({ data }: { data?: TrainingStatus }) {
+// Terminal for testing the SERVED model + managing ACCOUNT regex rules (always live).
+// Model fine-tuning runs as the OpenShift AI pipeline (the Run training pipeline button).
+function Terminal() {
   const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["training-status"], queryFn: getTrainingStatus });
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hist, setHist] = useState<string[]>([]);
   const [hi, setHi] = useState(-1);
   const boxRef = useRef<HTMLDivElement>(null);
   const lines = data?.terminal ?? [];
-  const active = data?.status === "interactive";
 
   useEffect(() => { boxRef.current?.scrollTo(0, boxRef.current.scrollHeight); }, [lines.length]);
 
   async function send(cmd: string) {
     const c = cmd.trim();
-    if (!c || busy || !active) return;
+    if (!c || busy) return;
     setBusy(true); setInput(""); setHist((h) => [...h, c]); setHi(-1);
     try {
       const r = await trainingCmd(c);
-      qc.setQueryData(["training-status"], r);          // instant echo of the returned terminal
-      qc.invalidateQueries({ queryKey: ["training-status"] });
+      qc.setQueryData(["training-status"], r);
     } catch { toast("command failed"); } finally { setBusy(false); }
   }
 
@@ -58,17 +59,13 @@ function Terminal({ data }: { data?: TrainingStatus }) {
   return (
     <div className="bg-surface border border-line rounded-card shadow-card p-4 space-y-2">
       <div className="flex items-center justify-between">
-        <div className="text-[12px] font-bold tracking-wide text-navy">TRAINING TERMINAL · InstructLab-style</div>
-        <span className="text-[11px] font-mono px-2 py-0.5 rounded-full"
-          style={{ background: active ? "rgba(14,124,134,.12)" : "#eef1f6", color: active ? "#0E7C86" : "#64748b" }}>
-          {data?.status === "interactive" ? "● live" : data?.status === "pretraining" ? "preparing…"
-            : data?.status === "finalizing" ? "serving…" : data?.status ?? "idle"}
-        </span>
+        <div className="text-[12px] font-bold tracking-wide text-navy">TEST TERMINAL · served model + rules</div>
+        <span className="text-[11px] font-mono px-2 py-0.5 rounded-full" style={{ background: "rgba(14,124,134,.12)", color: "#0E7C86" }}>● live</span>
       </div>
 
       <div ref={boxRef} className="bg-ink rounded-card p-3 h-72 overflow-auto font-mono text-[12px] leading-relaxed">
         {lines.length === 0 && (
-          <div className="text-white/40">Click “Start training” to begin a session, then type commands here.</div>
+          <div className="text-white/40">Type <span className="text-teal">help</span> · <span className="text-teal">probe</span> tests the served model · <span className="text-teal">train account &lt;regex&gt;</span> adds a live rule.</div>
         )}
         {lines.map((l, i) => (
           <div key={i} style={{ color: colour[l.k] }} className="whitespace-pre-wrap">
@@ -81,19 +78,19 @@ function Terminal({ data }: { data?: TrainingStatus }) {
       <div className="flex items-center gap-2">
         <span className="font-mono text-teal text-[13px]">›</span>
         <input
-          value={input} disabled={!active || busy}
+          value={input} disabled={busy}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") send(input);
             else if (e.key === "ArrowUp") { e.preventDefault(); const n = hi < 0 ? hist.length - 1 : Math.max(0, hi - 1); setHi(n); setInput(hist[n] ?? ""); }
             else if (e.key === "ArrowDown") { e.preventDefault(); const n = hi < 0 ? -1 : Math.min(hist.length - 1, hi + 1); setHi(n); setInput(n < 0 ? "" : hist[n] ?? ""); }
           }}
-          placeholder={active ? 'try:  probe   ·   train account   ·   done' : "start a session to enable the terminal"}
+          placeholder={'try:  probe   ·   train account AMB-\\d{4}-\\d{6}   ·   rules'}
           className="flex-1 rounded-card border border-line bg-paper px-3 py-1.5 text-[12px] font-mono disabled:opacity-50" />
       </div>
       <div className="flex flex-wrap gap-2">
-        {["probe", "train account", "done", "help"].map((c) => (
-          <button key={c} onClick={() => send(c)} disabled={!active || busy}
+        {["probe", "rules", "help", "clear"].map((c) => (
+          <button key={c} onClick={() => send(c)} disabled={busy}
             className="rounded-full border border-line text-navy text-[11px] font-mono px-2.5 py-1 disabled:opacity-40 hover:bg-paper">
             {c}
           </button>
@@ -103,33 +100,33 @@ function Terminal({ data }: { data?: TrainingStatus }) {
   );
 }
 
-// Model Training / MLOps console — separate route (/model-training).
+// Model Training / MLOps console — training runs as an OpenShift AI Data Science Pipeline.
 export function ModelTraining() {
   const qc = useQueryClient();
-  const { data } = useQuery({
-    queryKey: ["training-status"],
-    queryFn: getTrainingStatus,
-    refetchInterval: (q) => (BUSY.includes(q.state.data?.status ?? "") ? 1200 : false),
+  const pipe = useQuery({
+    queryKey: ["pipeline-status"],
+    queryFn: getPipelineStatus,
+    refetchInterval: (q) => (q.state.data?.status === "running" ? 2500 : false),
   });
   const versions = useQuery({ queryKey: ["model-versions"], queryFn: listModelVersions });
+  const links = useQuery({ queryKey: ["pipeline-links"], queryFn: getPipelineLinks });
+  const running = pipe.data?.status === "running";
   const served = useQuery({
     queryKey: ["served-model"],
     queryFn: getServedModel,
-    refetchInterval: () => (BUSY.includes(data?.status ?? "") ? 2500 : false),
+    refetchInterval: () => (running ? 3000 : false),
   });
 
-  const busy = BUSY.includes(data?.status ?? "");
-  const stages = data?.stages ?? [];
+  const stages = pipe.data?.stages ?? [];
   const doneCount = stages.filter((s) => s.status === "done").length;
   const overall = stages.length ? Math.round((doneCount / stages.length) * 100) : 0;
-
   const [switching, setSwitching] = useState<string | null>(null);
 
   async function start() {
-    const r = await startTraining();
-    if (!r.ok) { toast(r.reason || "A session is already in progress"); return; }
-    toast("Training session started");
-    setTimeout(() => qc.invalidateQueries({ queryKey: ["training-status"] }), 200);
+    const r = await runPipeline();
+    if (!r.ok) { toast(r.reason || "Could not submit the pipeline run"); return; }
+    toast("Training pipeline submitted to OpenShift AI");
+    setTimeout(() => qc.invalidateQueries({ queryKey: ["pipeline-status"] }), 300);
   }
   async function doSwitch(version: string) {
     setSwitching(version);
@@ -140,7 +137,7 @@ export function ModelTraining() {
       qc.invalidateQueries({ queryKey: ["served-model"] });
     } catch { toast("switch failed"); } finally { setSwitching(null); }
   }
-  if (data?.status === "complete") {
+  if (pipe.data?.status === "complete") {
     qc.invalidateQueries({ queryKey: ["model-versions"] });
     qc.invalidateQueries({ queryKey: ["served-model"] });
   }
@@ -152,15 +149,15 @@ export function ModelTraining() {
     <div className="space-y-5 max-w-6xl">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="font-display text-[28px] font-bold text-ink">Model Training · MLOps console</h1>
+          <h1 className="font-display text-[28px] font-bold text-ink">Model Training · OpenShift AI pipeline</h1>
           <p className="text-[14px] text-slate mt-1">
-            Teach the NPI/PII detector interactively (probe → train → probe), then re-provision it on
-            OpenShift AI. Trains a real NPI tagger (incl. an <span className="font-mono">ACCOUNT</span> class) on CPU.
+            Fine-tune the NPI/PII detector as a <span className="font-mono">Data Science Pipeline</span> (tracked under
+            Experiments and runs), then it is re-provisioned on OpenShift AI (KServe). Use the terminal to test the served model.
           </p>
         </div>
-        <button onClick={start} disabled={busy}
+        <button onClick={start} disabled={running}
           className="rounded-full bg-navy text-white text-[13px] font-bold px-5 py-2 disabled:opacity-50 whitespace-nowrap">
-          {busy ? "Session active…" : "▸ Start training"}
+          {running ? "Pipeline running…" : "▸ Run training pipeline"}
         </button>
       </div>
 
@@ -173,13 +170,17 @@ export function ModelTraining() {
             {served.data?.ok ? served.data?.head_version ?? "none (base only)" : "unreachable"}
           </span>
         </span>
+        {links.data?.experiments && (
+          <a href={links.data.experiments} target="_blank" rel="noreferrer"
+            className="ml-auto text-[12px] font-bold text-teal hover:underline">View in OpenShift AI · Experiments and runs ▸</a>
+        )}
       </div>
 
-      {/* two-pane: LEFT = pipeline stages · RIGHT = terminal + progress + metrics */}
+      {/* two-pane: LEFT = pipeline stages · RIGHT = terminal + progress */}
       <div className="grid lg:grid-cols-2 gap-5 items-start">
         {/* LEFT — pipeline stages */}
         <div className="space-y-3">
-          <div className="text-[12px] font-bold tracking-wide text-navy">PIPELINE STAGES</div>
+          <div className="text-[12px] font-bold tracking-wide text-navy">PIPELINE STAGES · Kubeflow Pipelines v2</div>
           <div className="grid grid-cols-1 gap-3">
             {(stages.length ? stages : DEFAULT_STAGES).map((s, i) => (
               <div key={s.key || i} className="bg-surface border border-line rounded-card shadow-card p-3">
@@ -193,7 +194,7 @@ export function ModelTraining() {
                 <p className="text-[12px] text-slate mt-1.5 leading-snug">{s.desc}</p>
                 {s.status === "running" && (
                   <div className="h-1.5 rounded-full bg-paper border border-line overflow-hidden mt-2">
-                    <div className="h-full bg-navy transition-all duration-300" style={{ width: `${s.pct}%` }} />
+                    <div className="h-full bg-navy transition-all duration-300 animate-pulse" style={{ width: "100%" }} />
                   </div>
                 )}
               </div>
@@ -201,36 +202,26 @@ export function ModelTraining() {
           </div>
         </div>
 
-        {/* RIGHT — terminal + pipeline progress + metrics */}
+        {/* RIGHT — terminal + pipeline progress */}
         <div className="space-y-5">
-          <Terminal data={data} />
+          <Terminal />
 
           <div className="bg-surface border border-line rounded-card shadow-card p-4">
             <div className="flex items-center justify-between text-[12px] mb-2">
               <span className="font-bold tracking-wide text-navy">PIPELINE PROGRESS</span>
-              <span className="text-slate">{data?.status === "idle" ? "ready" : data?.status} · {doneCount}/{stages.length || 10} stages</span>
+              <span className="text-slate">
+                {pipe.data?.status === "idle" ? "no run yet" : pipe.data?.status}
+                {pipe.data?.run_id ? ` · run ${pipe.data.run_id.slice(0, 8)}` : ""} · {doneCount}/{stages.length || 7}
+              </span>
             </div>
             <div className="h-2.5 rounded-full bg-paper border border-line overflow-hidden">
               <div className="h-full bg-teal transition-all duration-500" style={{ width: `${overall}%` }} />
             </div>
+            <p className="text-[11px] text-slate mt-2">
+              Each run is a Kubeflow Pipelines v2 DAG executed by the OpenShift AI Pipeline Server; the held-out
+              accuracy is logged as a run metric.
+            </p>
           </div>
-
-          {(data?.metrics?.eval_accuracy != null || data?.version) && (
-            <div className="flex flex-wrap gap-3">
-              {data?.metrics?.eval_accuracy != null && (
-                <div className="flex-1 bg-surface border border-line rounded-card shadow-card p-3">
-                  <div className="text-[11px] text-slate">Held-out accuracy</div>
-                  <div className="font-mono text-[20px] font-bold text-teal">{Math.round(data.metrics.eval_accuracy * 100)}%</div>
-                </div>
-              )}
-              {data?.version && (
-                <div className="flex-1 bg-surface border border-line rounded-card shadow-card p-3">
-                  <div className="text-[11px] text-slate">Registered version</div>
-                  <div className="font-mono text-[15px] font-bold text-navy">{data.version}</div>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
@@ -260,7 +251,7 @@ export function ModelTraining() {
                         <span className="h-1.5 w-1.5 rounded-full bg-teal" /> Serving · KServe
                       </span>
                     ) : (
-                      <button onClick={() => doSwitch(v.version)} disabled={busy || switching === v.version}
+                      <button onClick={() => doSwitch(v.version)} disabled={running || switching === v.version}
                         className="rounded-full border border-navy text-navy text-[11px] font-bold px-2.5 py-1 disabled:opacity-40 hover:bg-paper whitespace-nowrap">
                         {switching === v.version ? "switching…" : "Switch"}
                       </button>
@@ -270,7 +261,7 @@ export function ModelTraining() {
                 );
               })}
               {versions.data && versions.data.versions.length === 0 && (
-                <tr><td colSpan={6} className="px-3 py-3 text-slate">No model versions yet — run a training to register one.</td></tr>
+                <tr><td colSpan={6} className="px-3 py-3 text-slate">No model versions yet — run the training pipeline to register one.</td></tr>
               )}
             </tbody>
           </table>
@@ -281,14 +272,11 @@ export function ModelTraining() {
 }
 
 const DEFAULT_STAGES = [
-  { key: "init", title: "Initialize session", desc: "Spin up a training session (model stays online)", status: "pending", pct: 0 },
-  { key: "load", title: "Load base model", desc: "Load the base encoder + label space", status: "pending", pct: 0 },
-  { key: "ingest", title: "Ingest NPI data", desc: "Gather the organization's NPI training corpus", status: "pending", pct: 0 },
-  { key: "decompose", title: "Decompose (tokenize + embed)", desc: "Tokenize and embed features per token", status: "pending", pct: 0 },
-  { key: "interactive", title: "Interactive training", desc: "Teach from the terminal: probe → train → probe", status: "pending", pct: 0 },
-  { key: "evaluate", title: "Evaluate", desc: "Score accuracy on a held-out split", status: "pending", pct: 0 },
-  { key: "compress", title: "Compress (quantize)", desc: "Quantize + shrink the model for CPU serving", status: "pending", pct: 0 },
-  { key: "register", title: "Register version", desc: "Push the model artifact to MinIO + registry", status: "pending", pct: 0 },
-  { key: "provision", title: "Stop → Provision on OpenShift AI", desc: "Take offline, load new head, bring back online", status: "pending", pct: 0 },
+  { key: "ingest-corpus", title: "Ingest NPI corpus", desc: "Build the synthetic NPI corpus (incl. ACCOUNT)", status: "pending", pct: 0 },
+  { key: "featurize", title: "Featurize (MiniLM)", desc: "Embed each token to 384-d features", status: "pending", pct: 0 },
+  { key: "train-head", title: "Train head", desc: "Fine-tune the NPI tagger head (CPU)", status: "pending", pct: 0 },
+  { key: "evaluate", title: "Evaluate", desc: "Held-out token accuracy (logged metric)", status: "pending", pct: 0 },
+  { key: "register", title: "Register version", desc: "Push head to MinIO + version registry", status: "pending", pct: 0 },
+  { key: "deploy", title: "Provision on OpenShift AI", desc: "Scale KServe, load head, set display-name", status: "pending", pct: 0 },
   { key: "smoke", title: "Online smoke test", desc: "Verify the served model answers /detect", status: "pending", pct: 0 },
 ];

@@ -136,7 +136,9 @@ def _corpus(n_per_class=120):
         rows += [(f"{f} {l}", "PERSON"), (G._fmt_ssn(rng), "US_SSN"),
                  (G._fmt_phone(rng), "PHONE"), (G._fmt_email(rng, f, l), "EMAIL"),
                  (G._fmt_address(rng), "ADDRESS"),
-                 (f"AMB-2024-{rng.randint(1, 999999):06d}", "ACCOUNT")]
+                 # vary the 4-digit segment so the model learns the general
+                 # "AMB-DDDD-DDDDDD" account shape (any year), not just 2024.
+                 (f"AMB-{rng.randint(1000, 9999)}-{rng.randint(1, 999999):06d}", "ACCOUNT")]
     for w in ["the", "loan", "report", "balance", "review", "annual", "credit", "risk",
               "ratio", "current", "sector", "summary", "portfolio", "quality"]:
         rows += [(w, "O")] * (n_per_class // 10 + 1)
@@ -180,14 +182,13 @@ def _pretrain():
 
 def _help():
     _term("Interactive NPI training — available commands:", "sys")
-    _term("  probe [\"text\"]        detect PII/NPI in the text (default: the sample loan)", "out")
-    _term("  train account          fine-tune the model so AMB-2024-… is learned as ACCOUNT", "out")
+    _term("  probe [\"text\"]        test the SERVED model on the text (default: sample loan)", "out")
     _term("  train account <regex>  register a deterministic ACCOUNT rule (100% match, live now)", "out")
     _term("                         e.g.  train account AMB-\\d{4}-\\d{6}", "out")
     _term("  rules                  list active ACCOUNT regex rules", "out")
     _term("  forget account [regex] remove one rule, or all if no regex given", "out")
-    _term("  done                   evaluate, register & re-provision the fine-tuned model", "out")
     _term("  help · clear", "out")
+    _term("Model fine-tuning runs as a pipeline — use the “▸ Run training pipeline” button.", "sys")
 
 
 # ── terminal command dispatch ────────────────────────────────────────────────
@@ -198,16 +199,15 @@ def _arg(raw):
     return rest
 
 
-def _base_detect(text):
-    """Base PII/NPI from the served model WITHOUT the learned head (so ACCOUNT is
-    only added once the user trains it in this session)."""
+def _served_detect(text):
+    """Full detection from the LIVE served KServe model (base + whatever head is
+    currently provisioned) — so the terminal probe reflects the deployed model."""
     import httpx
     try:
-        r = httpx.post(f"{config.PII_MODEL_URL}/detect",
-                       json={"text": text, "include_head": False}, timeout=60)
+        r = httpx.post(f"{config.PII_MODEL_URL}/detect", json={"text": text}, timeout=90)
         return r.json().get("spans", [])
     except Exception as e:
-        _term(f"(base model unreachable: {type(e).__name__})", "warn")
+        _term(f"(served model unreachable: {type(e).__name__})", "warn")
         return []
 
 
@@ -218,7 +218,8 @@ def _session_account_spans(text):
         return []
     import torch
     from app.common import embeddings
-    toks = [(m.group(0), m.start(), m.end()) for m in _WORD_RE.finditer(text)
+    # split on whitespace AND CSV delimiters so a CSV-row account token is clean
+    toks = [(m.group(0), m.start(), m.end()) for m in _TOKEN_RE.finditer(text)
             if any(c.isdigit() for c in m.group(0))]
     if not toks:
         return []
@@ -248,7 +249,7 @@ def _render(text, spans):
 
 def _do_probe(raw):
     text = _arg(raw) or DEFAULT_SAMPLE
-    spans = _base_detect(text) + _session_account_spans(text) + _pattern_account_spans(text)
+    spans = _served_detect(text) + _pattern_account_spans(text)
     # drop duplicate spans (a token may match both the head and a regex rule)
     seen, uniq = set(), []
     for s in sorted(spans, key=lambda z: (z["start"], -(z["end"] - z["start"]))):
@@ -261,7 +262,7 @@ def _do_probe(raw):
     _term(f"Detected {len(spans)} PII/NPI entit{'y' if len(spans) == 1 else 'ies'}:", "out")
     for s in sorted(spans, key=lambda s: s["start"]):
         is_acct = s["type"] == "ACCOUNT"
-        tag = "   ← learned this session" if is_acct else ""
+        tag = f"   ({s.get('source', '')})" if is_acct else ""
         _term(f"  {s['type']:<8} {text[s['start']:s['end']]}{tag}", "ok" if is_acct else "out")
     if has_acct:
         _term("ACCOUNT numbers ARE recognized as NPI ✓", "ok")
@@ -296,38 +297,14 @@ def _do_train(raw):
             _term(f"could not save rule: {type(e).__name__}", "warn"); return
         _term(f"Registered ACCOUNT rule (token full-match): {pattern}", "ok")
         _term(f"Active ACCOUNT rules: {' | '.join(rules)}", "out")
-        _term("Live immediately in Sensitive Document Intake + probe — no `done` needed. "
+        _term("Live immediately in Sensitive Document Intake + probe — no retrain needed. "
               "Re-run `probe` to confirm.", "sys")
         return
 
-    if _SESSION.get("Xtr") is None:
-        _term("training features not ready — restart the session", "warn")
-        return
-    import torch
-    import torch.nn as nn
-    _term("Teaching the model that AMB-2024-… is an ACCOUNT (NPI)…", "sys")
-    torch.manual_seed(0)
-    head = nn.Sequential(nn.Linear(384, 128), nn.ReLU(), nn.Linear(128, len(LABELS)))
-    opt = torch.optim.Adam(head.parameters(), lr=1e-3)
-    lossf = nn.CrossEntropyLoss()
-    Xtr, ytr = _SESSION["Xtr"], _SESSION["ytr"]
-    EP = 200
-    loss = None
-    for ep in range(EP):
-        opt.zero_grad()
-        loss = lossf(head(Xtr), ytr)
-        loss.backward(); opt.step()
-        _stage(4, "running", (ep + 1) / EP * 100)
-        if ep % 40 == 0 or ep == EP - 1:
-            _term(f"  epoch {ep + 1:>3}/{EP}  loss={loss.item():.3f}", "out")
-    with torch.no_grad():
-        acc = (head(_SESSION["Xte"]).argmax(1) == _SESSION["yte"]).float().mean().item()
-    with _LOCK:
-        _SESSION["head"] = head
-        _SESSION["acc"] = acc
-        _STATE["metrics"] = {"eval_accuracy": round(acc, 3), "epochs": EP, "classes": len(LABELS)}
-    _term(f"Training complete — held-out token accuracy {acc:.0%}. ACCOUNT class learned.", "ok")
-    _term("Re-run `probe` to see AMB-2024-… now detected, then `done` to serve.", "sys")
+    # bare `train account` (model fine-tune) → now an OpenShift AI pipeline
+    _term("Model fine-tuning runs as an OpenShift AI Data Science Pipeline now — click "
+          "“▸ Run training pipeline” (tracked under Experiments and runs).", "sys")
+    _term("For an instant deterministic rule instead, use:  train account <regex>", "out")
 
 
 def _do_done():
@@ -372,12 +349,9 @@ def _do_forget(raw):
 
 
 def cmd(command: str):
-    with _LOCK:
-        st = _STATE["status"]
-    if st != "interactive":
-        reason = ("finalizing — please wait" if st == "finalizing"
-                  else "no interactive session — click Start training")
-        return {"ok": False, "reason": reason, **status()}
+    """Terminal for testing the SERVED model + managing ACCOUNT regex rules. Model
+    fine-tuning now runs as an OpenShift AI Data Science Pipeline (the Run training
+    pipeline button), so train/done here just point the user there."""
     raw = (command or "").strip()
     if raw:
         _term(raw, "in")
@@ -388,13 +362,14 @@ def cmd(command: str):
     elif c in ("probe", "detect", "query"):
         _do_probe(raw)
     elif c in ("train", "teach", "learn"):
-        _do_train(raw)
+        _do_train(raw)                # `train account <regex>` (rule) still works
     elif c in ("rules", "list"):
         _do_rules()
     elif c in ("forget", "unlearn"):
         _do_forget(raw)
     elif c in ("done", "commit", "serve", "finish"):
-        _do_done()
+        _term("Model fine-tuning runs as an OpenShift AI pipeline now — click "
+              "“▸ Run training pipeline”. This terminal tests the served model.", "sys")
     elif c in ("clear", "cls"):
         with _LOCK:
             _STATE["terminal"] = []

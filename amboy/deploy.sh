@@ -111,6 +111,21 @@ oc -n "$NS_AI" wait --for=condition=complete job/amboy-seed-base --timeout=300s 
   && ok "base PII model published to MinIO" \
   || warn "seed-base job not complete — model falls back to the baked copy"
 
+# ── 4d. upload the training pipeline to the OpenShift AI Pipeline Server ──────
+# The DataSciencePipelinesApplication (24-pipeline-server.yaml) is reconciled by the
+# DSP operator from the ArgoCD sync. Wait for it Ready, then compile + upload the
+# NPI-tagger pipeline + create the Experiment. Best-effort (optional MLOps path).
+info "Phase 4d — OpenShift AI training pipeline (Data Science Pipelines)"
+oc -n "$NS_AI" wait --for=condition=Ready datasciencepipelinesapplication/amboy-dsp --timeout=300s >/dev/null 2>&1 \
+  && {
+    oc -n "$NS_AI" delete job amboy-pipeline-upload --ignore-not-found >/dev/null 2>&1 || true
+    oc -n "$NS_AI" apply -f "$DEMO_DIR/build/pipeline-upload-job.yaml" >/dev/null
+    oc -n "$NS_AI" wait --for=condition=complete job/amboy-pipeline-upload --timeout=240s \
+      && ok "training pipeline uploaded (OpenShift AI → Data Science Pipelines / Experiments)" \
+      || warn "pipeline upload job not complete — run build/pipeline-upload-job.yaml manually"
+  } \
+  || warn "DSP Pipeline Server not Ready — skipping pipeline upload (optional)"
+
 # ── 5. seed synthetic reports into MinIO raw ─────────────────────────────────
 info "Phase 5 — seed synthetic reports into MinIO raw"
 oc -n "$NS_AI" delete job amboy-seed --ignore-not-found >/dev/null 2>&1 || true

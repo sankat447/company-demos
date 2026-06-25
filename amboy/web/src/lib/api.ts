@@ -59,6 +59,10 @@ export function getTrainingStatus() { return api.get<import("./types").TrainingS
 export function trainingCmd(command: string) {
   return api.post<{ ok: boolean; reason?: string } & import("./types").TrainingStatus>("/training/cmd", { command });
 }
+// Data Science Pipeline (OpenShift AI) — training runs.
+export function runPipeline() { return api.post<{ ok: boolean; reason?: string; run_id?: string }>("/training/pipeline/run", {}); }
+export function getPipelineStatus() { return api.get<import("./types").TrainingStatus & { run_id?: string; run_state?: string }>("/training/pipeline/status"); }
+export function getPipelineLinks() { return api.get<{ experiments?: string; pipelines?: string; run_id?: string }>("/training/pipeline/links"); }
 export function listModelVersions() { return api.get<{ versions: import("./types").ModelVersion[] }>("/training/versions"); }
 export function getServedModel() { return api.get<{ ok: boolean; base_version?: string; head_version?: string }>("/training/served"); }
 export function switchModel(version: string) {

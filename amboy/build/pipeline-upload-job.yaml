@@ -1,0 +1,26 @@
+# One-off: compile the NPI-tagger KFP pipeline and upload it to the OpenShift AI
+# Pipeline Server (+ ensure the amboy-npi-tagger Experiment). Runs as SA `amboy`
+# (passes the DSP oauth-proxy via route-get RBAC). Applied by deploy.sh after the
+# DSPA is Ready:  oc -n iis-ai-ai apply -f build/pipeline-upload-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: amboy-pipeline-upload
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata: {labels: {demo: amboy}}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: amboy
+      containers:
+        - name: upload
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+          imagePullPolicy: Always
+          command: ["python", "-m", "app.pipeline.compile"]
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "1", memory: 2Gi}

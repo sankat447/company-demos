@@ -8,7 +8,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.common import config, db
-from app.compare_agent import agent, chat, training
+from app.compare_agent import agent, chat, pipeline_client, training
 
 app = FastAPI(title="amboy-compare-agent")
 
@@ -75,6 +75,27 @@ class SwitchReq(BaseModel):
 @app.post("/training/switch")
 def training_switch(req: SwitchReq):
     return training.switch(req.version)
+
+
+# ── OpenShift AI Data Science Pipeline (training runs under Experiments and runs) ──
+class PipelineRunReq(BaseModel):
+    epochs: int = 200
+    n_per_class: int = 120
+
+
+@app.post("/training/pipeline/run")
+def training_pipeline_run(req: PipelineRunReq):
+    return pipeline_client.submit(req.epochs, req.n_per_class)
+
+
+@app.get("/training/pipeline/status")
+def training_pipeline_status():
+    return pipeline_client.status()
+
+
+@app.get("/training/pipeline/links")
+def training_pipeline_links():
+    return pipeline_client.links()
 
 
 @app.get("/training/versions")

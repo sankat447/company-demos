@@ -25,6 +25,7 @@ spec:
                 echo "waiting for minio..."; sleep 3; done
               mc mb --ignore-existing amboy/amboy-raw
               mc mb --ignore-existing amboy/amboy-deid
+              mc mb --ignore-existing amboy/amboy-pipelines   # Data Science Pipelines artifacts
               # Server-side encryption (best-effort: requires MinIO KMS).
               mc encrypt set sse-s3 amboy/amboy-raw  || echo "WARN: SSE-S3 needs MinIO KMS (raw bucket created unencrypted) — demo gap"
               mc encrypt set sse-s3 amboy/amboy-deid || echo "WARN: SSE-S3 needs MinIO KMS (deid bucket created unencrypted) — demo gap"

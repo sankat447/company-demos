@@ -1,0 +1,28 @@
+# OpenShift AI Data Science Pipelines server (Kubeflow Pipelines v2) for the Amboy
+# NPI-tagger training pipeline. Backed by in-stack MinIO (amboy-pipelines bucket,
+# creds reused from amboy-creds) + operator-managed MariaDB. The DSP operator
+# reconciles this into the KFP API (svc ds-pipeline-amboy-dsp:8888) + a Route, and
+# the project shows under OpenShift AI → Data Science Pipelines / Experiments and runs.
+apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
+kind: DataSciencePipelinesApplication
+metadata:
+  name: amboy-dsp
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  dspVersion: v2
+  apiServer:
+    enableSamplePipeline: false
+  objectStorage:
+    externalStorage:
+      host: minio.iis-ai-data.svc
+      port: "9000"
+      scheme: http
+      secure: false
+      bucket: amboy-pipelines
+      region: us-east-1
+      s3CredentialsSecret:
+        secretName: amboy-creds
+        accessKey: S3_ACCESS_KEY
+        secretKey: S3_SECRET_KEY
+  # database omitted → operator deploys a self-contained MariaDB
