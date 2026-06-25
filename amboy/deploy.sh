@@ -119,6 +119,14 @@ oc -n "$NS_AI" wait --for=condition=complete job/amboy-seed --timeout=180s \
   && ok "synthetic reports seeded into amboy-raw" \
   || warn "seed job not complete — you can still upload reports from the UI"
 
+# ── 6. OpenShift AI dashboard launcher tile (best-effort) ────────────────────
+# Renders an "Applications" card in the RHOAI dashboard linking to amboy-web. Lives
+# in the dashboard's applications namespace; needs cluster perms there, so best-effort.
+info "Phase 6 — OpenShift AI Applications launcher tile (best-effort)"
+oc apply -f "$DEMO_DIR/gitops/openshift-ai-tile.yaml" >/dev/null 2>&1 \
+  && ok "Applications tile 'Amboy NPI-Safe' applied (refresh OpenShift AI → Applications)" \
+  || warn "tile skipped (no perms on redhat-ods-applications) — optional/cosmetic"
+
 # ── done ─────────────────────────────────────────────────────────────────────
 ROUTE="$(oc -n "$NS_UI" get route amboy-ui -o jsonpath='{.spec.host}' 2>/dev/null || echo '<pending>')"
 echo -e "
