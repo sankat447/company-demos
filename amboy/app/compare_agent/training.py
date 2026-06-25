@@ -331,14 +331,24 @@ def _do_train(raw):
 
 
 def _do_done():
-    if _SESSION.get("head") is None:
-        _term("Nothing trained yet — run `train account` first.", "warn")
+    if _SESSION.get("head") is not None:          # model fine-tune path → provision
+        with _LOCK:
+            _STATE["status"] = "finalizing"
+        _stage(4, "done", note="interactive training complete")
+        _term("Finalizing: evaluate → compress → register → re-provision on OpenShift AI…", "sys")
+        threading.Thread(target=_finalize, daemon=True).start()
         return
-    with _LOCK:
-        _STATE["status"] = "finalizing"
-    _stage(4, "done", note="interactive training complete")
-    _term("Finalizing: evaluate → compress → register → re-provision on OpenShift AI…", "sys")
-    threading.Thread(target=_finalize, daemon=True).start()
+    if _account_rules_list():                     # rule path → already live, nothing to provision
+        for i in range(4, len(STAGES)):
+            _stage(i, "done", note="rule-based — no model artifact to provision")
+        with _LOCK:
+            _STATE["status"] = "complete"
+        _term("ACCOUNT regex rule(s) are already live in detection — no model "
+              "provisioning needed. Session complete.", "ok")
+        _log("training run complete (rule-based)")
+        return
+    _term("Nothing to finalize yet — run `train account` (fine-tune) or "
+          "`train account <regex>` (rule) first.", "warn")
 
 
 def _do_rules():
