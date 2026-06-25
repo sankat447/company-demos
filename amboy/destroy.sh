@@ -29,7 +29,9 @@ oc -n openshift-gitops delete application amboy-demo --ignore-not-found --wait=t
 
 # ── 2. label-sweep any stragglers across the shared tiers (NEVER the namespace) ─
 info "label-sweeping demo=amboy resources across: $NS_LIST"
-KINDS="deployment service route job configmap serviceaccount rolebinding buildconfig imagestream secret pvc"
+KINDS="deployment service route job configmap serviceaccount rolebinding role buildconfig imagestream secret pvc inferenceservice"
+# DSP Pipeline Server (the operator GC's its child pods/svcs when the DSPA is removed).
+oc -n iis-ai-ai delete datasciencepipelinesapplication -l demo=amboy --ignore-not-found --wait=false 2>/dev/null || true
 for ns in $NS_LIST; do
   for k in $KINDS; do
     oc -n "$ns" delete "$k" -l demo=amboy --ignore-not-found --wait=false 2>/dev/null || true
@@ -37,6 +39,10 @@ for ns in $NS_LIST; do
 done
 # amboy-creds carries no demo label (out-of-band) — remove it explicitly.
 for ns in $NS_LIST; do oc -n "$ns" delete secret amboy-creds --ignore-not-found 2>/dev/null || true; done
+
+# ── 2b. OpenShift AI dashboard launcher tile (lives in the dashboard's namespace) ─
+info "removing OpenShift AI Applications tile (redhat-ods-applications)"
+oc -n redhat-ods-applications delete odhapplication,configmap -l demo=amboy --ignore-not-found 2>/dev/null || true
 
 # ── 3. clear any stuck PVC finalizers (none expected; demo uses no PVCs) ─────
 for ns in $NS_LIST; do
@@ -49,9 +55,10 @@ cat <<EOF
 
 ${GREEN}${BOLD}AMBOY TORN DOWN.${RESET}
   - ArgoCD Application + all demo=amboy resources removed across the four tiers.
+  - DSP Pipeline Server (amboy-dsp) + OpenShift AI Applications tile removed.
   - Shared namespaces + platform services untouched.
   - NOTE: amboy schema/tokens persist in Postgres (schema 'amboy') and MinIO
-    buckets remain. To purge demo data:
+    buckets remain (incl. amboy-pipelines artifacts). To purge demo data:
       oc -n iis-ai-data exec deploy/iis-ai-postgres -- \\
         psql -U rhoai_admin rhoai_demo -c 'DROP SCHEMA IF EXISTS amboy CASCADE;'
 EOF

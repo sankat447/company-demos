@@ -25,14 +25,38 @@ Primer for future Claude Code sessions in this directory.
 7. **Secrets out-of-band.** `amboy-creds` is created by `deploy.sh`, never in git, so
    ArgoCD selfHeal/prune can't blank it.
 
+## Model training + serving (MLOps)
+- **Serving**: Piiranha (PII/NPI detector) runs on **KServe** as InferenceService
+  `amboy-pii-model` (role `pii_model`); base model + a fine-tuned head are served, a
+  `models/active.txt` MinIO marker chooses what's loaded on startup. Gateway calls a
+  stable ClusterIP `amboy-pii-model:8080` (we own it — KServe's own svc naming varies).
+- **Training = an OpenShift AI Data Science Pipeline (KFP v2)**, NOT an in-app loop.
+  `app/pipeline/` defines the pipeline (ingest→featurize→train→evaluate→register→
+  deploy→smoke) on the amboy image; `DataSciencePipelinesApplication amboy-dsp`
+  (`24-pipeline-server.yaml`) is the Pipeline Server (MinIO `amboy-pipelines` bucket +
+  operator MariaDB). The console (`/model-training`) submits/tracks runs via the agent
+  (`compare_agent/pipeline_client.py` → KFP REST); runs show under **Experiments and
+  runs**. The terminal there only tests the served model + manages ACCOUNT regex rules.
+- **MLOps gotchas** (see [[rhoai-data-science-pipelines-gotchas]]): disable KFP
+  caching on every task; KFP API in-cluster is via the oauth-proxy on :8443 (grant the
+  SA `get` on the ds-pipeline route); no non-ASCII in pipeline docstrings (latin1 DB);
+  grant `pipeline-runner-amboy-dsp` the RBAC steps need (can't set a task pod SA).
+- **OpenShift AI Applications tile**: `gitops/openshift-ai-tile.yaml` (OdhApplication
+  in `redhat-ods-applications`) — applied by deploy.sh, removed by destroy.sh (it's
+  outside the kustomize base / the four tiers).
+
 ## Layout
 - `app/common/` — config, pii_patterns (ONE recognizer set), tokenizer, deid,
-  embeddings, db, objstore, auth. `app/{deid_gateway,metrics_engine,compare_agent,ui}/`.
+  embeddings, db, objstore, auth. `app/{deid_gateway,metrics_engine,compare_agent,ui,pii_model}/`,
+  `app/pipeline/` (KFP v2 training pipeline).
 - `build/` — Dockerfile (single-stage UBI py311; lib→lib64 trap avoided), entrypoint
   (dispatch on `$AMBOY_ROLE`), buildconfig (ImageStream + binary build + puller RB),
   seed-job. `data/generate.py` — seeded synthetic reports.
 - `gitops/manifests/` — kustomize base (00 SA → 10/11/12 bootstrap → 20 presidio →
-  30 deid → 40 metrics → 50 agent → 60 ui → assets). `gitops/application.yaml` — App.
+  22 pii-model (KServe) → 24 pipeline-server (DSP) → 30 deid → 40 metrics → 50 agent →
+  60 ui → 61 web → assets). `gitops/application.yaml` — App (ignoreDifferences +
+  RespectIgnoreDifferences for the model image digest + display-name).
+  `gitops/openshift-ai-tile.yaml` — Applications launcher tile (out-of-band).
 - `sql` lives at `gitops/manifests/sql/01-schema.sql` (kustomize can't read `../`).
 - `tests/` — privacy_invariants.py, test_metrics.py, test_grounding.py (offline);
   e2e.sh (live).
