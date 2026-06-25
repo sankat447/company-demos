@@ -126,6 +126,11 @@ def comparison_status(cid: str):
     return chat.comparison_status(cid)
 
 
+@app.get("/comparisons/{cid}/suggested_questions")
+def comparison_suggested_questions(cid: str):
+    return chat.suggested_questions(cid)
+
+
 @app.get("/audit")
 def audit(limit: int = 100):
     return chat.list_audit(limit)
@@ -158,12 +163,14 @@ class IndexComparisonReq(BaseModel):
     accepted_fields: list[dict] = []
     year_a: int = 0
     year_b: int = 0
+    suggested_questions: list[str] = []
 
 
 @app.post("/index_comparison")
 def index_comparison(req: IndexComparisonReq):
     return chat.index_comparison(req.comparison_id, req.label, req.artifact_a, req.artifact_b,
-                                 req.accepted_fields, req.year_a, req.year_b)
+                                 req.accepted_fields, req.year_a, req.year_b,
+                                 req.suggested_questions)
 
 
 class ChatPdfReq(BaseModel):

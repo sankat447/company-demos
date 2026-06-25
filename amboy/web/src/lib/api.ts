@@ -79,6 +79,9 @@ export function comparability(a: string, b: string) {
 export function indexComparison(body: object) {
   return api.post<{ comparison_id: string; chunks_indexed: number }>("/index_comparison", body);
 }
+export function getSuggestedQuestions(cid: string) {
+  return api.get<{ questions: string[]; source?: string }>(`/comparisons/${encodeURIComponent(cid)}/suggested_questions`);
+}
 
 // Upload a document (PDF/DOCX/TXT/MD) for de-identification + indexing.
 // No Content-Type header — the browser sets the multipart boundary.

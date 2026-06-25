@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api, authHeaders } from "../lib/api";
+import { api, authHeaders, getSuggestedQuestions } from "../lib/api";
 import { toast } from "../lib/toast";
 import type { ChatMeta, CompareResult, Flag } from "../lib/types";
 import { streamChat } from "../hooks/useChatStream";
@@ -132,6 +132,10 @@ function Chat({ id, yearA, yearB, onProject }: {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  // Sample prompts tailored to THIS comparison (LLM-authored at comparability time,
+  // else derived from its accepted fields); falls back to the static defaults.
+  const sugg = useQuery({ queryKey: ["suggested", id], queryFn: () => getSuggestedQuestions(id) });
+  const suggested = sugg.data?.questions?.length ? sugg.data.questions : SUGGESTED;
 
   async function downloadPdf() {
     if (!msgs.length) return;
@@ -196,7 +200,7 @@ function Chat({ id, yearA, yearB, onProject }: {
         </div>
         <div className="text-[11px] text-slate">grounded in indexed, de-identified data + verified numbers</div>
         <div className="mt-2 flex flex-wrap gap-2">
-          {SUGGESTED.map((s) => (
+          {suggested.map((s) => (
             <button key={s} onClick={() => send(s)} disabled={busy}
                     className="rounded-full bg-[#eef2fb] border border-[#c7d2fe] text-navy text-[12px] px-2.5 py-1 disabled:opacity-60">
               {s}

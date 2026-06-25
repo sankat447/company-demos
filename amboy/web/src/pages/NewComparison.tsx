@@ -45,6 +45,7 @@ export function NewComparison() {
       await indexComparison({
         comparison_id: cid, label: name, artifact_a: cmp.artifact_a, artifact_b: cmp.artifact_b,
         accepted_fields: cmp.fields.filter((_, i) => acc.has(i)),
+        suggested_questions: cmp.suggested_questions || [],
       });
       toast("Comparison indexed");
       nav(`/c/${encodeURIComponent(cid)}`);

@@ -66,6 +66,7 @@ export interface ComparableField { label: string; a: number | null; b: number | 
 export interface Comparability {
   comparable: boolean; reason: string; suggested_name: string;
   fields: ComparableField[]; artifact_a: string; artifact_b: string;
+  suggested_questions?: string[];
 }
 // Model Training console.
 export interface TrainingStage { key: string; title: string; desc: string; status: string; pct: number; }

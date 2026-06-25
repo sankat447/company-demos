@@ -14,7 +14,9 @@ import time
 
 import httpx
 
-from app.common import config, db, embeddings, pii_patterns
+from app.common import config, db, embeddings, objstore, pii_patterns
+
+_QUESTIONS_KEY = "comparisons/{cid}/questions.json"   # LLM-authored chat prompts (per comparison)
 
 SYS = (
     "You are a credit/risk analyst comparing two annual investment/credit reports. "
@@ -210,10 +212,15 @@ def comparability(artifact_a: str, artifact_b: str) -> dict:
         "of report / same entity across periods or scenarios). Use ONLY values literally "
         "present; never invent; never resolve a [TOKEN]. Return STRICT JSON only:\n"
         '{"comparable":true,"reason":"...","suggested_name":"...","fields":'
-        '[{"label":"NPA ratio","a":1.62,"b":1.18,"unit":"%"}]}\n'
-        "fields = up to 12 numeric metrics that appear in BOTH and are directly comparable.\n\n"
+        '[{"label":"NPA ratio","a":1.62,"b":1.18,"unit":"%"}],'
+        '"suggested_questions":["How did NPA ratio change and is it a concern?"]}\n'
+        "fields = up to 12 numeric metrics that appear in BOTH and are directly comparable.\n"
+        "suggested_questions = 4-5 short, specific analyst questions a reviewer would ask "
+        "about THESE two documents, grounded in the comparable fields above (no invented "
+        "numbers; no [TOKEN]s).\n\n"
         f"DOCUMENT A:\n{ta[:4000]}\n\nDOCUMENT B:\n{tb[:4000]}")
-    out = {"comparable": False, "reason": "", "suggested_name": "", "fields": []}
+    out = {"comparable": False, "reason": "", "suggested_name": "", "fields": [],
+           "suggested_questions": []}
     try:
         r = _client().chat.completions.create(
             model=config.LLM_MODEL, temperature=0, max_tokens=config.LLM_MAX_TOKENS,
@@ -228,8 +235,22 @@ def comparability(artifact_a: str, artifact_b: str) -> dict:
     return out
 
 
+def _save_questions(comparison_id: str, questions) -> None:
+    """Persist LLM-authored sample questions for a comparison to MinIO (no schema change)."""
+    qs = [str(q).strip() for q in (questions or []) if str(q).strip()][:6]
+    if not qs:
+        return
+    try:
+        objstore.client().put_object(Bucket=config.S3_BUCKET_DEID,
+                                     Key=_QUESTIONS_KEY.format(cid=comparison_id),
+                                     Body=json.dumps(qs).encode())
+    except Exception:
+        pass
+
+
 def index_comparison(comparison_id: str, label: str, artifact_a: str, artifact_b: str,
-                     accepted_fields, year_a: int = 0, year_b: int = 0) -> dict:
+                     accepted_fields, year_a: int = 0, year_b: int = 0,
+                     suggested_questions=None) -> dict:
     """Function 2 commit: embed + index both artifacts' de-id text under
     comparison_id::A/::B, store the human-accepted comparable fields, register it."""
     ta, tb = _artifact_text(artifact_a), _artifact_text(artifact_b)
@@ -251,6 +272,7 @@ def index_comparison(comparison_id: str, label: str, artifact_a: str, artifact_b
         db.audit(cur, "ui", "tool_call", comparison_id,
                  {"op": "index_comparison", "artifacts": [artifact_a, artifact_b],
                   "chunks": total, "metrics": len(accepted_fields or [])})
+    _save_questions(comparison_id, suggested_questions)   # LLM-authored sample chat prompts
     return {"ok": True, "comparison_id": comparison_id, "chunks_indexed": total,
             "metrics": len(accepted_fields or [])}
 
@@ -308,6 +330,64 @@ def compare_docs(comparison_id: str) -> dict:
     except Exception:
         pass
     return data
+
+
+_DEFAULT_QUESTIONS = ["What changed in NPAs?", "Top movers",
+                      "Is concentration a worry?", "Summarize credit quality YoY"]
+
+
+def suggested_questions(comparison_id: str) -> dict:
+    """Sample chat prompts built from THIS comparison's accepted comparable fields
+    (the comparability attributes) + analytical angles, so they match the actual
+    report.
+    Priority: LLM-authored questions captured during comparability (most report-aware)
+    -> questions derived from the accepted fields -> finance defaults (seeded comparison)."""
+    # 1) LLM-authored, captured at comparability/index time
+    try:
+        raw = objstore.client().get_object(Bucket=config.S3_BUCKET_DEID,
+                                           Key=_QUESTIONS_KEY.format(cid=comparison_id))["Body"].read()
+        qs = json.loads(raw)
+        if qs:
+            return {"questions": qs[:5], "source": "llm"}
+    except Exception:
+        pass
+    # 2) derived from the accepted comparable fields
+    try:
+        with db.connect() as conn:
+            metrics = db.fetch_comparison_metrics(conn.cursor(), comparison_id)
+    except Exception:
+        metrics = []
+    if not metrics:
+        return {"questions": _DEFAULT_QUESTIONS, "source": "default"}
+
+    def _f(v):
+        try:
+            return float(str(v).replace(",", "").replace("$", "").replace("%", "").strip())
+        except Exception:
+            return None
+
+    scored = []
+    for m in metrics:
+        a, b = _f(m.get("a")), _f(m.get("b"))
+        pct = abs((b - a) / a * 100) if (a not in (None, 0) and b is not None) else 0.0
+        scored.append((pct, m["label"]))
+    scored.sort(reverse=True)
+    labels = [l for _, l in scored]
+
+    qs = [f"How did {labels[0]} change between the two reports, and is it a concern?"]
+    if scored[0][0] > 0:
+        qs.append("Which metric moved the most, and what's driving it?")
+    if len(labels) > 1:
+        qs.append(f"Compare {labels[0]} and {labels[1]} across the two reports.")
+    qs.append("What are the most material differences a reviewer should flag?")
+    qs.append("Give a 3-bullet executive summary of the changes.")
+
+    seen, out = set(), []
+    for q in qs:
+        if q not in seen:
+            seen.add(q)
+            out.append(q)
+    return {"questions": out[:5], "source": "attributes"}
 
 
 def build_chat_pdf(title: str, messages, generated_at: str | None = None) -> bytes:
