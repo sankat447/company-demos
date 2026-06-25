@@ -148,4 +148,9 @@ def npi_tagger(epochs: int = 200, n_per_class: int = 120):
     # by its default name "Output" (a bare .output is ambiguous with multiple outputs).
     r = register(model=t.outputs["model"], accuracy=e.outputs["Output"])
     d = deploy(version=r.output)
-    smoke(version=d.output)
+    s = smoke(version=d.output)
+    # Disable KFP caching: register/deploy have real side effects (MinIO write, DB
+    # insert, KServe re-provision) that must run every time — a cached "success"
+    # would skip them and leave serving unchanged.
+    for task in (c, f, t, e, r, d, s):
+        task.set_caching_options(enable_caching=False)

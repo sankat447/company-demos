@@ -119,7 +119,8 @@ def submit(epochs: int = 200, n_per_class: int = 120):
 
 
 def status(run_id: str | None = None):
-    run_id = run_id or _CURRENT.get("run_id") or _marker_get()
+    # marker is the single source of truth (deleting it => console reads "no run yet")
+    run_id = run_id or _marker_get()
     if not run_id:
         return {"ok": True, "status": "idle", "run_id": None,
                 "stages": [{"key": k, "title": t, "desc": d, "status": "pending", "pct": 0}
