@@ -79,18 +79,24 @@ def _experiment_id():
         return None
 
 
-def _latest_run_id():
-    """Most-recent run in our Experiment — robust to in-memory state loss
-    (multiple uvicorn workers / pod restarts)."""
+RUN_MARKER = "models/active_run.txt"   # the run THIS app submitted (survives workers/restart)
+
+
+def _marker_get():
     try:
-        eid = _experiment_id()
-        params = {"page_size": 1, "sort_by": "created_at desc"}
-        if eid:
-            params["experiment_id"] = eid
-        runs = _get("/runs", **params).get("runs", [])
-        return runs[0]["run_id"] if runs else None
+        from app.common import config, objstore
+        v = objstore.client().get_object(Bucket=config.S3_BUCKET_DEID, Key=RUN_MARKER)["Body"].read().decode().strip()
+        return v or None
     except Exception:
         return None
+
+
+def _marker_set(run_id):
+    try:
+        from app.common import config, objstore
+        objstore.client().put_object(Bucket=config.S3_BUCKET_DEID, Key=RUN_MARKER, Body=(run_id or "").encode())
+    except Exception:
+        pass
 
 
 def submit(epochs: int = 200, n_per_class: int = 120):
@@ -106,13 +112,14 @@ def submit(epochs: int = 200, n_per_class: int = 120):
                 "runtime_config": {"parameters": {"epochs": epochs, "n_per_class": n_per_class}}}
         r = _post("/runs", body)
         _CURRENT.update(run_id=r.get("run_id"), experiment_id=eid)
+        _marker_set(r.get("run_id"))
         return {"ok": True, "run_id": r.get("run_id"), "experiment_id": eid}
     except Exception as e:
         return {"ok": False, "reason": f"{type(e).__name__}: {str(e)[:120]}"}
 
 
 def status(run_id: str | None = None):
-    run_id = run_id or _CURRENT.get("run_id") or _latest_run_id()
+    run_id = run_id or _CURRENT.get("run_id") or _marker_get()
     if not run_id:
         return {"ok": True, "status": "idle", "run_id": None,
                 "stages": [{"key": k, "title": t, "desc": d, "status": "pending", "pct": 0}
