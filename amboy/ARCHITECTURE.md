@@ -60,3 +60,35 @@ the vector store, the de-id MinIO bucket, logs, or `audit_log.detail`.
 - **Fixed namespaces + label teardown**: resources live in the shared `iis-ai-*`
   tiers (per platform rule) but carry `demo: amboy`, so teardown is label-scoped and
   never deletes a shared namespace.
+
+## PII/NPI model on OpenShift AI (KServe)
+
+The detector (Piiranha / DeBERTa, `pii_model` role) is served as a KServe
+`InferenceService` `amboy-pii-model` (RawDeployment, CPU). The base model is stored in
+in-stack MinIO and served from S3 (no external egress); a fine-tuned head adds
+org-specific classes (e.g. ACCOUNT) and is loaded from MinIO. A `models/active.txt`
+marker selects what is served on startup; the gateway calls a stable ClusterIP
+`amboy-pii-model:8080` (we own that Service — KServe's own naming varies). The
+predictor/deid/agent images are pinned to the freshly-built digest (node `:latest`
+caching otherwise serves stale), with ArgoCD `ignoreDifferences` +
+`RespectIgnoreDifferences` protecting the pin.
+
+## Model training as an OpenShift AI Data Science Pipeline (KFP v2)
+
+Training runs as a real Kubeflow Pipelines v2 DAG on the OpenShift AI Pipeline Server
+(`DataSciencePipelinesApplication amboy-dsp`, MinIO-backed): ingest → featurize
+(MiniLM) → train head → evaluate (logs `held_out_accuracy`) → register (MinIO +
+`amboy.model_versions`) → deploy (re-provision KServe) → smoke. The `/model-training`
+console submits + tracks runs via the compare-agent → KFP REST API; runs appear under
+**Experiments and runs**. Caching is disabled per task (a cached "success" would skip
+the real side effects). See `app/pipeline/`.
+
+## OpenShift Pipelines (Tekton) — non-ML functionality
+
+The build/deploy CI and the document/comparison/governance flows are expressed as
+Tekton Pipelines (`tekton/`) that **reuse** the in-cluster BuildConfigs and the
+deployed services over HTTP — `amboy-build-deploy` (clone → build both images → roll
+app services → smoke), `amboy-doc-process`, `amboy-comparison`, `amboy-governance`.
+They are additive and never touch the KServe model or the Data Science Pipeline.
+The in-cluster KFP API sits behind an oauth-proxy (`:8443`); the calling SA is granted
+`get` on the `ds-pipeline-*` route to pass it.

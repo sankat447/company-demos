@@ -45,6 +45,20 @@ Primer for future Claude Code sessions in this directory.
   in `redhat-ods-applications`) — applied by deploy.sh, removed by destroy.sh (it's
   outside the kustomize base / the four tiers).
 
+## OpenShift Pipelines (Tekton) — non-ML only (`tekton/`)
+Tekton (the OpenShift Pipelines operator) is SEPARATE from the OpenShift AI Data
+Science Pipelines above. `tekton/` holds 4 pipelines that REUSE the existing
+BuildConfigs + deployed services (no logic duplicated) and never touch the model/DSP:
+`amboy-build-deploy` (clone→build amboy+web→roll deid/agent/web→smoke),
+`amboy-doc-process`, `amboy-comparison`, `amboy-governance`. SA `amboy-pipeline`
+(00-rbac.yaml). `oc get pipeline` is ambiguous (Tekton + Kubeflow) — use
+`pipelines.tekton.dev`. Applied by deploy.sh Phase 7; swept by destroy.sh.
+
+## Scripts
+`deploy.sh` (full bring-up), `destroy.sh` (label-scoped teardown), `demo-reset.sh`
+(between-demo reset: base model, clear rules/uploads/comparisons/DSP runs; KEEPS the
+pipelines + seeded baseline). All idempotent.
+
 ## Layout
 - `app/common/` — config, pii_patterns (ONE recognizer set), tokenizer, deid,
   embeddings, db, objstore, auth. `app/{deid_gateway,metrics_engine,compare_agent,ui,pii_model}/`,

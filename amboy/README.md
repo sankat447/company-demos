@@ -34,19 +34,41 @@ Presidio analyzer + anonymizer run as the **official CPU images**; the gateway
 calls them over HTTP. Embeddings run **locally** (MiniLM baked into the image) so
 even de-identified text is never sent out to vectorize.
 
+## Beyond the core (current build)
+
+- **React web UI** (`web/`, route `amboy-web`) with three workflow functions:
+  **Sensitive Document Intake** (de-identify a report), **Compare and Vectorize
+  Documents** (comparability → accept fields → index), **AI Insights from Documents**
+  (grounded chat with **report-aware suggested prompts** authored at comparability time).
+- **PII/NPI detector served on OpenShift AI (KServe)** — Piiranha (DeBERTa) as
+  InferenceService `amboy-pii-model`, base model in MinIO (served from S3), with a
+  fine-tuned head that adds org-specific classes (e.g. ACCOUNT). `pii_model` role.
+- **Model Training = an OpenShift AI Data Science Pipeline (Kubeflow Pipelines v2)** —
+  the `/model-training` console submits a real DSP run (ingest→featurize→train→evaluate
+  →register→deploy→smoke), tracked under **Experiments and runs**; the trained head is
+  re-provisioned on KServe. See `app/pipeline/`, `gitops/manifests/24-pipeline-server.yaml`.
+- **OpenShift Pipelines (Tekton)** for the non-ML functionality (`tekton/`):
+  `amboy-build-deploy`, `amboy-doc-process`, `amboy-comparison`, `amboy-governance` —
+  they orchestrate the existing BuildConfigs + services (reuse, not reimplement) and
+  leave the model/DSP untouched. See `tekton/README.md`.
+- **OpenShift AI Applications launcher tile** (`gitops/openshift-ai-tile.yaml`).
+
 ## Run it
 
 ```bash
 make verify          # OFFLINE gate: privacy invariants + metrics + grounding (no cluster)
 ./deploy.sh          # scoped, idempotent deploy onto the baremetal cluster
 make verify-cluster  # LIVE gate: ingest, /detokenize 403, prompt/NPI scan, audit rows
+./demo-reset.sh      # between demos: base model, no uploads/comparisons/DSP runs (keeps pipelines)
 ./destroy.sh         # scoped, label-guarded teardown (never touches platform)
 ```
 
-`deploy.sh` builds the image in-cluster (internal registry — no ECR), seeds two
-synthetic reports into MinIO, and applies the standalone ArgoCD Application
-(`gitops/application.yaml`). Override `GIT_REVISION`, `PORTKEY_API_KEY`,
-`*_PASSWORD` via env.
+`deploy.sh` builds the images in-cluster (internal registry — no ECR), applies the
+standalone ArgoCD Application (`gitops/application.yaml`), pins the freshly-built
+digest, seeds the base PII model + synthetic reports into MinIO, uploads the training
+pipeline to the OpenShift AI Pipeline Server, applies the Applications tile, and
+applies the Tekton pipelines. Override `GIT_REVISION`, `PORTKEY_API_KEY`, `*_PASSWORD`
+via env. `demo-reset.sh -y` skips the confirm prompt.
 
 ## Non-negotiable design patterns → where handled
 
