@@ -44,6 +44,11 @@ for ns in $NS_LIST; do oc -n "$ns" delete secret amboy-creds --ignore-not-found 
 info "removing OpenShift AI Applications tile (redhat-ods-applications)"
 oc -n redhat-ods-applications delete odhapplication,configmap -l demo=amboy --ignore-not-found 2>/dev/null || true
 
+# ── 2c. OpenShift Pipelines (Tekton) resources — FQN (pipeline name is ambiguous) ─
+info "removing Tekton pipelines/tasks/runs (demo=amboy)"
+oc -n iis-ai-ai delete pipelineruns.tekton.dev,pipelines.tekton.dev,tasks.tekton.dev \
+  -l demo=amboy --ignore-not-found --wait=false 2>/dev/null || true
+
 # ── 3. clear any stuck PVC finalizers (none expected; demo uses no PVCs) ─────
 for ns in $NS_LIST; do
   for pvc in $(oc -n "$ns" get pvc -l demo=amboy -o name 2>/dev/null); do

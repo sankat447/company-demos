@@ -1,0 +1,60 @@
+# Comparison run as an OpenShift Pipeline: comparability -> index -> compare_docs,
+# orchestrating the EXISTING compare-agent endpoints. Produces an indexed comparison
+# (with LLM-authored suggested questions) ready in AI Insights.
+#   tkn pipeline start amboy-comparison -n iis-ai-ai \
+#     -p artifact_a=<id> -p artifact_b=<id> -p name="Acme FY24 vs FY25"
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: amboy-comparison
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  params:
+    - {name: artifact_a, type: string}
+    - {name: artifact_b, type: string}
+    - {name: name, type: string}
+    - {name: roles, type: string, default: "npi-analyst"}
+  tasks:
+    - name: comparability-index-compare
+      params:
+        - {name: a, value: "$(params.artifact_a)"}
+        - {name: b, value: "$(params.artifact_b)"}
+        - {name: name, value: "$(params.name)"}
+        - {name: roles, value: "$(params.roles)"}
+      taskSpec:
+        params:
+          - {name: a, type: string}
+          - {name: b, type: string}
+          - {name: name, type: string}
+          - {name: roles, type: string}
+        results:
+          - {name: comparison_id, description: "indexed comparison id"}
+        steps:
+          - name: run
+            image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+            imagePullPolicy: Always
+            env:
+              - {name: A, value: "$(params.a)"}
+              - {name: B, value: "$(params.b)"}
+              - {name: NAME, value: "$(params.name)"}
+              - {name: ROLES, value: "$(params.roles)"}
+            script: |
+              #!/usr/bin/env python3
+              import os, re, httpx
+              AG = "http://amboy-compare-agent.iis-ai-ai.svc:8080"
+              H = {"X-Amboy-Roles": os.environ["ROLES"], "Content-Type": "application/json"}
+              a, b, name = os.environ["A"], os.environ["B"], os.environ["NAME"]
+              cmp = httpx.post(AG + "/comparability", json={"artifact_a": a, "artifact_b": b}, headers=H, timeout=240).json()
+              print("STEP comparability: comparable=%s fields=%s" %
+                    (cmp.get("comparable"), [f["label"] for f in cmp.get("fields", [])]))
+              cid = re.sub(r"[^A-Za-z0-9_-]+", "-", name).strip("-") or "cmp"
+              ix = httpx.post(AG + "/index_comparison", headers=H, timeout=300,
+                              json={"comparison_id": cid, "label": name, "artifact_a": a, "artifact_b": b,
+                                    "accepted_fields": cmp.get("fields", []),
+                                    "suggested_questions": cmp.get("suggested_questions", [])}).json()
+              print("STEP index: chunks=%s metrics=%s" % (ix.get("chunks_indexed"), ix.get("metrics")))
+              cd = httpx.post(AG + "/compare_docs", json={"comparison_id": cid}, headers=H, timeout=240).json()
+              print("STEP compare_docs: %d comparable metrics" % len(cd.get("metrics", [])))
+              print("DONE comparison_id=%s (open it under AI Insights)" % cid)
+              open("$(results.comparison_id.path)", "w").write(cid)

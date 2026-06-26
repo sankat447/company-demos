@@ -1,0 +1,63 @@
+# Governance / ops as an OpenShift Pipeline. action = seed | audit-export.
+#   tkn pipeline start amboy-governance -n iis-ai-ai -p action=seed
+#   tkn pipeline start amboy-governance -n iis-ai-ai -p action=audit-export
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: amboy-governance
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  params:
+    - {name: action, type: string, description: "seed | audit-export"}
+  tasks:
+    - name: audit-export
+      when:
+        - {input: "$(params.action)", operator: in, values: ["audit-export"]}
+      taskRef: {name: amboy-py}
+      params:
+        - name: script
+          value: |
+            import httpx
+            AG = "http://amboy-compare-agent.iis-ai-ai.svc:8080"
+            H = {"X-Amboy-Roles": "npi-audit"}
+            d = httpx.get(AG + "/audit", params={"limit": 500}, headers=H, timeout=60).json()
+            rows = d.get("rows", []) if isinstance(d, dict) else (d or [])
+            print("AUDIT export: %d rows (append-only, NPI-free)" % len(rows))
+            for r in rows[:20]:
+                print("  ", r.get("ts", ""), r.get("actor", ""), r.get("action", ""), r.get("resource", ""))
+    - name: seed
+      when:
+        - {input: "$(params.action)", operator: in, values: ["seed"]}
+      taskRef: {name: amboy-oc}
+      params:
+        - name: script
+          value: |
+            oc -n iis-ai-ai delete job amboy-seed --ignore-not-found
+            cat <<'EOF' | oc -n iis-ai-ai apply -f -
+            apiVersion: batch/v1
+            kind: Job
+            metadata: {name: amboy-seed, namespace: iis-ai-ai, labels: {demo: amboy}}
+            spec:
+              backoffLimit: 2
+              ttlSecondsAfterFinished: 600
+              template:
+                metadata: {labels: {demo: amboy}}
+                spec:
+                  restartPolicy: OnFailure
+                  serviceAccountName: amboy
+                  containers:
+                    - name: seed
+                      image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+                      imagePullPolicy: Always
+                      env:
+                        - {name: AMBOY_ROLE, value: "seed"}
+                        - name: AMBOY_S3_ACCESS_KEY
+                          valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_ACCESS_KEY}}
+                        - name: AMBOY_S3_SECRET_KEY
+                          valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_SECRET_KEY}}
+                        - name: AMBOY_PG_PASSWORD
+                          valueFrom: {secretKeyRef: {name: amboy-creds, key: PG_PASSWORD}}
+            EOF
+            oc -n iis-ai-ai wait --for=condition=complete job/amboy-seed --timeout=180s
+            echo "seed job complete"

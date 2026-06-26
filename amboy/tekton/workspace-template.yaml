@@ -1,0 +1,8 @@
+# volumeClaimTemplate for the amboy-build-deploy `src` workspace (cloned repo shared
+# across clone -> build tasks). RWX (cephfs) so tasks on different nodes can share it.
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ocs-storagecluster-cephfs
+  resources:
+    requests:
+      storage: 1Gi

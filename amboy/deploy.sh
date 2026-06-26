@@ -142,6 +142,17 @@ oc apply -f "$DEMO_DIR/gitops/openshift-ai-tile.yaml" >/dev/null 2>&1 \
   && ok "Applications tile 'Amboy NPI-Safe' applied (refresh OpenShift AI → Applications)" \
   || warn "tile skipped (no perms on redhat-ods-applications) — optional/cosmetic"
 
+# ── 7. OpenShift Pipelines (Tekton) for the non-ML functionality ─────────────
+# Build/deploy CI, document-processing, comparison, governance pipelines. Additive —
+# they orchestrate the existing BuildConfigs + services; the OpenShift AI model and
+# Data Science Pipeline are untouched. (workspace-template.yaml is a fragment, not applied.)
+info "Phase 7 — OpenShift Pipelines (Tekton)"
+oc apply -f "$DEMO_DIR/tekton/00-rbac.yaml" -f "$DEMO_DIR/tekton/tasks.yaml" \
+         -f "$DEMO_DIR/tekton/amboy-doc-process.yaml" -f "$DEMO_DIR/tekton/amboy-comparison.yaml" \
+         -f "$DEMO_DIR/tekton/amboy-governance.yaml" -f "$DEMO_DIR/tekton/amboy-build-deploy.yaml" >/dev/null 2>&1 \
+  && ok "Tekton pipelines applied (tkn pipeline ls -n $NS_AI; see tekton/README.md)" \
+  || warn "Tekton apply skipped — is the OpenShift Pipelines operator installed?"
+
 # ── done ─────────────────────────────────────────────────────────────────────
 ROUTE="$(oc -n "$NS_UI" get route amboy-ui -o jsonpath='{.spec.host}' 2>/dev/null || echo '<pending>')"
 echo -e "

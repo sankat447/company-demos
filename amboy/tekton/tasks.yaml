@@ -1,0 +1,41 @@
+# Two small reusable Tekton Tasks the Amboy pipelines compose:
+#   amboy-oc  — runs an oc/bash script in the OpenShift CLI image (builds, rollouts, jobs)
+#   amboy-py  — runs a python script in the amboy image (httpx calls to the app services)
+# Both take a single `script` param so the Pipelines stay declarative + readable.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: amboy-oc
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  params:
+    - {name: script, type: string, description: "bash/oc script to run"}
+  workspaces:
+    - {name: src, optional: true, description: "optional cloned repo (for binary builds)"}
+  steps:
+    - name: run
+      image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        $(params.script)
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: amboy-py
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  params:
+    - {name: script, type: string, description: "python script (app + httpx available)"}
+  steps:
+    - name: run
+      image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+      imagePullPolicy: Always
+      env:
+        - {name: PYTHONUNBUFFERED, value: "1"}
+      script: |
+        #!/usr/bin/env python3
+        $(params.script)

@@ -1,0 +1,86 @@
+# Build & deploy as an OpenShift Pipeline: clone -> build both images (the existing
+# in-cluster binary BuildConfigs) -> roll the app services -> smoke. It deliberately
+# does NOT touch the KServe model predictor or the OpenShift AI training pipeline.
+# Needs a workspace (RWX). Example run:
+#   tkn pipeline start amboy-build-deploy -n iis-ai-ai \
+#     --serviceaccount amboy-pipeline \
+#     -w name=src,volumeClaimTemplateFile=tekton/workspace-template.yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: amboy-build-deploy
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  params:
+    - {name: git_url, type: string, default: "https://github.com/sankat447/company-demos"}
+    - {name: git_rev, type: string, default: "sanjeev-dev"}
+  workspaces:
+    - {name: src}
+  tasks:
+    - name: clone
+      workspaces: [{name: src, workspace: src}]
+      params:
+        - {name: url, value: "$(params.git_url)"}
+        - {name: rev, value: "$(params.git_rev)"}
+      taskSpec:
+        params: [{name: url, type: string}, {name: rev, type: string}]
+        workspaces: [{name: src}]
+        steps:
+          - name: clone
+            image: registry.access.redhat.com/ubi9/toolbox:latest
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              command -v git >/dev/null || (microdnf -y install git >/dev/null 2>&1 || dnf -y install git >/dev/null 2>&1)
+              rm -rf "$(workspaces.src.path)/repo"
+              git clone --depth 1 --branch "$(params.rev)" "$(params.url)" "$(workspaces.src.path)/repo"
+              ls "$(workspaces.src.path)/repo/amboy" | head
+    - name: build-amboy
+      runAfter: [clone]
+      workspaces: [{name: src, workspace: src}]
+      taskRef: {name: amboy-oc}
+      params:
+        - name: script
+          value: |
+            cd "$(workspaces.src.path)/repo/amboy"
+            oc -n iis-ai-ai start-build amboy --from-dir=. --follow --wait
+    - name: build-web
+      runAfter: [clone]
+      workspaces: [{name: src, workspace: src}]
+      taskRef: {name: amboy-oc}
+      params:
+        - name: script
+          value: |
+            cd "$(workspaces.src.path)/repo/amboy"
+            oc -n iis-ai-ui start-build amboy-web --from-dir=web --follow --wait
+    - name: roll
+      runAfter: [build-amboy, build-web]
+      taskRef: {name: amboy-oc}
+      params:
+        - name: script
+          value: |
+            # roll ONLY the app services (deid/agent/web) to the fresh digest.
+            # The KServe model predictor + DSP training pipeline are left untouched.
+            DIG=$(oc -n iis-ai-ai get istag amboy:latest -o jsonpath='{.image.metadata.name}')
+            IMG="image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy@${DIG}"
+            for d in amboy-deid-gateway amboy-compare-agent; do
+              oc -n iis-ai-ai patch deploy "$d" --type=json \
+                -p "[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/image\",\"value\":\"${IMG}\"}]"
+            done
+            oc -n iis-ai-ai rollout status deploy/amboy-compare-agent --timeout=300s
+            oc -n iis-ai-ai rollout status deploy/amboy-deid-gateway --timeout=240s
+            oc -n iis-ai-ui rollout restart deploy/amboy-web
+            oc -n iis-ai-ui rollout status deploy/amboy-web --timeout=240s
+            echo "rolled deid + agent + web to ${DIG}"
+    - name: smoke
+      runAfter: [roll]
+      taskRef: {name: amboy-py}
+      params:
+        - name: script
+          value: |
+            import httpx
+            for svc in ["amboy-deid-gateway", "amboy-compare-agent"]:
+                r = httpx.get("http://%s.iis-ai-ai.svc:8080/healthz" % svc, timeout=30)
+                print("smoke %s -> %s %s" % (svc, r.status_code, r.text[:80]))
+                r.raise_for_status()

@@ -1,0 +1,55 @@
+# Document-processing as an OpenShift Pipeline: de-identify a report and store a
+# de-identified artifact, by orchestrating the EXISTING deid-gateway endpoints
+# (/detect_text -> /commit_artifact). A batch path beside the interactive
+# Sensitive Document Intake; reuses the same service + privacy boundary.
+#   tkn pipeline start amboy-doc-process -n iis-ai-ai \
+#     -p artifact_name="Acme FY2025" -p text="Loan AMB-2025-100024 ... SSN 900-12-3456"
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: amboy-doc-process
+  namespace: iis-ai-ai
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  params:
+    - {name: artifact_name, type: string}
+    - {name: text, type: string, description: "raw document text to de-identify"}
+    - {name: roles, type: string, default: "npi-analyst"}
+  tasks:
+    - name: detect-and-store
+      params:
+        - {name: name, value: "$(params.artifact_name)"}
+        - {name: text, value: "$(params.text)"}
+        - {name: roles, value: "$(params.roles)"}
+      taskSpec:
+        params:
+          - {name: name, type: string}
+          - {name: text, type: string}
+          - {name: roles, type: string}
+        results:
+          - {name: artifact_id, description: "stored de-identified artifact id"}
+        steps:
+          - name: detect-commit
+            image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy:latest
+            imagePullPolicy: Always
+            env:
+              - {name: DOC_NAME, value: "$(params.name)"}
+              - {name: DOC_TEXT, value: "$(params.text)"}
+              - {name: ROLES, value: "$(params.roles)"}
+            script: |
+              #!/usr/bin/env python3
+              import os, httpx
+              DEID = "http://amboy-deid-gateway.iis-ai-ai.svc:8080"
+              H = {"X-Amboy-Roles": os.environ["ROLES"], "Content-Type": "application/json"}
+              text, name = os.environ["DOC_TEXT"], os.environ["DOC_NAME"]
+              d = httpx.post(DEID + "/detect_text", json={"text": text}, headers=H, timeout=180).json()
+              spans = d.get("spans", [])
+              print("STEP detect: %d entities -> %s" % (len(spans), sorted({s['type'] for s in spans})))
+              accepted = [{"start": s["start"], "end": s["end"], "type": s["type"]} for s in spans]
+              r = httpx.post(DEID + "/commit_artifact", headers=H, timeout=180,
+                             json={"name": name, "filename": name + ".txt", "kind": "document",
+                                   "text": text, "accepted": accepted}).json()
+              aid = r.get("artifact_id", "")
+              print("STEP commit: artifact=%s tokenized=%s deid_chars=%s" %
+                    (aid, r.get("entities"), r.get("deid_chars")))
+              open("$(results.artifact_id.path)", "w").write(aid)
