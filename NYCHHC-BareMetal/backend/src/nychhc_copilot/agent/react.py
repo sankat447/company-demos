@@ -142,7 +142,11 @@ def route(message: str, providers) -> str | None:
                 opt = (f"reassign to {a['reassign_options'][0]['provider']}" if a["reassign_options"]
                        else (f"reschedule with {a['reschedule_options'][0]['provider']}" if a["reschedule_options"] else "needs manual review"))
                 lines.append(f"- {a['patient_name']} on {a['appt_date']} {a['appt_time']} → {opt}")
-            lines.append("Say \"apply all auto\" to reassign the auto-resolvable ones.")
+            conf = imp.get("conflict") or {}
+            if conf.get("breach"):
+                lines.append(f"⚠ COVERAGE CONFLICT: {conf['mitigation']}")
+            lines.append("Say \"apply all auto\" to reassign the auto-resolvable ones. "
+                         "Any change needs your approval before it takes effect.")
             return "\n".join(lines)
 
     # 4. Cancel an appointment by patient name

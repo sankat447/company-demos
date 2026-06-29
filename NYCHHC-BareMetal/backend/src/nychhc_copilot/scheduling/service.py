@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, timedelta
 
-from .data import TODAY
+from .data import COVERAGE_MINIMUMS, SERVICE_LINE, TODAY
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -205,6 +205,58 @@ def _dates_in(start: str, end: str) -> list[str]:
     return [(s + timedelta(days=i)).isoformat() for i in range((e - s).days + 1)]
 
 
+def _service_line_providers(aurora, service_line: str) -> list[dict]:
+    """Providers whose specialty staffs the given service line (UC4 coverage math)."""
+    rows = _dicts(aurora.query("SELECT id, name, specialty FROM sched_providers"))
+    return [p for p in rows if SERVICE_LINE.get(p["specialty"]) == service_line]
+
+
+def _on_leave(aurora, provider_id: str, d: str) -> bool:
+    """True if the provider has Approved OR Pending PTO covering date d (UC4 — a
+    pending request still threatens coverage, so it counts toward the conflict)."""
+    r = aurora.query(
+        "SELECT COUNT(*) FROM sched_pto WHERE provider_id = '%s' "
+        "AND status IN ('Approved','Pending') AND start_date <= '%s' AND end_date >= '%s'"
+        % (_q(provider_id), _q(d), _q(d)))
+    return bool(r.rows[0][0])
+
+
+def coverage_conflict(aurora, provider_id, start, end) -> dict:
+    """UC4 — does this leave drop the provider's SERVICE LINE below its minimum on any
+    day (BR-4/6)? Detects concurrent same-service leave (the overlap conflict) and the
+    uncovered dates. The requesting provider counts as on-leave for the window."""
+    prov = _provider(aurora, provider_id)
+    if not prov:
+        return {"breach": False}
+    line = SERVICE_LINE.get(prov["specialty"])
+    minimum = COVERAGE_MINIMUMS.get(line, 1)
+    team = _service_line_providers(aurora, line)
+    total = len(team)
+    uncovered, overlap = [], {}
+    for d in _dates_in(start, end):
+        on_leave = 0
+        for p in team:
+            # the requester is on leave for the whole window; peers per their PTO rows
+            out = (p["id"] == provider_id) or _on_leave(aurora, p["id"], d)
+            if out:
+                on_leave += 1
+                if p["id"] != provider_id:
+                    overlap.setdefault(p["id"], {"provider": p["name"], "dates": []})["dates"].append(d)
+        if (total - on_leave) < minimum:
+            uncovered.append(d)
+    overlapping = list(overlap.values())
+    breach = bool(uncovered)
+    mitigation = ""
+    if breach:
+        who = ", ".join(o["provider"] for o in overlapping) or "another provider"
+        mitigation = (f"{line} needs {minimum} on service but falls short on "
+                      f"{len(uncovered)} day(s) — overlaps with {who}'s leave. "
+                      "Stagger the leave, pull a float/peer onto service, or deny one request.")
+    return {"service_line": line, "minimum": minimum, "team_size": total,
+            "uncovered_dates": uncovered, "overlapping_leave": overlapping,
+            "breach": breach, "mitigation": mitigation}
+
+
 def compute_pto_impact(aurora, provider_id, start, end) -> dict:
     prov = _provider(aurora, provider_id)
     if not prov:
@@ -238,9 +290,11 @@ def compute_pto_impact(aurora, provider_id, start, end) -> dict:
             gaps.append({"date": a["appt_date"], "time": a["appt_time"], "specialty": prov["specialty"]})
         rows.append({**a, "reassign_options": reassign, "reschedule_options": reschedule, "recommendation": rec})
 
+    conflict = coverage_conflict(aurora, provider_id, start, end)
     return {"provider": prov["name"], "provider_id": provider_id, "range": [start, end],
             "impacted_count": len(impacted), "auto_resolvable_count": auto,
-            "needs_manual_count": manual, "coverage_gaps": gaps, "impacted": rows}
+            "needs_manual_count": manual, "coverage_gaps": gaps, "impacted": rows,
+            "conflict": conflict}
 
 
 def apply_reassignments(aurora, plan: list[dict]) -> dict:

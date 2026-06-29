@@ -16,16 +16,18 @@ TODAY = "2026-06-09"
 
 # Service-line coverage minimums (UC2/UC4, BR-4): providers required on, per service line.
 COVERAGE_MINIMUMS = {
-    "Inpatient OB": 2,    # 24/7 — at least two obstetric providers on service
+    "Inpatient OB": 2,    # 24/7 — at least two obstetric attendings on service
     "Inpatient GYN": 1,   # 24/7 — at least one gyn provider on service
+    "MFM Consult": 1,
     "Outpatient Clinic": 1,
 }
-# Which specialties staff which inpatient service line (for coverage math).
+# Which specialty staffs which service line (for coverage math). Inpatient OB is
+# covered by the obstetric attendings (the conflict math keys off this small team).
 SERVICE_LINE = {
     "Obstetrics": "Inpatient OB",
-    "Maternal-Fetal Medicine": "Inpatient OB",
     "Gynecology": "Inpatient GYN",
-    "Midwifery": "Inpatient OB",
+    "Maternal-Fetal Medicine": "MFM Consult",
+    "Midwifery": "Outpatient Clinic",
 }
 
 # id, name, credential, specialty, phone, room, work_start, work_end, slot_min, weekly_hours, ot_hours
