@@ -1,0 +1,52 @@
+# nychhc-frontend — Claude-styled static SPA + /demoer console (nginx BFF) in
+# iis-ai-ui. The edge-TLS Route is the browser-facing surface; nginx proxies
+# /api/* same-origin to nychhc-backend.iis-ai-ai.svc (see frontend/nginx.conf).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nychhc-frontend
+  namespace: iis-ai-ui
+  labels: {demo: nychhc, app: nychhc-frontend, app.kubernetes.io/part-of: nychhc}
+  annotations: {argocd.argoproj.io/sync-wave: "4"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: nychhc-frontend}}
+  template:
+    metadata: {labels: {app: nychhc-frontend, demo: nychhc}}
+    spec:
+      serviceAccountName: nychhc
+      containers:
+        - name: frontend
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ui/nychhc-frontend:latest
+          imagePullPolicy: Always
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /, port: 8080}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nychhc-frontend
+  namespace: iis-ai-ui
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+spec:
+  selector: {app: nychhc-frontend}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: nychhc-frontend
+  namespace: iis-ai-ui
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"   # chat SSE proxied through nginx
+spec:
+  to: {kind: Service, name: nychhc-frontend}
+  port: {targetPort: 8080}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
