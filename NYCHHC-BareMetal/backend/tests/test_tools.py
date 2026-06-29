@@ -29,7 +29,7 @@ def test_query_returns_rows_markdown():
     tools = {t.name: t for t in build_tools(p)}
     out = tools["query_workforce_db"].invoke({"sql": "SELECT name, role FROM providers LIMIT 3"})
     assert "| name | role |" in out
-    assert "Alice Nguyen" in out
+    assert "Dr. Amara Okonkwo" in out
 
 
 def test_no_show_rate_query_is_computable():
@@ -45,7 +45,7 @@ def test_no_show_rate_query_is_computable():
 
 
 def test_coverage_forecast_flags_only_the_tuesday_gap():
-    """DR-08: Emergency (dept 1) has ONE engineered understaffed day — next Tuesday."""
+    """DR-08/UC2: Inpatient OB (dept 1) has ONE engineered understaffed day — next Tuesday."""
     from datetime import date, timedelta
 
     p = _providers()
@@ -70,6 +70,6 @@ def test_no_show_risk_bands():
 def test_schedule_change_requires_approval():
     p = _providers()
     tools = {t.name: t for t in build_tools(p)}
-    out = tools["propose_schedule_change"].invoke({"summary": "Backfill Emergency Tue day block"})
+    out = tools["propose_schedule_change"].invoke({"summary": "Backfill Inpatient OB Tue day block"})
     assert "pending_approval" in out
     assert "PROP-" in out

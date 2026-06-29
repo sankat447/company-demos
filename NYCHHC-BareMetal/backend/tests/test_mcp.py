@@ -22,5 +22,5 @@ def test_mcp_query_tool_guards_writes():
 
 
 def test_mcp_schedule_change_needs_approval():
-    out = M.propose_schedule_change("Backfill Emergency Tue")
+    out = M.propose_schedule_change("Backfill Inpatient OB Tue")
     assert "approval required" in out.lower()

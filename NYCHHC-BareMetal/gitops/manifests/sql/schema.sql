@@ -1,5 +1,5 @@
--- NYCHHC-BareMetal demo — workforce (+ optional rag) schemas on the in-stack
--- PLATFORM Postgres (iis-ai-postgres-primary.iis-ai-data.svc, db rhoai_demo).
+-- NYCHHC-BareMetal demo (OBGYN AI Scheduling) — workforce (+ optional rag) schemas
+-- on the in-stack PLATFORM Postgres (iis-ai-postgres-primary.iis-ai-data.svc, db rhoai_demo).
 -- Demo-OWNED objects only (schemas workforce, rag). Never touches platform tables.
 -- destroy.sh drops these schemas; the Postgres instance itself is untouched.
 -- The sched_* tables are created idempotently by the backend at startup
@@ -12,6 +12,7 @@ CREATE SCHEMA IF NOT EXISTS workforce;
 CREATE SCHEMA IF NOT EXISTS rag;
 
 -- ── workforce (operational data) ─────────────────────────────────────────────
+-- OBGYN service lines (inpatient 24/7 OB + GYN, outpatient clinic).
 CREATE TABLE IF NOT EXISTS workforce.departments (
   dept_id          int PRIMARY KEY,
   name             text NOT NULL,
@@ -55,6 +56,20 @@ CREATE TABLE IF NOT EXISTS workforce.appointments (
   outcome        text NOT NULL CHECK (outcome IN ('attended','no_show','cancelled'))
 );
 
+-- ── UC6 audit log (HITL gate) — every AI-proposed action's human decision ─────
+-- BR-1 (nothing auto-executes) + BR-10 (attributable to a named user + timestamp).
+CREATE TABLE IF NOT EXISTS workforce.audit_log (
+  id          serial PRIMARY KEY,
+  action      text NOT NULL,                -- e.g. 'pto_reassign', 'outreach', 'pto_decision'
+  summary     text NOT NULL,
+  rationale   text,
+  actor_role  text NOT NULL,                -- Scheduler / Approver / Provider / Leadership
+  actor_user  text NOT NULL,                -- named user (dev-mode: from X-NYCHHC-Roles)
+  decision    text NOT NULL,                -- approved / modified / rejected
+  outcome     text,                         -- executed / recorded / not-completed
+  ts          timestamptz NOT NULL DEFAULT now()
+);
+
 -- ── rag (pgvector store; UNUSED on baremetal — chat is router + Claude, no RAG.
 --    Kept as a documented stub so the schema is complete if RAG is added later) ─
 CREATE TABLE IF NOT EXISTS rag.embeddings (
@@ -65,27 +80,23 @@ CREATE TABLE IF NOT EXISTS rag.embeddings (
   metadata  jsonb
 );
 
--- ── Minimal deterministic seed (mirrors the backend offline fake) ────────────
--- Enough for the 5-beat flow: one engineered understaffed Tuesday in Emergency +
--- computable no-show rates. The FULL synthetic seed (Faker, thousands of rows) +
--- embeddings are loaded by ingestion/ in a later step; this guarantees the demo
--- has data the moment deploy.sh finishes.
+-- ── Minimal deterministic seed (feeds the CPU forecast/no-show models) ────────
 INSERT INTO workforce.departments (dept_id, name, min_staff_ratio, baseline_census) VALUES
-  (1,'Emergency',6.0,40), (2,'Med-Surg 4W',4.0,28), (3,'Pediatrics',3.0,18)
+  (1,'Inpatient OB',2.0,18), (2,'Inpatient GYN',1.0,12), (3,'Outpatient Clinic',1.0,30)
 ON CONFLICT (dept_id) DO NOTHING;
 
 INSERT INTO workforce.providers (provider_id, name, role, dept_id) VALUES
-  (1,'Alice Nguyen','MD',1),(2,'Ben Carter','MD',1),(3,'Carla Diaz','APP',2),
-  (4,'David Okafor','RN',2),(5,'Emma Schmidt','MD',3),(6,'Frank Russo','RN',3),
-  (7,'Grace Lee','APP',1),(8,'Hassan Ali','RN',1)
+  (1,'Dr. Amara Okonkwo','MD',1),(2,'Dr. Rachel Stein','MD',1),(3,'Dr. Priya Nair','MD',2),
+  (4,'Dr. David Cohen','MD',2),(5,'Dr. Sofia Ramirez','MD',1),(6,'Naomi Bridges','APP',3),
+  (7,'Grace Adeyemi','APP',3),(8,'Daniel Osei','APP',2)
 ON CONFLICT (provider_id) DO NOTHING;
 
--- 14 days of day-block shifts; Emergency providers 1 & 7 are 'open' on the next
--- Tuesday → the engineered coverage gap.
+-- 14 days of day-block shifts; Inpatient OB providers 1 & 2 are 'open' on the next
+-- Tuesday → an engineered coverage gap for the forecast view.
 INSERT INTO workforce.shifts (provider_id, dept_id, shift_date, block, status)
 SELECT p.provider_id, p.dept_id, d::date, 'day',
        CASE WHEN d::date = (CURRENT_DATE + ((9 - EXTRACT(DOW FROM CURRENT_DATE)::int) % 7) * INTERVAL '1 day')
-                 AND p.dept_id = 1 AND p.provider_id IN (1,7)
+                 AND p.dept_id = 1 AND p.provider_id IN (1,2)
             THEN 'open' ELSE 'scheduled' END
 FROM workforce.providers p
 CROSS JOIN generate_series(CURRENT_DATE, CURRENT_DATE + 13, INTERVAL '1 day') AS d
@@ -98,12 +109,12 @@ SELECT 2,
        'pending'
 WHERE NOT EXISTS (SELECT 1 FROM workforce.pto_requests);
 
--- ~35 days of appointments with outcomes → no-show rates by provider.
+-- ~35 days of appointments with outcomes → no-show rates by provider (model training-shaped).
 INSERT INTO workforce.appointments
   (patient_ref, dept_id, provider_id, appt_date, lead_time_days, prior_noshows, age_band, outcome)
 SELECT 'SYN-' || lpad((row_number() OVER ())::text, 5, '0'),
        p.dept_id, p.provider_id, (CURRENT_DATE - g)::date,
-       3 + (g % 21), (p.provider_id + g) % 4, '40-64',
+       3 + (g % 21), (p.provider_id + g) % 4, '18-39',
        CASE WHEN ((p.provider_id + g) % 4) >= 2 AND (3 + (g % 21)) > 10
                  AND ((row_number() OVER ()) % 3 = 0)
             THEN 'no_show' ELSE 'attended' END
@@ -113,9 +124,9 @@ WHERE p.dept_id IN (1,2,3) AND p.provider_id <= 6
   AND NOT EXISTS (SELECT 1 FROM workforce.appointments);
 
 -- ============================================================================
---  Phase 2 — rich Med-Surg 4W unit snapshot for the wireframe UI.
---  Seeded verbatim from the approved wireframe (ROSTER/RISK/PTO/BAL) so the
---  live data API returns the exact realistic synthetic data. No PHI.
+--  OBGYN outpatient-clinic snapshot for the dashboard UI (roster / risk / PTO).
+--  Seeded synthetic; thresholds match the spec (red>65, amber 35-65, green<35).
+--  No PHI. Persona: Selamawit (Scheduling Lead) operates these views.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS workforce.roster (
   id serial PRIMARY KEY, ini text, color text, name text, role text, license text,
@@ -130,39 +141,41 @@ CREATE TABLE IF NOT EXISTS workforce.pto_queue (
 
 INSERT INTO workforce.roster (ini,color,name,role,license,phone,shift,weekly_hours,status,pto_balance_pct,pto_balance_hours)
 SELECT * FROM (VALUES
-  ('MA','#3a0b5e','Dr. Marcus Adebayo','Hospitalist · MD','NY-MD-887214','(212) 555-0142','Days',40.0,'On shift',78,156),
-  ('PV','#6a1f9e','Priya Venkatesan, RN','Charge Nurse · RN','NY-RN-553090','(212) 555-0118','Days',36.0,'On shift',54,108),
-  ('YT','#0f9e8e','Yuki Tanaka, NP','Nurse Practitioner','NY-NP-310455','(212) 555-0156','Evening',32.0,'On shift',66,132),
-  ('JO','#b8730a','James O''Sullivan, RN','Staff Nurse · RN','NY-RN-771265','(646) 555-0173','Nights',36.0,'Available',31,62),
-  ('AM','#c62828','Aisha Mohammed, RN','Staff Nurse · RN','NY-RN-664120','(718) 555-0109','Evening',40.0,'On shift',NULL,NULL),
-  ('HK','#6a1f9e','Hannah Kim, RN','Staff Nurse · RN','NY-RN-449871','(212) 555-0127','Nights',44.5,'OT watch',12,24),
-  ('DO','#0f9e8e','David Okonkwo, RN','Float Pool · RN','NY-RN-902331','(646) 555-0164','Days',24.0,'Available',NULL,NULL),
-  ('SR','#3a0b5e','Sofia Rossi, RN','Staff Nurse · RN','NY-RN-128744','(212) 555-0135','Evening',32.0,'On shift',NULL,NULL),
-  ('CM','#564f6b','Carlos Mendez','Patient Care Tech','NY-PCT-20418','(347) 555-0188','Days',40.0,'On shift',NULL,NULL),
-  ('LN','#564f6b','Linh Nguyen','Patient Care Tech','NY-PCT-20655','(718) 555-0191','Nights',36.0,'On shift',NULL,NULL)
+  ('AO','#3a0b5e','Dr. Amara Okonkwo','Obstetrics · MD','NY-MD-887214','(212) 555-0142','Days',40.0,'On shift',78,156),
+  ('RS','#6a1f9e','Dr. Rachel Stein','Obstetrics · MD','NY-MD-553090','(212) 555-0150','Days',36.0,'On shift',54,108),
+  ('PN','#0f9e8e','Dr. Priya Nair','Gynecology · MD','NY-MD-310455','(212) 555-0161','Days',40.0,'On shift',66,132),
+  ('NB','#b8730a','Naomi Bridges, CNM','Midwife · CNM','NY-CNM-771265','(212) 555-0156','Evening',32.0,'On shift',31,62),
+  ('SR','#c62828','Dr. Sofia Ramirez','MFM · MD','NY-MD-664120','(718) 555-0172','Days',32.0,'On shift',NULL,NULL),
+  ('GA','#6a1f9e','Grace Adeyemi, CNM','Midwife · CNM','NY-CNM-449871','(646) 555-0190','Days',36.0,'On shift',48,96),
+  ('DC','#0f9e8e','Dr. David Cohen','Gynecology · MD','NY-MD-902331','(646) 555-0167','Days',36.0,'Available',NULL,NULL),
+  ('HP','#3a0b5e','Dr. Helen Park','MFM · MD','NY-MD-128744','(212) 555-0180','Days',40.0,'On shift',NULL,NULL),
+  ('DO','#564f6b','Daniel Osei, PA','Gynecology · PA','NY-PA-20418','(347) 555-0144','Days',40.0,'On shift',NULL,NULL),
+  ('AR','#564f6b','Aisha Rahman, PA','Obstetrics · PA','NY-PA-20655','(212) 555-0118','Days',36.0,'Available',NULL,NULL)
 ) v WHERE NOT EXISTS (SELECT 1 FROM workforce.roster);
 
 INSERT INTO workforce.risk_today (tier,patient_name,syn_id,mrn,phone,appt_time,provider,risk_pct,factors,action)
 SELECT * FROM (VALUES
-  ('RED','Robert Castellano','#3 · SYN-00003','SYN-4471','(212) 555-0103','9:00 AM','Dr. Adebayo',71,'["3 prior no-shows","No reminder confirmed","Rain forecast"]'::jsonb,'Call + overbook'),
-  ('RED','Gloria Fitzpatrick','#22 · SYN-00022','SYN-5108','(646) 555-0122','10:30 AM','Y. Tanaka, NP',74,'["3 prior no-shows","Transit > 45 min"]'::jsonb,'Call + overbook'),
-  ('RED','Darnell Brooks','#27 · SYN-00027','SYN-6033','(347) 555-0127','2:15 PM','Dr. Adebayo',75,'["3 prior no-shows","First visit","No text on file"]'::jsonb,'Call patient'),
-  ('AMBER','Anthony Russo','#21 · SYN-00021','SYN-4990','(718) 555-0121','11:00 AM','Y. Tanaka, NP',54,'["2 prior no-shows"]'::jsonb,'Send text reminder'),
-  ('AMBER','Mei-Ling Chen','#16 · SYN-00016','SYN-4612','(212) 555-0116','1:00 PM','Dr. Adebayo',52,'["2 prior no-shows","Afternoon slot"]'::jsonb,'Send text reminder'),
-  ('AMBER','Grace Abara','#34 · SYN-00034','SYN-7120','(646) 555-0134','3:30 PM','Y. Tanaka, NP',35,'["Reschedule last week"]'::jsonb,'Send text reminder'),
-  ('AMBER','Fatima Al-Rashid','#15 · SYN-00015','SYN-4580','(718) 555-0115','8:30 AM','Dr. Adebayo',31,'["Baseline"]'::jsonb,'Monitor'),
-  ('GREEN','Samuel Greenberg','#4 · SYN-00004','SYN-4419','(212) 555-0104','8:00 AM','Dr. Adebayo',14,'["Baseline","Confirmed"]'::jsonb,'No action'),
-  ('GREEN','Olivia Park','#9 · SYN-00009','SYN-4503','(646) 555-0109','9:45 AM','Y. Tanaka, NP',15,'["Baseline","Confirmed"]'::jsonb,'No action'),
-  ('GREEN','Henry Nwosu','#10 · SYN-00010','SYN-4527','(347) 555-0110','12:00 PM','Dr. Adebayo',30,'["Baseline"]'::jsonb,'No action'),
-  ('GREEN','Isabella Romano','#28 · SYN-00028','SYN-6041','(212) 555-0128','1:45 PM','Y. Tanaka, NP',17,'["Baseline","Confirmed"]'::jsonb,'No action'),
-  ('GREEN','Wei Zhang','#33 · SYN-00033','SYN-7098','(718) 555-0133','4:00 PM','Dr. Adebayo',18,'["Baseline"]'::jsonb,'No action')
+  ('RED','Daniela Marquez','#3 · SYN-00003','SYN-4471','(212) 555-0103','9:00 AM','Dr. Okonkwo',71,'["3 prior no-shows","No text on file","Prenatal · AM"]'::jsonb,'Call + standby'),
+  ('RED','Latoya Williams','#22 · SYN-00022','SYN-5108','(646) 555-0122','10:30 AM','N. Bridges, CNM',74,'["3 prior no-shows","Transit > 45 min","Prenatal"]'::jsonb,'Call + standby'),
+  ('RED','Mei Chen','#27 · SYN-00027','SYN-6033','(347) 555-0127','2:20 PM','Dr. Okonkwo',75,'["3 prior no-shows","New OB","No text on file"]'::jsonb,'Call patient'),
+  ('AMBER','Fatou Diallo','#21 · SYN-00021','SYN-4990','(718) 555-0121','11:00 AM','N. Bridges, CNM',54,'["2 prior no-shows","Postpartum"]'::jsonb,'Send text reminder'),
+  ('AMBER','Rosa Gutierrez','#16 · SYN-00016','SYN-4612','(212) 555-0116','1:00 PM','Dr. Nair',52,'["2 prior no-shows","Afternoon slot"]'::jsonb,'Send text reminder'),
+  ('AMBER','Aaliyah Johnson','#34 · SYN-00034','SYN-7120','(646) 555-0134','3:30 PM','Dr. Cohen',38,'["Reschedule last week","Colposcopy"]'::jsonb,'Send text reminder'),
+  ('AMBER','Hannah Goldberg','#15 · SYN-00015','SYN-4580','(718) 555-0115','8:00 AM','Dr. Okonkwo',36,'["Prenatal · AM"]'::jsonb,'Monitor'),
+  ('GREEN','Olivia Bennett','#4 · SYN-00004','SYN-4419','(212) 555-0104','8:00 AM','Dr. Okonkwo',14,'["Confirmed","Prenatal"]'::jsonb,'No action'),
+  ('GREEN','Priscilla Adeyemi','#9 · SYN-00009','SYN-4503','(646) 555-0109','9:40 AM','Dr. Ramirez',15,'["Confirmed","MFM consult"]'::jsonb,'No action'),
+  ('GREEN','Nadia Hussain','#10 · SYN-00010','SYN-4527','(347) 555-0110','12:00 PM','D. Osei, PA',30,'["GYN follow-up"]'::jsonb,'No action'),
+  ('GREEN','Carmen Ortiz','#28 · SYN-00028','SYN-6041','(212) 555-0128','9:20 AM','Dr. Okonkwo',17,'["Confirmed","Prenatal"]'::jsonb,'No action'),
+  ('GREEN','Sandra Okeke','#33 · SYN-00033','SYN-7098','(718) 555-0133','11:30 AM','Dr. Nair',18,'["GYN annual"]'::jsonb,'No action')
 ) v WHERE NOT EXISTS (SELECT 1 FROM workforce.risk_today);
 
+-- PTO queue includes the scripted UC4 OVERLAP CONFLICT: Okonkwo + Stein (both Inpatient OB)
+-- out Jun 16-20 / Jun 17-19 → Inpatient OB below its 2-provider minimum (coverage_gap=true).
 INSERT INTO workforce.pto_queue (ini,color,provider_name,type,dates,coverage_gap,status)
 SELECT * FROM (VALUES
-  ('JO','#b8730a','James O''Sullivan, RN','Vacation','Jun 16–20',true,'pend'),
-  ('SR','#3a0b5e','Sofia Rossi, RN','CME / Education','Jun 24–25',false,'pend'),
-  ('AM','#c62828','Aisha Mohammed, RN','Sick','Jun 9 (today)',true,'ok'),
-  ('CM','#564f6b','Carlos Mendez · PCT','Vacation','Jul 1–5',false,'ok'),
-  ('HK','#6a1f9e','Hannah Kim, RN','Personal','Jun 30',false,'no')
+  ('AO','#3a0b5e','Dr. Amara Okonkwo','Vacation','Jun 16–20',true,'pend'),
+  ('RS','#6a1f9e','Dr. Rachel Stein','CME / Education','Jun 17–19',true,'ok'),
+  ('NB','#b8730a','Naomi Bridges, CNM','Personal','Jun 24–25',false,'pend'),
+  ('DO','#564f6b','Daniel Osei · PA','Vacation','Jul 1–5',false,'ok'),
+  ('GA','#6a1f9e','Grace Adeyemi, CNM','Sick','Jun 9 (today)',false,'no')
 ) v WHERE NOT EXISTS (SELECT 1 FROM workforce.pto_queue);

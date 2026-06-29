@@ -126,7 +126,7 @@ async function renderSchedule(host) {
   const mine = ROLE === "Provider";
   host.innerHTML = `
     <div class="card" style="margin-bottom:16px"><div class="card-h">
-      <div><h3>${mine ? "My appointments" : "Appointments"} · ${TODAY}</h3><div class="sub">${appts.length} booked · Med-Surg 4W clinic</div></div>
+      <div><h3>${mine ? "My appointments" : "Appointments"} · ${TODAY}</h3><div class="sub">${appts.length} booked · OBGYN clinic</div></div>
       <div class="btn-row"><button class="btn primary" id="newAppt">New appointment</button><button class="btn" id="modAppt">Modify</button><button class="btn" id="canAppt">Cancel</button></div></div>
       <div class="card-b" style="padding:0"><table><thead><tr><th>Time</th><th>Patient</th><th>MRN</th><th>Provider</th><th>Specialty</th><th>Type</th></tr></thead>
       <tbody>${appts.map((a) => `<tr><td><b>${esc(a.appt_time)}</b></td><td>${esc(a.patient_name)}</td><td class="mono">${esc(a.mrn)}</td><td>${esc(a.provider_name)}</td><td>${esc(a.specialty)}</td><td>${esc(a.type)}</td></tr>`).join("") || `<tr><td colspan="6" style="color:var(--ink-3)">No appointments.</td></tr>`}</tbody></table></div></div>
@@ -214,7 +214,7 @@ async function stepSpecialty() {
 }
 async function stepFindAppt() {
   crumbs([{ t: "Find appointment", on: 1 }, { t: D.mode === "cancel" ? "Confirm" : "Calendar" }]);
-  $("#drawerBody").innerHTML = `<div class="field-row"><label>Search by patient, MRN, or provider</label><input class="search" id="apptSearch" placeholder="e.g. Russo, SYN-4990, Tanaka"></div><div id="apptResults"></div>`;
+  $("#drawerBody").innerHTML = `<div class="field-row"><label>Search by patient, MRN, or provider</label><input class="search" id="apptSearch" placeholder="e.g. Diallo, SYN-4990, Okonkwo"></div><div id="apptResults"></div>`;
   const run = async (qq) => {
     const list = await get("/api/sched/appointments", { query: qq });
     $("#apptResults").innerHTML = list.slice(0, 12).map((a) => `<div class="tile" data-appt="${a.id}"><span class="nm">${esc(a.patient_name)} <span class="mono">${esc(a.mrn)}</span></span><span class="meta">${esc(a.appt_date)} ${esc(a.appt_time)} · ${esc(a.provider_name)}</span></div>`).join("") || `<div class="sub" style="color:var(--ink-3)">No matches.</div>`;
@@ -295,14 +295,14 @@ const inline = (s) => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/
 /* ---------------- copilot ---------------- */
 function renderCopilot(host) {
   host.innerHTML = `<div class="chatwrap">
-    <div class="chat"><div class="chat-h"><div class="bot">${ICONS.chat}</div><div class="nm">Workforce Assistant<small>Med-Surg 4W · granite on KServe (rules fallback) · synthetic</small></div><button class="btn" id="chatClear" style="margin-left:auto;padding:5px 11px;font-size:12px">Clear</button></div>
+    <div class="chat"><div class="chat-h"><div class="bot">${ICONS.chat}</div><div class="nm">OBGYN Scheduling Assistant<small>OBGYN · Claude via Portkey (rules fallback) · synthetic</small></div><button class="btn" id="chatClear" style="margin-left:auto;padding:5px 11px;font-size:12px">Clear</button></div>
       <div class="chat-log" id="chatLog"><div class="msg bot"><div class="ic">${ICONS.chat}</div><div class="bubble">Hi — I can book, modify, or cancel appointments, run PTO impact, and summarise the unit — all from chat. Ask <b>"how is everything?"</b> for a status table, or try a suggestion. <span style="color:var(--ink-3);font-size:12px">All data is synthetic.</span></div></div></div>
       <div class="chat-in"><input id="chatInput" placeholder="Ask the Workforce Assistant…"><button class="btn primary" id="chatSend">Send</button></div></div>
     <div class="chips"><div class="side-label">Suggested</div>
       <button class="chip" data-q="How is everything? Give me a status table.">How is everything?</button>
-      <button class="chip" data-q="Which cardiologists have openings and the soonest slot?">Cardiologists with openings</button>
-      <button class="chip" data-q="Put Dr. Tanaka on PTO from 2026-06-16 to 2026-06-20 and show the impact">Dr. Tanaka PTO Jun 16–20 impact</button>
-      <button class="chip" data-q="Cancel the appointment for Anthony Russo">Cancel Anthony Russo</button>
+      <button class="chip" data-q="Which OB providers have openings and the soonest slot?">OB providers with openings</button>
+      <button class="chip" data-q="Put Dr. Okonkwo on PTO from 6/16 to 6/20 and show the impact">Dr. Okonkwo PTO Jun 16–20 impact</button>
+      <button class="chip" data-q="Cancel the appointment for Fatou Diallo">Cancel Fatou Diallo</button>
       <div class="modelnote">The assistant routes to the same scheduling actions the UI uses (one source of truth). After a chat action, the tabs reflect the change.</div></div></div>`;
   const log = $("#chatLog");
   const welcomeHTML = log.innerHTML;

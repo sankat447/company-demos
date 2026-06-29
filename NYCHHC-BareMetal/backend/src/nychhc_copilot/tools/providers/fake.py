@@ -26,19 +26,19 @@ from .base import (
 )
 
 _DEPTS = [
-    (1, "Emergency", 6.0, 40),
-    (2, "Med-Surg 4W", 4.0, 28),
-    (3, "Pediatrics", 3.0, 18),
+    (1, "Inpatient OB", 2.0, 18),
+    (2, "Inpatient GYN", 1.0, 12),
+    (3, "Outpatient Clinic", 1.0, 30),
 ]
 _PROVIDERS = [
-    (1, "Alice Nguyen", "MD", 1),
-    (2, "Ben Carter", "MD", 1),
-    (3, "Carla Diaz", "APP", 2),
-    (4, "David Okafor", "RN", 2),
-    (5, "Emma Schmidt", "MD", 3),
-    (6, "Frank Russo", "RN", 3),
-    (7, "Grace Lee", "APP", 1),
-    (8, "Hassan Ali", "RN", 1),
+    (1, "Dr. Amara Okonkwo", "MD", 1),
+    (2, "Dr. Rachel Stein", "MD", 1),
+    (3, "Dr. Priya Nair", "MD", 2),
+    (4, "Dr. David Cohen", "MD", 2),
+    (5, "Dr. Sofia Ramirez", "MD", 1),
+    (6, "Naomi Bridges", "APP", 3),
+    (7, "Grace Adeyemi", "APP", 3),
+    (8, "Daniel Osei", "APP", 2),
 ]
 
 
@@ -71,38 +71,38 @@ class FakeAurora(AuroraProvider):
                CREATE TABLE pto_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, ini TEXT, color TEXT,
                  provider_name TEXT, type TEXT, dates TEXT, coverage_gap INTEGER, status TEXT);""")
         c.executemany("INSERT INTO roster (ini,color,name,role,license,phone,shift,weekly_hours,status,pto_balance_pct,pto_balance_hours) VALUES (?,?,?,?,?,?,?,?,?,?,?)", [
-            ("MA", "#cc785c", "Dr. Marcus Adebayo", "Hospitalist · MD", "NY-MD-887214", "(212) 555-0142", "Days", 40.0, "On shift", 78, 156),
-            ("PV", "#b05730", "Priya Venkatesan, RN", "Charge Nurse · RN", "NY-RN-553090", "(212) 555-0118", "Days", 36.0, "On shift", 54, 108),
-            ("YT", "#5e7c58", "Yuki Tanaka, NP", "Nurse Practitioner", "NY-NP-310455", "(212) 555-0156", "Evening", 32.0, "On shift", 66, 132),
-            ("JO", "#c08a2d", "James O'Sullivan, RN", "Staff Nurse · RN", "NY-RN-771265", "(646) 555-0173", "Nights", 36.0, "Available", 31, 62),
-            ("AM", "#b24a38", "Aisha Mohammed, RN", "Staff Nurse · RN", "NY-RN-664120", "(718) 555-0109", "Evening", 40.0, "On shift", None, None),
-            ("HK", "#b05730", "Hannah Kim, RN", "Staff Nurse · RN", "NY-RN-449871", "(212) 555-0127", "Nights", 44.5, "OT watch", 12, 24),
-            ("DO", "#5e7c58", "David Okonkwo, RN", "Float Pool · RN", "NY-RN-902331", "(646) 555-0164", "Days", 24.0, "Available", None, None),
-            ("SR", "#cc785c", "Sofia Rossi, RN", "Staff Nurse · RN", "NY-RN-128744", "(212) 555-0135", "Evening", 32.0, "On shift", None, None),
-            ("CM", "#6b6862", "Carlos Mendez", "Patient Care Tech", "NY-PCT-20418", "(347) 555-0188", "Days", 40.0, "On shift", None, None),
-            ("LN", "#6b6862", "Linh Nguyen", "Patient Care Tech", "NY-PCT-20655", "(718) 555-0191", "Nights", 36.0, "On shift", None, None),
+            ("AO", "#cc785c", "Dr. Amara Okonkwo", "Obstetrics · MD", "NY-MD-887214", "(212) 555-0142", "Days", 40.0, "On shift", 78, 156),
+            ("RS", "#b05730", "Dr. Rachel Stein", "Obstetrics · MD", "NY-MD-553090", "(212) 555-0150", "Days", 36.0, "On shift", 54, 108),
+            ("PN", "#5e7c58", "Dr. Priya Nair", "Gynecology · MD", "NY-MD-310455", "(212) 555-0161", "Days", 40.0, "On shift", 66, 132),
+            ("NB", "#c08a2d", "Naomi Bridges, CNM", "Midwife · CNM", "NY-CNM-771265", "(212) 555-0156", "Evening", 32.0, "On shift", 31, 62),
+            ("SR", "#b24a38", "Dr. Sofia Ramirez", "MFM · MD", "NY-MD-664120", "(718) 555-0172", "Days", 32.0, "On shift", None, None),
+            ("GA", "#b05730", "Grace Adeyemi, CNM", "Midwife · CNM", "NY-CNM-449871", "(646) 555-0190", "Days", 36.0, "On shift", 48, 96),
+            ("DC", "#5e7c58", "Dr. David Cohen", "Gynecology · MD", "NY-MD-902331", "(646) 555-0167", "Days", 36.0, "Available", None, None),
+            ("HP", "#cc785c", "Dr. Helen Park", "MFM · MD", "NY-MD-128744", "(212) 555-0180", "Days", 40.0, "On shift", None, None),
+            ("DO", "#6b6862", "Daniel Osei, PA", "Gynecology · PA", "NY-PA-20418", "(347) 555-0144", "Days", 40.0, "On shift", None, None),
+            ("AR", "#6b6862", "Aisha Rahman, PA", "Obstetrics · PA", "NY-PA-20655", "(212) 555-0118", "Days", 36.0, "Available", None, None),
         ])
         risk = [
-            ("RED", "Robert Castellano", "#3 · SYN-00003", "SYN-4471", "(212) 555-0103", "9:00 AM", "Dr. Adebayo", 71, '["3 prior no-shows","No reminder confirmed","Rain forecast"]', "Call + overbook"),
-            ("RED", "Gloria Fitzpatrick", "#22 · SYN-00022", "SYN-5108", "(646) 555-0122", "10:30 AM", "Y. Tanaka, NP", 74, '["3 prior no-shows","Transit > 45 min"]', "Call + overbook"),
-            ("RED", "Darnell Brooks", "#27 · SYN-00027", "SYN-6033", "(347) 555-0127", "2:15 PM", "Dr. Adebayo", 75, '["3 prior no-shows","First visit","No text on file"]', "Call patient"),
-            ("AMBER", "Anthony Russo", "#21 · SYN-00021", "SYN-4990", "(718) 555-0121", "11:00 AM", "Y. Tanaka, NP", 54, '["2 prior no-shows"]', "Send text reminder"),
-            ("AMBER", "Mei-Ling Chen", "#16 · SYN-00016", "SYN-4612", "(212) 555-0116", "1:00 PM", "Dr. Adebayo", 52, '["2 prior no-shows","Afternoon slot"]', "Send text reminder"),
-            ("AMBER", "Grace Abara", "#34 · SYN-00034", "SYN-7120", "(646) 555-0134", "3:30 PM", "Y. Tanaka, NP", 35, '["Reschedule last week"]', "Send text reminder"),
-            ("AMBER", "Fatima Al-Rashid", "#15 · SYN-00015", "SYN-4580", "(718) 555-0115", "8:30 AM", "Dr. Adebayo", 31, '["Baseline"]', "Monitor"),
-            ("GREEN", "Samuel Greenberg", "#4 · SYN-00004", "SYN-4419", "(212) 555-0104", "8:00 AM", "Dr. Adebayo", 14, '["Baseline","Confirmed"]', "No action"),
-            ("GREEN", "Olivia Park", "#9 · SYN-00009", "SYN-4503", "(646) 555-0109", "9:45 AM", "Y. Tanaka, NP", 15, '["Baseline","Confirmed"]', "No action"),
-            ("GREEN", "Henry Nwosu", "#10 · SYN-00010", "SYN-4527", "(347) 555-0110", "12:00 PM", "Dr. Adebayo", 30, '["Baseline"]', "No action"),
-            ("GREEN", "Isabella Romano", "#28 · SYN-00028", "SYN-6041", "(212) 555-0128", "1:45 PM", "Y. Tanaka, NP", 17, '["Baseline","Confirmed"]', "No action"),
-            ("GREEN", "Wei Zhang", "#33 · SYN-00033", "SYN-7098", "(718) 555-0133", "4:00 PM", "Dr. Adebayo", 18, '["Baseline"]', "No action"),
+            ("RED", "Daniela Marquez", "#3 · SYN-00003", "SYN-4471", "(212) 555-0103", "9:00 AM", "Dr. Okonkwo", 71, '["3 prior no-shows","No text on file","Prenatal · AM"]', "Call + standby"),
+            ("RED", "Latoya Williams", "#22 · SYN-00022", "SYN-5108", "(646) 555-0122", "10:30 AM", "N. Bridges, CNM", 74, '["3 prior no-shows","Transit > 45 min","Prenatal"]', "Call + standby"),
+            ("RED", "Mei Chen", "#27 · SYN-00027", "SYN-6033", "(347) 555-0127", "2:20 PM", "Dr. Okonkwo", 75, '["3 prior no-shows","New OB","No text on file"]', "Call patient"),
+            ("AMBER", "Fatou Diallo", "#21 · SYN-00021", "SYN-4990", "(718) 555-0121", "11:00 AM", "N. Bridges, CNM", 54, '["2 prior no-shows","Postpartum"]', "Send text reminder"),
+            ("AMBER", "Rosa Gutierrez", "#16 · SYN-00016", "SYN-4612", "(212) 555-0116", "1:00 PM", "Dr. Nair", 52, '["2 prior no-shows","Afternoon slot"]', "Send text reminder"),
+            ("AMBER", "Aaliyah Johnson", "#34 · SYN-00034", "SYN-7120", "(646) 555-0134", "3:30 PM", "Dr. Cohen", 38, '["Reschedule last week","Colposcopy"]', "Send text reminder"),
+            ("AMBER", "Hannah Goldberg", "#15 · SYN-00015", "SYN-4580", "(718) 555-0115", "8:00 AM", "Dr. Okonkwo", 36, '["Prenatal · AM"]', "Monitor"),
+            ("GREEN", "Olivia Bennett", "#4 · SYN-00004", "SYN-4419", "(212) 555-0104", "8:00 AM", "Dr. Okonkwo", 14, '["Confirmed","Prenatal"]', "No action"),
+            ("GREEN", "Priscilla Adeyemi", "#9 · SYN-00009", "SYN-4503", "(646) 555-0109", "9:40 AM", "Dr. Ramirez", 15, '["Confirmed","MFM consult"]', "No action"),
+            ("GREEN", "Nadia Hussain", "#10 · SYN-00010", "SYN-4527", "(347) 555-0110", "12:00 PM", "D. Osei, PA", 30, '["GYN follow-up"]', "No action"),
+            ("GREEN", "Carmen Ortiz", "#28 · SYN-00028", "SYN-6041", "(212) 555-0128", "9:20 AM", "Dr. Okonkwo", 17, '["Confirmed","Prenatal"]', "No action"),
+            ("GREEN", "Sandra Okeke", "#33 · SYN-00033", "SYN-7098", "(718) 555-0133", "11:30 AM", "Dr. Nair", 18, '["GYN annual"]', "No action"),
         ]
         c.executemany("INSERT INTO risk_today (tier,patient_name,syn_id,mrn,phone,appt_time,provider,risk_pct,factors,action) VALUES (?,?,?,?,?,?,?,?,?,?)", risk)
         c.executemany("INSERT INTO pto_queue (ini,color,provider_name,type,dates,coverage_gap,status) VALUES (?,?,?,?,?,?,?)", [
-            ("JO", "#c08a2d", "James O'Sullivan, RN", "Vacation", "Jun 16–20", 1, "pend"),
-            ("SR", "#cc785c", "Sofia Rossi, RN", "CME / Education", "Jun 24–25", 0, "pend"),
-            ("AM", "#b24a38", "Aisha Mohammed, RN", "Sick", "Jun 9 (today)", 1, "ok"),
-            ("CM", "#6b6862", "Carlos Mendez · PCT", "Vacation", "Jul 1–5", 0, "ok"),
-            ("HK", "#b05730", "Hannah Kim, RN", "Personal", "Jun 30", 0, "no"),
+            ("AO", "#cc785c", "Dr. Amara Okonkwo", "Vacation", "Jun 16–20", 1, "pend"),
+            ("RS", "#b05730", "Dr. Rachel Stein", "CME / Education", "Jun 17–19", 1, "ok"),
+            ("NB", "#c08a2d", "Naomi Bridges, CNM", "Personal", "Jun 24–25", 0, "pend"),
+            ("DO", "#6b6862", "Daniel Osei · PA", "Vacation", "Jul 1–5", 0, "ok"),
+            ("GA", "#b05730", "Grace Adeyemi, CNM", "Sick", "Jun 9 (today)", 0, "no"),
         ])
         c.commit()
 
@@ -139,8 +139,8 @@ class FakeAurora(AuroraProvider):
             day = today + timedelta(days=d)
             for (pid, _name, _role, dept) in _PROVIDERS:
                 status = "scheduled"
-                if day == gap_tue and dept == 1 and pid in (1, 7):
-                    status = "open"  # the gap
+                if day == gap_tue and dept == 1 and pid in (1, 2):
+                    status = "open"  # the gap (Inpatient OB short on the next Tuesday)
                 rows.append((shift_id, pid, dept, day.isoformat(), "day", status))
                 shift_id += 1
         c.executemany("INSERT INTO shifts VALUES (?,?,?,?,?,?)", rows)
@@ -163,7 +163,7 @@ class FakeAurora(AuroraProvider):
                 no_show = (prior >= 2 and lead > 10 and (appt_id % 3 == 0))
                 appts.append((
                     appt_id, f"SYN-{appt_id:05d}", dept, pid, day.isoformat(),
-                    lead, prior, "40-64", "no_show" if no_show else "attended",
+                    lead, prior, "18-39", "no_show" if no_show else "attended",
                 ))
                 appt_id += 1
         c.executemany("INSERT INTO appointments VALUES (?,?,?,?,?,?,?,?,?)", appts)

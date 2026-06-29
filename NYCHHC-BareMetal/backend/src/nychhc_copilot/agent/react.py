@@ -42,9 +42,10 @@ Operating rules:
 
 
 _SPECIALTY_KW = {
-    "cardiolog": "Cardiology", "pulmonolog": "Pulmonology", "nephrolog": "Nephrology",
-    "endocrin": "Endocrinology", "family": "Family Medicine", "internal": "Internal Medicine",
-    "hospitalist": "Internal Medicine",
+    "obstetric": "Obstetrics", "prenatal": "Obstetrics", "new ob": "Obstetrics", "ob ": "Obstetrics",
+    "gynecolog": "Gynecology", "gyn": "Gynecology",
+    "midwif": "Midwifery", "cnm": "Midwifery",
+    "maternal": "Maternal-Fetal Medicine", "mfm": "Maternal-Fetal Medicine", "high-risk": "Maternal-Fetal Medicine",
 }
 _MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7,
            "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
@@ -123,8 +124,8 @@ def route(message: str, providers) -> str | None:
         red, amb, grn = scalar("SELECT count(*) FROM risk_today WHERE tier='RED'"), scalar("SELECT count(*) FROM risk_today WHERE tier='AMBER'"), scalar("SELECT count(*) FROM risk_today WHERE tier='GREEN'")
         pend = scalar("SELECT count(*) FROM pto_queue WHERE status='pend'")
         booked = scalar("SELECT count(*) FROM sched_appointments WHERE appt_date='2026-06-09' AND status='Booked'")
-        return ("Here's where Med-Surg 4W stands today:\n"
-                "- Coverage: 92% (on plan)\n- Open shifts (next 7 days): 6\n"
+        return ("Here's where the OBGYN department stands today:\n"
+                "- Inpatient OB coverage: 2 of 2 on service (on plan)\n- Open shifts (next 7 days): 6\n"
                 f"- No-show risk: {red} red, {amb} amber, {grn} green\n"
                 f"- Pending PTO requests: {pend}\n- Appointments booked today: {booked}\n"
                 "- Overtime this week: 38.5h (target 32.5h)")

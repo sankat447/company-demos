@@ -21,17 +21,17 @@ if curl -fsk "$BE/health" | grep -q '"status"'; then pass "/health ok"; else fai
 # 2. capabilities (DR list)
 if curl -fsk "$BE/api/capabilities" | grep -q 'DR-01'; then pass "/api/capabilities lists DR-01…"; else fail "/api/capabilities"; fi
 # 3. scheduling reads — roster + specialties
-if curl -fsk "$BE/api/sched/specialties" | grep -qi 'Cardiology'; then pass "specialties include Cardiology"; else fail "specialties"; fi
-if curl -fsk "$BE/api/sched/doctors?specialty=Cardiology" | grep -qiE 'Patel|Sokolova'; then pass "Cardiology roster (Patel/Sokolova)"; else fail "Cardiology doctors"; fi
+if curl -fsk "$BE/api/sched/specialties" | grep -qi 'Obstetrics'; then pass "specialties include Obstetrics"; else fail "specialties"; fi
+if curl -fsk "$BE/api/sched/doctors?specialty=Obstetrics" | grep -qiE 'Okonkwo|Stein'; then pass "Obstetrics roster (Okonkwo/Stein)"; else fail "Obstetrics doctors"; fi
 
 # 4. chat headline asks via the deterministic router (real data, no LLM needed)
 chat(){ curl -fsk -X POST "$BE/api/chat" -H 'content-type: application/json' \
   -d "{\"message\":\"$1\",\"role\":\"${2:-Scheduler}\"}" 2>/dev/null; }
-if chat "Which cardiologists have openings?" | grep -qiE 'Cardiology|Patel|Sokolova|open'; then
-  pass "chat: cardiologist openings (router)"; else fail "chat: cardiologist openings"; fi
+if chat "Which OB providers have openings?" | grep -qiE 'Obstetrics|Okonkwo|Stein|Rahman|open'; then
+  pass "chat: OB provider openings (router)"; else fail "chat: OB provider openings"; fi
 if chat "What's the no-show rate by provider?" | grep -qiE 'risk|%|no-show'; then
   pass "chat: no-show rate (router)"; else fail "chat: no-show rate"; fi
-if chat "Put Dr. Tanaka on PTO 6/16-6/20 and show the impact" | grep -qiE 'impact|appointment|reassign|Tanaka'; then
+if chat "Put Dr. Okonkwo on PTO 6/16-6/20 and show the impact" | grep -qiE 'impact|appointment|reassign|Okonkwo'; then
   pass "chat: PTO impact (router)"; else fail "chat: PTO impact"; fi
 
 # 5. frontend route serves the SPA

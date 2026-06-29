@@ -16,7 +16,7 @@ def test_departments():
     with _client() as c:
         body = c.get("/api/data/departments").json()
     assert body["disclaimer"] == DISCLAIMER
-    assert any(d["name"] == "Emergency" for d in body["data"])
+    assert any(d["name"] == "Inpatient OB" for d in body["data"])
 
 
 def test_schedule_has_upcoming_shifts():

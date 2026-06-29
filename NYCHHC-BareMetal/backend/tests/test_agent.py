@@ -50,7 +50,7 @@ async def test_react_copilot_runs_tool_then_answers():
         AIMessage(content="", tool_calls=[
             {"name": "coverage_forecast", "args": {"dept_id": 1, "horizon_days": 14}, "id": "c1"},
         ]),
-        AIMessage(content="Next Tuesday the Emergency department is understaffed (2 open day shifts)."),
+        AIMessage(content="Next Tuesday the Inpatient OB service is understaffed (2 open day shifts)."),
     ])
     copilot = ReActCopilot(model, tools)
 
@@ -60,4 +60,4 @@ async def test_react_copilot_runs_tool_then_answers():
     # The tool actually ran against the fake DB, and the final answer streamed.
     assert "understaffed" in answer.lower()
     # The empty tool-call turn was NOT streamed to the user.
-    assert answer.strip() == "Next Tuesday the Emergency department is understaffed (2 open day shifts)."
+    assert answer.strip() == "Next Tuesday the Inpatient OB service is understaffed (2 open day shifts)."
