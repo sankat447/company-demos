@@ -81,3 +81,12 @@ async def chat(req: ChatRequest, request: Request):
 
 def _sse(event: str, data: dict) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode()
+
+
+@router.post("/api/chat/reset")
+async def chat_reset(request: Request, session_id: str = "demo-session"):
+    """Clear the conversation memory for a session (the SPA 'Clear' button)."""
+    mem = getattr(request.app.state, "memory", None)
+    if mem is not None:
+        mem.reset(session_id)
+    return envelope({"ok": True, "session_id": session_id})

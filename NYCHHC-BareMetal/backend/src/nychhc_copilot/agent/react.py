@@ -80,22 +80,55 @@ _OUT_OF_SCOPE = ("nursing", "nurse schedul", "payroll", "billing", "timesheet",
 # Role-permitted actions (BR-9). Providers are read-only here; writes/approvals
 # belong to the Scheduler/Approver. Unknown roles default to Scheduler.
 _WRITE_ROLES = {"Scheduler", "Approver", "HR-Ops", "HR/Ops", "Admin"}
+# Confirmation phrases that approve a pending follow-up action (UC6 in chat).
+_CONFIRM = ("apply all auto", "apply auto", "apply the auto", "apply them", "apply now",
+            "reassign the auto", "go ahead", "do that", "do it", "yes apply", "yes, apply",
+            "yes please", "make it so", "confirm", "approve them", "approve it")
+_CONFIRM_BARE = {"yes", "yes.", "ok", "ok.", "okay", "sure", "go", "approve", "approved"}
 
 
-def route(message: str, providers, role: str = "Scheduler") -> str | None:
+def route(message: str, providers, role: str = "Scheduler", memory=None, session_id=None) -> str | None:
     """Deterministic intent router — returns a real, human-readable answer for common
-    asks (so we don't depend on a small model's flaky tool-calling). None => use the LLM."""
+    asks (so we don't depend on a small model's flaky tool-calling). None => use the LLM.
+
+    `memory`/`session_id` give the router short conversational context: it remembers the
+    last PTO-impact so a follow-up like "apply all auto" / "yes" actually applies it."""
     from ..scheduling import service as S
 
     aurora = providers.aurora
     m = message.lower()
     can_write = role in _WRITE_ROLES
 
+    def ctx(key, default=None):
+        return memory.get_context(session_id, key, default) if (memory and session_id) else default
+
     # 0a. Out-of-scope decline (UC5 2a) — be explicit about the boundary, don't guess.
     if any(w in m for w in _OUT_OF_SCOPE):
         return ("That's outside this demo's scope — it covers OBGYN **provider** scheduling "
                 "(no-show risk, coverage, PTO impact, schedule queries). Nursing schedules, the "
                 "HR/PTO system of record, payroll/billing, and clinical/PHI functions are out of scope.")
+
+    # 0c. Follow-up confirm: apply the auto-resolvable reassignments from the LAST PTO impact
+    # (conversational context). This IS the human approval (UC6) → execute + audit (BR-1/10).
+    pending = ctx("pending_pto_apply")
+    if pending and (any(p in m for p in _CONFIRM) or m.strip() in _CONFIRM_BARE):
+        if not can_write:
+            return ("Applying reassignments is a Scheduler/Approver action — as a Provider you can "
+                    "view the impact but not apply it.")
+        imp = S.compute_pto_impact(aurora, pending["provider_id"], pending["start"], pending["end"])
+        plan = [{"appt_id": a["id"], "provider_id": a["reassign_options"][0]["provider_id"],
+                 "date": a["appt_date"], "time": a["appt_time"]}
+                for a in imp["impacted"] if a["recommendation"] == "reassign"]
+        res = S.apply_reassignments(aurora, plan)
+        S.record_audit(aurora, "pto_reassign",
+                       f"Reassign {res.get('applied', 0)} appt(s) off {imp['provider']}",
+                       role, f"chat:{role}", "approved",
+                       outcome="executed" if res.get("ok") else "not-completed",
+                       rationale="approved in chat")
+        if memory and session_id:
+            memory.clear_context(session_id, "pending_pto_apply")
+        return (f"Done — approved and applied {res.get('applied', 0)} reassignment(s) off "
+                f"{imp['provider']}. The decision is recorded in the audit trail.")
 
     def scalar(sql, d=0):
         try:
@@ -167,6 +200,10 @@ def route(message: str, providers, role: str = "Scheduler") -> str | None:
             conf = imp.get("conflict") or {}
             if conf.get("breach"):
                 lines.append(f"⚠ COVERAGE CONFLICT: {conf['mitigation']}")
+            # Remember this impact so a follow-up "apply all auto" / "yes" can act on it.
+            if memory and session_id and imp.get("auto_resolvable_count"):
+                memory.set_context(session_id, "pending_pto_apply",
+                                   {"provider_id": prov["id"], "start": ds[0], "end": ds[1]})
             lines.append("Say \"apply all auto\" to reassign the auto-resolvable ones. "
                          "Any change needs your approval before it takes effect.")
             return "\n".join(lines)
@@ -220,10 +257,12 @@ def _clean(text: str) -> str:
 
 
 class ReActCopilot(Copilot):
-    def __init__(self, model: Any, tools: list, *, providers: Any = None, recursion_limit: int = 12) -> None:
+    def __init__(self, model: Any, tools: list, *, providers: Any = None,
+                 memory: Any = None, recursion_limit: int = 12) -> None:
         self._model = model
         self._tools = tools
         self._providers = providers
+        self._memory = memory  # SessionMemory | None — conversational context
         self._recursion_limit = recursion_limit
 
     def _system_prompt(self, role: str) -> str:
@@ -232,31 +271,48 @@ class ReActCopilot(Copilot):
         return _SYSTEM.format(role=role, disclaimer=DISCLAIMER, schema=SCHEMA_DOC)
 
     async def stream(self, turn: Turn) -> AsyncIterator[str]:
+        sid = turn.session_id or "demo-session"
+        mem = self._memory
+        # Capture PRIOR turns before recording the current one (so the LLM sees history).
+        prior = mem.history(sid) if mem else []
+        if mem:
+            mem.append(sid, "user", turn.message)
+
         # Deterministic intent router first: for common asks we call the real service
-        # and return the actual result, so the answer never depends on a small model's
-        # flaky tool-calling (which tends to narrate "I'll use the X function...").
+        # and return the actual result, so the answer never depends on the model's
+        # tool-calling. The router also reads/writes short context (follow-ups).
         if self._providers is not None:
             try:
-                routed = route(turn.message, self._providers, role=turn.role or "Scheduler")
+                routed = route(turn.message, self._providers, role=turn.role or "Scheduler",
+                               memory=mem, session_id=sid)
             except Exception:
                 routed = None
             if routed:
+                if mem:
+                    mem.append(sid, "assistant", routed)
                 for word in routed.split(" "):
                     yield word + " "
                 return
 
         agent = create_agent(self._model, self._tools, system_prompt=self._system_prompt(turn.role))
         config = {"recursion_limit": self._recursion_limit}
+        # Build the message list from prior history + the current turn, so open-ended
+        # follow-ups ("what about her?", "reschedule the second one") have context.
+        msgs: list = []
+        for h in prior:
+            msgs.append(HumanMessage(h["content"]) if h["role"] == "user" else AIMessage(h["content"]))
+        msgs.append(HumanMessage(turn.message))
         # Run the full agent (tool calls + final answer), then return ONLY the final
-        # assistant message — cleaned of tool-call JSON / code-fence artifacts that
-        # some models (e.g. granite's tool parser) leak into content. Pseudo-stream it
-        # word-by-word so the UI keeps its typing feel without mixing in JSON.
-        result = await agent.ainvoke({"messages": [HumanMessage(turn.message)]}, config=config)
+        # assistant message — cleaned of tool-call JSON / code-fence artifacts. Pseudo-
+        # stream it word-by-word so the UI keeps its typing feel.
+        result = await agent.ainvoke({"messages": msgs}, config=config)
         final = ""
         for m in reversed(result.get("messages", [])):
             if isinstance(m, AIMessage) and isinstance(m.content, str) and m.content.strip():
                 final = m.content
                 break
         final = _clean(final) or "I couldn't produce an answer — please try rephrasing."
+        if mem:
+            mem.append(sid, "assistant", final)
         for word in final.split(" "):
             yield word + " "

@@ -1,4 +1,4 @@
-import { get, post, streamChat } from "./api.js";
+import { get, post, streamChat, resetChat } from "./api.js";
 
 const TODAY = "2026-06-09";
 const GRAFANA_DASH = "https://grafana-rhoai-monitoring.apps.ai-demo.iisdemolab.click/d/nychhc-workforce";
@@ -359,7 +359,7 @@ function renderCopilot(host) {
       <div class="modelnote">The assistant routes to the same scheduling actions the UI uses (one source of truth). After a chat action, the tabs reflect the change.</div></div></div>`;
   const log = $("#chatLog");
   const welcomeHTML = log.innerHTML;
-  $("#chatClear").onclick = () => { log.innerHTML = welcomeHTML; };
+  $("#chatClear").onclick = () => { log.innerHTML = welcomeHTML; resetChat(); };
   const push = (role, html) => { const m = document.createElement("div"); m.className = "msg " + (role === "me" ? "me" : "bot"); m.innerHTML = `<div class="ic">${role === "me" ? "🧑" : ICONS.chat}</div><div class="bubble">${html}</div>`; log.appendChild(m); log.scrollTop = log.scrollHeight; return m.querySelector(".bubble"); };
   const send = async (q) => {
     if (!q.trim()) return;

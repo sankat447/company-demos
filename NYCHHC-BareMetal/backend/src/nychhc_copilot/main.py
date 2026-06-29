@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .agent import EchoCopilot, build_react_copilot
+from .agent import EchoCopilot, SessionMemory, build_react_copilot
 from .config import Mode, get_settings
 from .disclaimer import DISCLAIMER
 from .api.routes import router
@@ -24,11 +24,12 @@ from .scheduling import ensure_seeded
 from .tools.providers import build_providers
 
 
-def _build_copilot(settings):
+def _build_copilot(settings, memory, providers):
     if settings.mode is Mode.echo:
         return EchoCopilot(token_delay_s=0.02)  # small delay → visible streaming in the demo
-    # Mode.live → real LangChain ReAct copilot (Portkey → vLLM, workforce tools).
-    return build_react_copilot(settings)
+    # Mode.live → real LangChain ReAct copilot (Portkey → Claude, workforce tools),
+    # sharing the app's provider bundle + per-session memory.
+    return build_react_copilot(settings, memory=memory, providers=providers)
 
 
 @asynccontextmanager
@@ -36,11 +37,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.settings = settings
     app.state.providers = build_providers(settings)  # backs the data API (dashboard)
+    app.state.memory = SessionMemory()               # per-session chat context
     try:
         ensure_seeded(app.state.providers.aurora)  # create + seed sched_* (idempotent)
     except Exception as e:  # don't block startup if seeding hiccups
         print(f"[scheduling] seed skipped: {e}")
-    app.state.copilot = _build_copilot(settings)
+    app.state.copilot = _build_copilot(settings, app.state.memory, app.state.providers)
     yield
 
 

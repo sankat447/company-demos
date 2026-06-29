@@ -28,11 +28,18 @@ export const get = (path, q = {}) => {
 export const post = (path, body = {}) =>
   fetch(`${BACKEND}${path}`, { method: "POST", headers: roleHeaders({ "content-type": "application/json" }), body: JSON.stringify(body) }).then(unwrap);
 
+// One conversation session per tab → the backend keeps context across turns.
+export const SESSION = (self.crypto && crypto.randomUUID)
+  ? crypto.randomUUID() : "s-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+
+// Clear server-side conversation memory for this session (the chat "Clear" button).
+export const resetChat = () => post(`/api/chat/reset?session_id=${encodeURIComponent(SESSION)}`, {}).catch(() => {});
+
 // Copilot SSE stream → async iterator of text chunks.
 export async function* streamChat(message, role) {
   const r = await fetch(`${BACKEND}/api/chat`, {
     method: "POST", headers: roleHeaders({ "content-type": "application/json" }),
-    body: JSON.stringify({ message, role }),
+    body: JSON.stringify({ message, role, session_id: SESSION }),
   });
   const reader = r.body.getReader();
   const dec = new TextDecoder();
