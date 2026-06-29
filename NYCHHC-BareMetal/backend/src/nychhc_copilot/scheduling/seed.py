@@ -16,6 +16,10 @@ _DDL = [
         duration_min int, type text, reason text, status text)""",
     """CREATE TABLE IF NOT EXISTS sched_pto (
         id text PRIMARY KEY, provider_id text, start_date text, end_date text, type text, status text)""",
+    # UC6 HITL audit log (portable; live schema.sql defines the same shape).
+    """CREATE TABLE IF NOT EXISTS audit_log (
+        id text PRIMARY KEY, action text, summary text, rationale text, actor_role text,
+        actor_user text, decision text, outcome text, ts text)""",
 ]
 
 

@@ -19,6 +19,7 @@ from .api.routes import router
 from .api.data_routes import router as data_router
 from .api.sched_routes import router as sched_router
 from .api.mcp_routes import router as mcp_router
+from .api.actions_routes import router as actions_router
 from .scheduling import ensure_seeded
 from .tools.providers import build_providers
 
@@ -60,7 +61,8 @@ def create_app() -> FastAPI:
     app.include_router(router)
     app.include_router(data_router)
     app.include_router(sched_router)
-    app.include_router(mcp_router)   # UC8 — Epic/MCP FHIR tool surface
+    app.include_router(mcp_router)      # UC8 — Epic/MCP FHIR tool surface
+    app.include_router(actions_router)  # UC6 — HITL approval gate + audit
     return app
 
 

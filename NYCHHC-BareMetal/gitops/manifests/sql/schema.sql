@@ -59,15 +59,15 @@ CREATE TABLE IF NOT EXISTS workforce.appointments (
 -- ── UC6 audit log (HITL gate) — every AI-proposed action's human decision ─────
 -- BR-1 (nothing auto-executes) + BR-10 (attributable to a named user + timestamp).
 CREATE TABLE IF NOT EXISTS workforce.audit_log (
-  id          serial PRIMARY KEY,
+  id          text PRIMARY KEY,            -- uuid (portable across pg + the sqlite fake)
   action      text NOT NULL,                -- e.g. 'pto_reassign', 'outreach', 'pto_decision'
   summary     text NOT NULL,
   rationale   text,
   actor_role  text NOT NULL,                -- Scheduler / Approver / Provider / Leadership
   actor_user  text NOT NULL,                -- named user (dev-mode: from X-NYCHHC-Roles)
   decision    text NOT NULL,                -- approved / modified / rejected
-  outcome     text,                         -- executed / recorded / not-completed
-  ts          timestamptz NOT NULL DEFAULT now()
+  outcome     text,                         -- executed / recorded / not-completed / blocked
+  ts          text NOT NULL                 -- ISO timestamp (set by the app)
 );
 
 -- ── rag (pgvector store; UNUSED on baremetal — chat is router + Claude, no RAG.

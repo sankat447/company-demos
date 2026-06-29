@@ -9,7 +9,7 @@ Approved PTO). FOR DEMONSTRATION ONLY — SYNTHETIC DATA.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from .data import COVERAGE_MINIMUMS, SERVICE_LINE, TODAY
 
@@ -295,6 +295,34 @@ def compute_pto_impact(aurora, provider_id, start, end) -> dict:
             "impacted_count": len(impacted), "auto_resolvable_count": auto,
             "needs_manual_count": manual, "coverage_gaps": gaps, "impacted": rows,
             "conflict": conflict}
+
+
+# ── UC6 audit log (HITL gate) ───────────────────────────────────────────────
+def record_audit(aurora, action, summary, actor_role, actor_user, decision,
+                 outcome="recorded", rationale="") -> dict:
+    """Append an attributable audit row (BR-10: named user + timestamp). Best-effort —
+    never blocks the action it records."""
+    aid = "aud-" + uuid.uuid4().hex[:10]
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    try:
+        aurora.execute(
+            "INSERT INTO audit_log (id,action,summary,rationale,actor_role,actor_user,decision,outcome,ts) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (aid, action, summary, rationale, actor_role, actor_user, decision, outcome, ts))
+    except Exception:
+        pass
+    return {"id": aid, "action": action, "summary": summary, "rationale": rationale,
+            "actor_role": actor_role, "actor_user": actor_user, "decision": decision,
+            "outcome": outcome, "ts": ts}
+
+
+def recent_audit(aurora, limit: int = 25) -> list[dict]:
+    try:
+        return _dicts(aurora.query(
+            "SELECT ts, action, summary, actor_role, actor_user, decision, outcome "
+            f"FROM audit_log ORDER BY ts DESC LIMIT {int(limit)}"))
+    except Exception:
+        return []
 
 
 def apply_reassignments(aurora, plan: list[dict]) -> dict:

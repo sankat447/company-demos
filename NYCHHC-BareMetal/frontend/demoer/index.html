@@ -74,10 +74,11 @@ h1,h2,h3{font-family:var(--serif);font-weight:600;margin:0}
 
   <div class="step" id="s3">
     <div class="hd"><span class="num">3</span><h3>One platform, three roles</h3><span class="tag">~1 min</span></div>
-    <div class="say"><span class="lbl">Say</span>"The same system tailors itself by role. The <b>Scheduler</b> sees coverage and fills; <b>HR / Operations</b> sees PTO approvals and overtime; a <b>Provider</b> sees their own schedule and requests time off. Watch the workspace change."</div>
+    <div class="say"><span class="lbl">Say</span>"The same system tailors itself by role. The <b>Scheduler</b> sees no-show risk and fills; the <b>Approver</b> sees PTO impact and coverage conflicts; a <b>Provider</b> sees their own schedule; <b>Leadership</b> sees department performance. Watch the workspace change."</div>
     <div class="acts">
-      <button class="btn nav" onclick="run('s3',()=>setRole('HR/Ops'))">Switch to HR / Ops</button>
+      <button class="btn nav" onclick="run('s3',()=>setRole('Approver'))">Switch to Approver</button>
       <button class="btn nav" onclick="run('s3',()=>setRole('Provider'))">Switch to Provider</button>
+      <button class="btn nav" onclick="run('s3',()=>setRole('Leadership'))">Switch to Leadership</button>
       <button class="btn" onclick="run('s3',()=>go(()=>setRole('Scheduler')).then(()=>tab('dashboard')))">Back to Scheduler</button>
     </div>
   </div>

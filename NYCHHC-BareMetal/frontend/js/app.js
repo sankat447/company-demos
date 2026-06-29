@@ -21,22 +21,27 @@ const TABS = {
   schedule: { label: "Schedule", icon: ICONS.calendar },
   risk: { label: "No-Show Risk", icon: ICONS.risk },
   pto: { label: "PTO", icon: ICONS.pto },
+  approvals: { label: "Approvals", icon: ICONS.pto },
+  reporting: { label: "Reporting", icon: ICONS.dashboard },
   copilot: { label: "Assistant", icon: ICONS.chat },
 };
 
-/* ---------------- role / persona ---------------- */
+/* ---------------- role / persona (OBGYN; UC1/DR-01 + UC6 + Leadership) ---------------- */
 const ROLE_CONFIG = {
-  Scheduler: { persona: "Dana Reyes", title: "Staffing Coordinator", initials: "DR",
-    sub: "coverage, no-show risk, and smart fills", tabs: ["dashboard", "schedule", "risk", "copilot"] },
-  "HR/Ops": { persona: "Marcus Ellison", title: "HR Operations Manager", initials: "ME",
-    sub: "overtime, PTO approvals, and compliance", tabs: ["dashboard", "pto", "copilot"] },
-  Provider: { persona: "Dr. Alicia Gomez", title: "Hospitalist · MD", initials: "AG",
+  Scheduler: { persona: "Selamawit M.", title: "Scheduling Lead", initials: "SM",
+    sub: "no-show risk, coverage, and smart fills", tabs: ["dashboard", "schedule", "risk", "approvals", "copilot"] },
+  Approver: { persona: "Marcus Ellison", title: "HR / Operational Manager", initials: "ME",
+    sub: "PTO impact, coverage conflicts, and approvals", tabs: ["dashboard", "pto", "approvals", "copilot"] },
+  Provider: { persona: "Dr. Amara Okonkwo", title: "Obstetrics · MD", initials: "AO",
     sub: "my schedule and time-off requests", tabs: ["schedule", "pto", "copilot"] },
+  Leadership: { persona: "Dr. R. Adeyinka", title: "OBGYN Chair / CCO", initials: "RA",
+    sub: "department throughput, coverage reliability, and utilization", tabs: ["reporting", "dashboard", "copilot"] },
 };
 let ROLE = "Scheduler";
 
 function applyRole(role) {
   ROLE = role;
+  if (typeof window !== "undefined") window.__ROLE = role;  // carried as X-NYCHHC-Roles
   const c = ROLE_CONFIG[role];
   document.querySelectorAll(".role-opt").forEach((x) => x.classList.toggle("active", x.dataset.role === role));
   $("#personaName").textContent = c.persona;
@@ -69,6 +74,8 @@ async function render(tab) {
     if (tab === "schedule") return renderSchedule(host);
     if (tab === "risk") return renderRisk(host);
     if (tab === "pto") return renderPto(host);
+    if (tab === "approvals") return renderApprovals(host);
+    if (tab === "reporting") return renderReporting(host);
     if (tab === "copilot") return renderCopilot(host);
   } catch (e) {
     host.innerHTML = `<div class="card"><div class="card-b">Backend unreachable: ${esc(e.message)}</div></div>`;
@@ -194,7 +201,14 @@ async function runPtoImpact() {
       return `<div class="impact-row" style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><b>${esc(a.patient_name)}</b> · ${esc(a.appt_date)} ${esc(a.appt_time)} <span class="mono">${esc(a.mrn)}</span><div class="sub">${opt}</div></div><span class="badge ${a.recommendation === "reassign" ? "b-green" : a.recommendation === "reschedule" ? "b-amber" : "b-red"}">${a.recommendation}</span></div>`; }).join("")}
     ${imp.auto_resolvable_count ? `<button class="btn primary" id="applyAuto" style="margin-top:10px">Apply all auto (${imp.auto_resolvable_count})</button>` : ""}`;
   const btn = $("#applyAuto");
-  if (btn) btn.onclick = async () => { const plan = imp.impacted.filter((a) => a.recommendation === "reassign").map((a) => ({ appt_id: a.id, provider_id: a.reassign_options[0].provider_id, date: a.appt_date, time: a.appt_time })); const r = await post("/api/sched/apply-reassignments", { plan }); toast(`Applied ${r.applied} reassignment(s)`); runPtoImpact(); };
+  if (btn) btn.onclick = async () => {
+    const plan = imp.impacted.filter((a) => a.recommendation === "reassign").map((a) => ({ appt_id: a.id, provider_id: a.reassign_options[0].provider_id, date: a.appt_date, time: a.appt_time }));
+    // UC6 HITL gate: propose → human approves → execute (nothing auto-applies; audited).
+    const prop = await post("/api/actions/propose", { action: "pto_reassign", summary: `Reassign ${plan.length} appt(s) off ${imp.provider}`, rationale: "PTO coverage", payload: { plan } });
+    const r = await post(`/api/actions/${prop.id}/decision`, { decision: "approve" });
+    toast(r.executed ? `Approved & applied ${(r.result || {}).applied || 0} reassignment(s) — audited` : "Action not completed");
+    runPtoImpact();
+  };
 }
 let _provCache = null;
 async function allProviders() { if (_provCache) return _provCache; const specs = await get("/api/sched/specialties"); const lists = await Promise.all(specs.map((s) => get("/api/sched/doctors", { specialty: s }))); _provCache = lists.flat(); return _provCache; }
@@ -296,6 +310,40 @@ function mdToHtml(md) {
   return html;
 }
 const inline = (s) => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
+
+/* ---------------- UC6 approvals + audit ---------------- */
+async function renderApprovals(host) {
+  const [pending, audit] = await Promise.all([get("/api/actions/pending"), get("/api/actions/audit")]);
+  const pend = pending.map((p) => `<tr><td><b>${esc(p.summary)}</b><div class="sub">${esc(p.action)}${p.rationale ? " · " + esc(p.rationale) : ""}</div></td>
+    <td class="btn-row"><button class="btn primary" data-ok="${p.id}">Approve</button><button class="btn" data-no="${p.id}">Reject</button></td></tr>`).join("")
+    || `<tr><td colspan="2" style="color:var(--ink-3)">No pending recommendations. AI proposals appear here for human approval — nothing executes without it.</td></tr>`;
+  const log = audit.map((a) => `<tr><td class="mono">${esc((a.ts || "").replace("T", " ").slice(0, 16))}</td><td>${esc(a.summary)}</td><td>${esc(a.actor_user)} <span class="sub">(${esc(a.actor_role)})</span></td><td><span class="badge ${a.decision === "approved" ? "g" : a.decision === "rejected" ? "r" : "a"}">${esc(a.decision)}</span></td><td>${esc(a.outcome || "")}</td></tr>`).join("")
+    || `<tr><td colspan="5" style="color:var(--ink-3)">No decisions recorded yet.</td></tr>`;
+  host.innerHTML = `<div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>Pending approvals</h3><div class="sub">Human-in-the-loop gate — every AI action needs a decision (BR-1)</div></div></div>
+    <div class="card-b" style="padding:0"><table><tbody>${pend}</tbody></table></div></div>
+    <div class="card"><div class="card-h"><div><h3>Audit trail</h3><div class="sub">Every decision, attributable to a user + timestamp (BR-10)</div></div></div>
+    <div class="card-b" style="padding:0"><table><thead><tr><th>When (UTC)</th><th>Action</th><th>Decided by</th><th>Decision</th><th>Outcome</th></tr></thead><tbody>${log}</tbody></table></div></div>`;
+  host.querySelectorAll("[data-ok]").forEach((b) => b.onclick = async () => { const r = await post(`/api/actions/${b.dataset.ok}/decision`, { decision: "approve" }); toast(r.blocked ? "Blocked — uncovered window (needs override)" : "Approved — audited"); renderApprovals(host); });
+  host.querySelectorAll("[data-no]").forEach((b) => b.onclick = async () => { await post(`/api/actions/${b.dataset.no}/decision`, { decision: "reject" }); toast("Rejected — audited"); renderApprovals(host); });
+}
+
+/* ---------------- Leadership reporting (department-level) ---------------- */
+async function renderReporting(host) {
+  const [risk, pto] = await Promise.all([get("/api/data/risk-list"), get("/api/data/pto-queue")]);
+  const mix = { RED: 0, AMBER: 0, GREEN: 0 };
+  risk.forEach((r) => { mix[r.tier] = (mix[r.tier] || 0) + 1; });
+  const conflicts = pto.filter((p) => p.coverage_gap).length;
+  const tile = (v, l, sub) => `<div class="card"><div class="card-b"><div style="font-family:Fraunces,serif;font-size:34px;font-weight:700">${v}</div><div class="sub">${l}</div>${sub ? `<div class="sub" style="color:var(--ink-3)">${sub}</div>` : ""}</div></div>`;
+  host.innerHTML = `<div class="banner">Department view for the Chair / CCO — synthetic, demonstration only.</div>
+    <div class="grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">
+      ${tile("92%", "Coverage reliability", "Inpatient OB + GYN on plan")}
+      ${tile(mix.RED + mix.AMBER, "At-risk appointments today", `${mix.RED} red · ${mix.AMBER} amber`)}
+      ${tile(conflicts, "Open coverage conflicts", "overlapping leave windows")}
+      ${tile("87%", "Capacity utilization", "booked vs. available slots")}
+    </div>
+    <div class="card"><div class="card-h"><div><h3>Why this matters</h3><div class="sub">The business case is department-level (throughput, coverage reliability, utilization)</div></div></div>
+      <div class="card-b">Predictive no-show + coverage tools protect 24/7 OB + GYN coverage and reduce wasted slots. Every AI recommendation is human-approved and audited; no PHI is used. Drill into the Dashboard for the operational detail.</div></div>`;
+}
 
 /* ---------------- copilot ---------------- */
 function renderCopilot(host) {

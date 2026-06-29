@@ -13,17 +13,25 @@ async function unwrap(r) {
   return j.data !== undefined ? j.data : j;
 }
 
+// Dev-mode role context (DR-01 / BR-9). The SPA sets window.__ROLE on role switch;
+// every request carries it as X-NYCHHC-Roles so the backend can gate tools/actions.
+function roleHeaders(extra = {}) {
+  const role = (typeof window !== "undefined" && window.__ROLE) || "Scheduler";
+  const user = (typeof window !== "undefined" && window.__USER) || "demo:" + role;
+  return { "X-NYCHHC-Roles": role, "X-NYCHHC-User": user, ...extra };
+}
+
 export const get = (path, q = {}) => {
   const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== "")).toString();
-  return fetch(`${BACKEND}${path}${qs ? "?" + qs : ""}`).then(unwrap);
+  return fetch(`${BACKEND}${path}${qs ? "?" + qs : ""}`, { headers: roleHeaders() }).then(unwrap);
 };
 export const post = (path, body = {}) =>
-  fetch(`${BACKEND}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(unwrap);
+  fetch(`${BACKEND}${path}`, { method: "POST", headers: roleHeaders({ "content-type": "application/json" }), body: JSON.stringify(body) }).then(unwrap);
 
 // Copilot SSE stream → async iterator of text chunks.
 export async function* streamChat(message, role) {
   const r = await fetch(`${BACKEND}/api/chat`, {
-    method: "POST", headers: { "content-type": "application/json" },
+    method: "POST", headers: roleHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ message, role }),
   });
   const reader = r.body.getReader();
