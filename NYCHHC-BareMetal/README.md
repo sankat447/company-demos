@@ -8,10 +8,16 @@ conversational **Workforce Assistant** — running on the on-prem **ai-demo-stac
 OpenShift AI platform.
 
 This is the **baremetal edition** of [`company-demos/NYCHHC/`](../NYCHHC) (the AWS version):
-identical functionality (DR-01…DR-12), re-architected to consume the in-stack platform
-services and deployed with the [`company-demos/amboy`](../amboy) conventions. See
-[ARCHITECTURE.md](ARCHITECTURE.md) for the full cloud→baremetal mapping and
-[CLAUDE.md](CLAUDE.md) for the developer primer.
+re-architected to consume the in-stack platform services and deployed with the
+[`company-demos/amboy`](../amboy) conventions. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
+cloud→baremetal mapping and [CLAUDE.md](CLAUDE.md) for the developer primer.
+
+> **Revised requirement (OBGYN AI Scheduling, UC1–UC8).** The demo now targets the OBGYN
+> department per `NYC_HHC_AI_Scheduling_Use_Case_Specification.md`. Phase 1 ships the P1 +
+> foundational use cases — UC1 no-show, UC4 PTO conflict, UC5 NL query, **UC6 human-in-the-loop
+> approval gate**, and **UC8 Epic/MCP FHIR adapter** ("the AI never touches Epic directly"). See
+> [docs/USE_CASES.md](docs/USE_CASES.md) for the UC↔implementation↔BR-1…BR-14 matrix. UC2/UC3/UC7
+> are Phase 2. The original DR-01…DR-12 capabilities map onto these UCs.
 
 ## What it does (DR-01…DR-12)
 - **Role panes** (Scheduler / HR-Ops / Provider) via a dev-mode role header.

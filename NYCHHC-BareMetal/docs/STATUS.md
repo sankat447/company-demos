@@ -4,7 +4,23 @@
 
 Canonical state of the demo. Update on every meaningful change.
 
-## Current state (2026-06-29)
+## OBGYN revision — Phase 1 (2026-06-29, in progress)
+Evolving the demo to the revised **OBGYN AI Scheduling** spec (UC1–UC8) — see
+[USE_CASES.md](USE_CASES.md). Built + offline-green (`make verify`: 46 backend + 4 model);
+**redeploy pending**. Phase-1 increments committed on `sanjeev-dev`:
+- **OBGYN re-theme** — roster/patients/appointments/risk panel + UI now OBGYN (OB/GYN/MFM/
+  Midwifery, inpatient 24/7 + outpatient, persona Selamawit). Scripted UC4 beat: Okonkwo+Stein
+  overlapping OB leave.
+- **UC8** Epic MCP adapter (`mcp/epic_adapter.py`) — FHIR-shaped tools, typed errors, `/api/mcp/*`.
+- **UC1** tunable risk thresholds (BR-3) + degraded-mode banner.
+- **UC4** PTO overlap-conflict + service-line coverage minimums (BR-4/6).
+- **UC5** out-of-scope decline + clarify + role-permitted actions (BR-9).
+- **UC6** HITL approval gate + `audit_log` (BR-1/6/10); SPA Approvals pane; PTO apply gated.
+- **Roles** Scheduler/Approver/Provider/Leadership + a Leadership reporting pane.
+- **Phase 2 (deferred):** UC2 90-day coverage, UC3 template optimization, UC7 outreach execution.
+**Next:** `./deploy.sh` (re-seed OBGYN, rebuild, rollout) + `make verify-cluster` on the OBGYN threads.
+
+## Prior state (generic workforce demo) — LIVE on ocp419
 **LIVE on ocp419 — deployed end-to-end via `./deploy.sh`; `make verify` + `make verify-cluster` GREEN.**
 
 - ArgoCD app `nychhc-demo` Synced + Healthy. Pods: `nychhc-backend` 1/1, `nychhc-frontend` 1/1,

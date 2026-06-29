@@ -3,11 +3,16 @@
 Primer for future Claude Code sessions in this directory.
 
 ## What this is
-NYC Health + Hospitals "Predictive Hospital Workforce & Patient-Flow" agentic demo.
-A **port of the AWS version** (`company-demos/NYCHHC/`) onto the on-prem
-**ai-demo-stack-baremetal** platform, reusing the **amboy** demo's deployment
-conventions. Functionality from NYCHHC; plumbing from amboy. One backend image
-(two roles) + a separate static-SPA image; one standalone ArgoCD Application.
+NYC Health + Hospitals agentic scheduling demo on the on-prem **ai-demo-stack-baremetal**
+platform (port of the AWS `company-demos/NYCHHC/`, reusing **amboy** deployment conventions).
+One backend image (two roles) + a separate static-SPA image; one standalone ArgoCD Application.
+
+**Revised to the OBGYN AI Scheduling spec (UC1–UC8).** Phase 1 = P1 + foundational
+(UC1 no-show, UC4 PTO conflict, UC5 NL, UC6 HITL gate, UC8 Epic/MCP FHIR adapter). Roles:
+Scheduler/Approver/Provider/Leadership. See `docs/USE_CASES.md` for the UC↔impl↔BR matrix.
+Key modules added this revision: `mcp/epic_adapter.py` (UC8 FHIR seam — the AI's only data
+path), `api/actions_routes.py` (UC6 gate + `audit_log`), `scheduling/service.py:coverage_conflict`
+(UC4), `tools/providers/base.py:risk_band` (UC1 tunable tiers). Phase 2: UC2/UC3/UC7.
 
 ## Hard rules
 1. **Never write to `ai-demo-stack-baremetal/` (or `-aws/`).** Those are platform
