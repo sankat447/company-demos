@@ -74,13 +74,28 @@ def _provider(aurora, msg: str):
     return None
 
 
-def route(message: str, providers) -> str | None:
+# Out of scope for this OBGYN provider-scheduling demo (UC5 exception flow 2a).
+_OUT_OF_SCOPE = ("nursing", "nurse schedul", "payroll", "billing", "timesheet",
+                 "hr system", "system of record", "patient chart", "diagnos", "prescri")
+# Role-permitted actions (BR-9). Providers are read-only here; writes/approvals
+# belong to the Scheduler/Approver. Unknown roles default to Scheduler.
+_WRITE_ROLES = {"Scheduler", "Approver", "HR-Ops", "HR/Ops", "Admin"}
+
+
+def route(message: str, providers, role: str = "Scheduler") -> str | None:
     """Deterministic intent router — returns a real, human-readable answer for common
     asks (so we don't depend on a small model's flaky tool-calling). None => use the LLM."""
     from ..scheduling import service as S
 
     aurora = providers.aurora
     m = message.lower()
+    can_write = role in _WRITE_ROLES
+
+    # 0a. Out-of-scope decline (UC5 2a) — be explicit about the boundary, don't guess.
+    if any(w in m for w in _OUT_OF_SCOPE):
+        return ("That's outside this demo's scope — it covers OBGYN **provider** scheduling "
+                "(no-show risk, coverage, PTO impact, schedule queries). Nursing schedules, the "
+                "HR/PTO system of record, payroll/billing, and clinical/PHI functions are out of scope.")
 
     def scalar(sql, d=0):
         try:
@@ -88,6 +103,13 @@ def route(message: str, providers) -> str | None:
             return r[0][0] if r and r[0] and r[0][0] is not None else d
         except Exception:
             return d
+
+    # 0b. Clarify an ambiguous coverage ask (UC5 alt 2a) — a named provider, no date.
+    if ("cover" in m) and _provider(aurora, message) and not _dates(message) \
+            and not any(k in m for k in _SPECIALTY_KW):
+        who = _provider(aurora, message)["name"]
+        return (f"Which date (or range) should I check coverage for {who}? "
+                "For example: \"who can cover {first} on 6/30?\"".format(first=who.split()[-1]))
 
     # 1. Doctors by specialty / openings
     if any(w in m for w in ["doctor", "availab", "opening", "slot", "who can", "cover", "specialt"]) or any(k in m for k in _SPECIALTY_KW):
@@ -149,8 +171,12 @@ def route(message: str, providers) -> str | None:
                          "Any change needs your approval before it takes effect.")
             return "\n".join(lines)
 
-    # 4. Cancel an appointment by patient name
+    # 4. Cancel an appointment by patient name (a WRITE — role-gated, BR-9)
     if "cancel" in m:
+        if not can_write:
+            return ("As a Provider you can view schedules and request your own time off, but "
+                    "cancelling or booking appointments is done by a Scheduler. I can show you the "
+                    "appointment details instead.")
         for r in aurora.query("SELECT name FROM sched_patients").rows:
             if r[0].lower() in m:
                 appts = S.find_appointments(aurora, query=r[0])
@@ -211,7 +237,7 @@ class ReActCopilot(Copilot):
         # flaky tool-calling (which tends to narrate "I'll use the X function...").
         if self._providers is not None:
             try:
-                routed = route(turn.message, self._providers)
+                routed = route(turn.message, self._providers, role=turn.role or "Scheduler")
             except Exception:
                 routed = None
             if routed:
