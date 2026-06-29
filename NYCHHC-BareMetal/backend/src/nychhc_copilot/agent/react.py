@@ -55,8 +55,14 @@ def _dates(msg: str) -> list[str]:
     if iso:
         return iso
     out = []
+    # Month-name form: "Jun 16", "June 16".
     for mon, day in re.findall(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})", msg, re.I):
         out.append(f"2026-{_MONTHS[mon.lower()[:3]]:02d}-{int(day):02d}")
+    if out:
+        return out
+    # Numeric M/D form (the demo's preferred phrasing): "6/16-6/20", "6/16 to 6/20".
+    for mo, dy in re.findall(r"(\d{1,2})/(\d{1,2})", msg):
+        out.append(f"2026-{int(mo):02d}-{int(dy):02d}")
     return out
 
 
