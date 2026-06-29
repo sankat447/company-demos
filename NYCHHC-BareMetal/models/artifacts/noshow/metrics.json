@@ -1,0 +1,13 @@
+{
+  "auc": 0.7879,
+  "brier": 0.1879,
+  "n_train": 4500,
+  "n_test": 1500,
+  "features": [
+    "lead_time_days",
+    "prior_noshows",
+    "age_band_ord",
+    "dept_id"
+  ],
+  "positive_rate": 0.5327
+}

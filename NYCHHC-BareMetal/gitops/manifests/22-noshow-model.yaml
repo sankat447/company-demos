@@ -1,0 +1,49 @@
+# nychhc-noshow — No-Show risk model (DR-06) served on OpenShift AI via a KServe
+# InferenceService (RawDeployment, CPU). Custom container = the nychhc image's
+# `predictor` role; loads noshow/model.joblib MinIO-first with a baked fallback.
+# Shows in the RHOAI Model Serving dashboard (iis-ai-ai is a Data Science Project).
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: nychhc-noshow
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    serving.kserve.io/deploymentMode: RawDeployment
+    openshift.io/display-name: "NYCHHC No-Show Risk (sklearn)"
+spec:
+  predictor:
+    containers:
+      - name: kserve-container
+        image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/nychhc:latest
+        imagePullPolicy: Always
+        env:
+          - {name: NYCHHC_ROLE, value: predictor}
+          - {name: PORT, value: "8080"}
+          - {name: NYCHHC_MINIO_ENDPOINT_URL, value: "http://minio.iis-ai-data.svc:9000"}
+          - {name: NYCHHC_S3_BUCKET, value: "nychhc-models"}
+          - name: NYCHHC_S3_ACCESS_KEY
+            valueFrom: {secretKeyRef: {name: nychhc-creds, key: S3_ACCESS_KEY}}
+          - name: NYCHHC_S3_SECRET_KEY
+            valueFrom: {secretKeyRef: {name: nychhc-creds, key: S3_SECRET_KEY}}
+        ports:
+          - {containerPort: 8080, protocol: TCP}
+        resources:
+          requests: {cpu: 250m, memory: 512Mi}
+          limits: {cpu: "1", memory: 1Gi}
+---
+# Stable ClusterIP the backend calls. KServe's own service naming has varied across
+# reconciles (sometimes only the headless -predictor exists), so we own a fixed
+# Service -> predictor pods on 8080. This is what NYCHHC_NOSHOW_MODEL_URL hits.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nychhc-noshow
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+spec:
+  selector:
+    serving.kserve.io/inferenceservice: nychhc-noshow
+    component: predictor
+  ports: [{name: http, port: 8080, targetPort: 8080, protocol: TCP}]
