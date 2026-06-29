@@ -4,10 +4,12 @@
 
 Canonical state of the demo. Update on every meaningful change.
 
-## OBGYN revision — Phase 1 (2026-06-29, in progress)
-Evolving the demo to the revised **OBGYN AI Scheduling** spec (UC1–UC8) — see
-[USE_CASES.md](USE_CASES.md). Built + offline-green (`make verify`: 46 backend + 4 model);
-**redeploy pending**. Phase-1 increments committed on `sanjeev-dev`:
+## OBGYN revision — Phase 1 (2026-06-29) — LIVE on ocp419
+Evolved the demo to the revised **OBGYN AI Scheduling** spec (UC1–UC8) — see
+[USE_CASES.md](USE_CASES.md). `make verify` GREEN (46 backend + 4 model); **redeployed via
+destroy→deploy; `make verify-cluster` PASSED 8/8** (ArgoCD Synced/Healthy, both KServe models
+Loaded, Grafana imported). The 3 headline asks answer with real OBGYN router data (OB openings;
+no-show rate; Okonkwo PTO 6/16-6/20 → impact + coverage conflict). Phase-1 increments on `sanjeev-dev`:
 - **OBGYN re-theme** — roster/patients/appointments/risk panel + UI now OBGYN (OB/GYN/MFM/
   Midwifery, inpatient 24/7 + outpatient, persona Selamawit). Scripted UC4 beat: Okonkwo+Stein
   overlapping OB leave.
