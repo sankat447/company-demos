@@ -22,6 +22,13 @@ no-show rate; Okonkwo PTO 6/16-6/20 → impact + coverage conflict). Phase-1 inc
 - **Phase 2 (deferred):** UC2 90-day coverage, UC3 template optimization, UC7 outreach execution.
 **Next:** `./deploy.sh` (re-seed OBGYN, rebuild, rollout) + `make verify-cluster` on the OBGYN threads.
 
+### Chat conversation memory (2026-06-29, LIVE)
+Chat was stateless (each `/api/chat` saw only the current message). Added `SessionMemory`
+(`agent/memory.py`): bounded per-session transcript replayed into the LLM + a context bag the
+router uses for follow-ups. Verified live: PTO impact → **"apply all auto"** applies it (executed +
+audited as `chat:Scheduler`). Per-tab `session_id` from the SPA; "Clear" → `POST /api/chat/reset`.
++4 tests (50 backend total).
+
 ## Prior state (generic workforce demo) — LIVE on ocp419
 **LIVE on ocp419 — deployed end-to-end via `./deploy.sh`; `make verify` + `make verify-cluster` GREEN.**
 
