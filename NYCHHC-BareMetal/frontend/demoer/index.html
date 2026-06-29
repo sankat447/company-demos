@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NYC H+H — Presenter Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#FAF9F5;--paper2:#F2EFE6;--surface:#fff;--ink:#1F1E1C;--ink2:#6B6862;--ink3:#9B9791;--line:#E8E4DB;--clay:#CC785C;--clay2:#B05730;--clayt:#F3E2D9;--navy:#003DA5;--ok:#5E7C58;--r:14px;--serif:"Fraunces",Georgia,serif;--sans:"Inter",system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:14px;line-height:1.55}
+h1,h2,h3{font-family:var(--serif);font-weight:600;margin:0}
+.top{position:sticky;top:0;z-index:10;background:linear-gradient(100deg,var(--navy),#0a52c9);color:#fff;padding:16px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 6px 20px -14px rgba(0,0,0,.5)}
+.top h1{font-size:20px;color:#fff}.top h1 b{color:#FF6900;font-weight:600}
+.top .sub{font-size:12px;opacity:.85}
+.top .spacer{flex:1}
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-weight:700;font-size:13px;border-radius:10px;padding:9px 14px;cursor:pointer}
+.btn:hover{border-color:var(--clay);color:var(--clay2)}
+.btn.primary{background:var(--clay);border-color:var(--clay);color:#fff}.btn.primary:hover{background:var(--clay2)}
+.btn.nav{background:#FF6900;border-color:#FF6900;color:#fff}.btn.nav:hover{filter:brightness(.95)}
+.btn.sm{padding:6px 10px;font-size:12px}
+.dot{width:9px;height:9px;border-radius:50%;background:#ffb4a3;display:inline-block;margin-right:6px}
+.dot.on{background:#7CFFB2}
+.wrap{max-width:1080px;margin:0 auto;padding:22px}
+.banner{background:#F6ECD7;border:1px solid #e6d2a3;color:#6a4d10;font-weight:700;text-align:center;padding:9px;border-radius:10px;margin-bottom:18px;font-size:12.5px}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:14px;box-shadow:0 1px 2px rgba(31,30,28,.04),0 10px 30px -24px rgba(31,30,28,.3)}
+.step.active{border-color:var(--clay);box-shadow:0 0 0 2px var(--clayt)}
+.step .hd{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.step .num{width:30px;height:30px;border-radius:8px;background:var(--navy);color:#fff;display:grid;place-items:center;font-weight:800;flex:none;font-family:var(--serif)}
+.step h3{font-size:17px}.step .tag{margin-left:auto;font-size:11px;font-weight:700;color:var(--clay2);background:var(--clayt);border-radius:999px;padding:3px 10px}
+.say{background:var(--paper2);border-left:3px solid var(--clay);border-radius:0 8px 8px 0;padding:10px 14px;margin:8px 0;font-size:13.5px;color:#34302a}
+.say b{color:var(--navy)}
+.say .lbl{display:block;font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:4px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.note{font-size:12px;color:var(--ink3);margin-top:6px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.section-h{font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:22px 2px 10px}
+.foot{color:var(--ink3);font-size:11.5px;text-align:center;border-top:1px solid var(--line);padding-top:14px;margin-top:24px}
+.kbd{font-family:ui-monospace,monospace;background:var(--paper2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>NYC Health <b>+</b> Hospitals · Presenter Console</h1>
+  <div class="sub">Predictive Workforce &amp; Patient-Flow — drive the live demo from here</div>
+  <div class="spacer"></div>
+  <span class="sub"><span class="dot" id="dot"></span><span id="connTxt">demo not open</span></span>
+  <button class="btn primary" id="openBtn">▶ Open / focus demo</button>
+</div>
+
+<div class="wrap">
+  <div class="banner">⚠ FOR DEMONSTRATION ONLY — NOT FOR CLINICAL USE — SYNTHETIC DATA · presenter view (audience sees the demo tab)</div>
+
+  <div class="step">
+    <div class="hd"><span class="num">0</span><h3>Before you start</h3></div>
+    <div class="say"><span class="lbl">How this works</span>Click <b>Open / focus demo</b> to launch the app in a second tab. Keep this console on one screen and the demo on the other (or alt-tab). Each step below has buttons that <b>drive the demo tab for you</b> — switching tabs, opening flows, and even <b>typing prompts into the Assistant</b>. Read the 🎤 script aloud as you click.</div>
+    <div class="note">Tip: if a click doesn't land, the demo tab may have reloaded — press <span class="kbd">Open / focus demo</span> again, then retry the step.</div>
+  </div>
+
+  <div class="step" id="s1">
+    <div class="hd"><span class="num">1</span><h3>Set the scene — the Scheduler's morning</h3><span class="tag">~1 min</span></div>
+    <div class="say"><span class="lbl">Say</span>"Every shift, a staffing coordinator like <b>Dana Reyes</b> juggles coverage, no-show risk, overtime and patient flow — today that's mostly spreadsheets and phone calls. This is a <b>predictive, agentic</b> workspace that gets her one shift ahead. It runs entirely on NYC H+H's own <b>Red Hat OpenShift AI platform on AWS</b> — and everything here is <b>synthetic data, no PHI</b>."</div>
+    <div class="acts"><button class="btn nav" onclick="run('s1',()=>{return go(()=>setRole('Scheduler')).then(()=>tab('dashboard'))})">Show Scheduler dashboard</button></div>
+  </div>
+
+  <div class="step" id="s2">
+    <div class="hd"><span class="num">2</span><h3>Predictive dashboard</h3><span class="tag">~2 min</span></div>
+    <div class="say"><span class="lbl">Say</span>"At a glance: coverage, open shifts, <b>predicted no-shows</b>, overtime, occupancy, predicted admits. The risk mix and the staffing-vs-demand chart are driven by <b>real models served on KServe</b> — not static numbers. There's also an <b>Open in Grafana</b> link for the ops-grade view."</div>
+    <div class="acts">
+      <button class="btn nav" onclick="run('s2',()=>tab('dashboard'))">Go to Dashboard</button>
+      <button class="btn" onclick="openGrafana()">Open Grafana dashboard ↗</button>
+    </div>
+  </div>
+
+  <div class="step" id="s3">
+    <div class="hd"><span class="num">3</span><h3>One platform, three roles</h3><span class="tag">~1 min</span></div>
+    <div class="say"><span class="lbl">Say</span>"The same system tailors itself by role. The <b>Scheduler</b> sees coverage and fills; <b>HR / Operations</b> sees PTO approvals and overtime; a <b>Provider</b> sees their own schedule and requests time off. Watch the workspace change."</div>
+    <div class="acts">
+      <button class="btn nav" onclick="run('s3',()=>setRole('HR/Ops'))">Switch to HR / Ops</button>
+      <button class="btn nav" onclick="run('s3',()=>setRole('Provider'))">Switch to Provider</button>
+      <button class="btn" onclick="run('s3',()=>go(()=>setRole('Scheduler')).then(()=>tab('dashboard')))">Back to Scheduler</button>
+    </div>
+  </div>
+
+  <div class="step" id="s4">
+    <div class="hd"><span class="num">4</span><h3>No-show risk — act before they don't show</h3><span class="tag">~1.5 min</span></div>
+    <div class="say"><span class="lbl">Say</span>"Each appointment gets a <b>red / amber / green</b> no-show score from our model, with the <b>contributing factors</b> and a suggested action. The scheduler can filter to RED and text reminders or hold an overbook slot — turning a reactive problem into a proactive one."</div>
+    <div class="acts"><button class="btn nav" onclick="run('s4',()=>tab('risk'))">Show No-Show Risk</button></div>
+  </div>
+
+  <div class="step" id="s5">
+    <div class="hd"><span class="num">5</span><h3>Smart scheduling — the drill-down</h3><span class="tag">~2.5 min</span></div>
+    <div class="say"><span class="lbl">Say</span>"Booking is a guided drill-down: pick a <b>specialty</b>, see the <b>doctors</b> with their next availability, open the chosen doctor's <b>calendar</b> — open slots are clickable, booked slots show the patient, PTO is blocked — then assign a patient. Let me book a cardiology follow-up."</div>
+    <div class="acts">
+      <button class="btn nav" onclick="run('s5',()=>bookWalk())">1 · Walk specialty → doctor → calendar</button>
+      <button class="btn nav" onclick="run('s5',()=>bookComplete())">2 · Book an open slot for Robert Castellano</button>
+    </div>
+    <div class="note">After booking, click <b>Schedule</b> tab — the new appointment is already there (single source of truth).</div>
+  </div>
+
+  <div class="step" id="s6">
+    <div class="hd"><span class="num">6</span><h3>Cancel &amp; re-offer the slot</h3><span class="tag">~1.5 min</span></div>
+    <div class="say"><span class="lbl">Say</span>"When something cancels, the slot shouldn't go to waste. Cancelling frees it and the system immediately <b>re-offers it to a higher-risk patient</b> who needs an earlier visit. I'll do it from the Assistant — in plain English."</div>
+    <div class="acts"><button class="btn nav" onclick="run('s6',()=>chat('Cancel the appointment for Anthony Russo.'))">Type: cancel Anthony Russo</button></div>
+  </div>
+
+  <div class="step" id="s7">
+    <div class="hd"><span class="num">7</span><h3>PTO impact — the showstopper</h3><span class="tag">~3 min</span></div>
+    <div class="say"><span class="lbl">Say</span>"Here's where it earns its keep. Put a provider on PTO and the system instantly shows <b>which appointments are impacted</b> and proposes <b>same-specialty, same-time reassignments</b> — or a reschedule, or flags it for a human. Then <b>'apply all auto'</b> resolves the easy ones in one click and updates every view."</div>
+    <div class="acts">
+      <button class="btn nav" onclick="run('s7',()=>ptoImpact())">1 · Dr. Tanaka PTO Jun 16–20 → impact</button>
+      <button class="btn nav" onclick="run('s7',()=>applyAuto())">2 · Apply all auto-resolvable</button>
+    </div>
+  </div>
+
+  <div class="step" id="s8">
+    <div class="hd"><span class="num">8</span><h3>Do it all in chat — the Workforce Assistant</h3><span class="tag">~3 min</span></div>
+    <div class="say"><span class="lbl">Say</span>"Everything you just saw with clicks, the scheduler can do in <b>plain language</b> — and it's the <b>same engine</b>, so the screens stay in sync. This is an open-weights <b>Granite</b> model served on a GPU <b>inside the hospital's own cloud</b> — no third-party API, the data never leaves. Watch it act."</div>
+    <div class="acts">
+      <button class="btn nav" onclick="run('s8',()=>chat('How is everything? Give me a status table.'))">Type: how is everything?</button>
+      <button class="btn nav" onclick="run('s8',()=>chat('Put Dr. Tanaka on PTO from 2026-06-16 to 2026-06-20 and show the impact.'))">Type: Tanaka PTO impact</button>
+    </div>
+    <div class="note">Then switch the demo to the <b>PTO</b> tab to show the chat action reflected in the UI.</div>
+  </div>
+
+  <div class="step" id="s9">
+    <div class="hd"><span class="num">9</span><h3>Trust, platform &amp; the future</h3><span class="tag">~2 min</span></div>
+    <div class="say"><span class="lbl">Say (close)</span>"A few things make this real for a health system: <b>every consequential action needs human approval</b>; all data is synthetic and labeled; the models, the LLM, and the data all run on a <b>platform you own and govern</b> (Red Hat OpenShift AI on AWS) with full observability. For production we'd add HIPAA controls, BAAs or fully-in-VPC models, de-identification, validated + bias-reviewed models, and EHR/FHIR integration. The future: <b>multi-agent workflows</b> across scheduling, prior-auth, discharge and capacity — one unit today, the whole system tomorrow."</div>
+    <div class="acts"><button class="btn" onclick="openGrafana()">Open Grafana (observability) ↗</button></div>
+  </div>
+
+  <div class="section-h">Quick Assistant prompts (type &amp; send into the demo)</div>
+  <div class="grid" id="promptGrid"></div>
+
+  <div class="foot">NYC Health + Hospitals · Predictive Workforce &amp; Patient-Flow — presenter console. Synthetic data, no PHI. Built by IIS.</div>
+</div>
+
+<script>
+const DEMO_URL = location.origin + "/";
+let demoWin = null;
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+function setConn(on){ document.getElementById('dot').classList.toggle('on',on); document.getElementById('connTxt').textContent = on ? 'demo connected' : 'demo not open'; }
+function openDemo(){ if(!demoWin || demoWin.closed){ demoWin = window.open(DEMO_URL,'nychhcDemo'); } try{ demoWin.focus(); }catch(e){} return demoWin; }
+document.getElementById('openBtn').onclick = ()=>{ openDemo(); checkConn(); };
+async function checkConn(){ try{ setConn(!!(demoWin && !demoWin.closed && demoWin.document)); }catch(e){ setConn(true); } }
+setInterval(checkConn, 1500);
+
+function dq(sel){ try{ return demoWin.document.querySelector(sel); }catch(e){ return null; } }
+async function ready(){ openDemo(); for(let i=0;i<70;i++){ try{ if(demoWin && !demoWin.closed && demoWin.document && demoWin.document.querySelector('#tabbar .tab')) { setConn(true); return true; } }catch(e){} await sleep(300); } return false; }
+async function waitFor(sel,t=9000){ const end=Date.now()+t; while(Date.now()<end){ const el=dq(sel); if(el) return el; await sleep(180); } return null; }
+
+async function ensureRole(role){ const o=dq('.role-opt[data-role="'+role+'"]'); if(o && !o.classList.contains('active')){ o.click(); await sleep(550); } }
+async function setRole(role){ await ready(); demoWin.focus(); await ensureRole(role); }
+async function tab(t, role){ await ready(); demoWin.focus(); if(!dq('.tab[data-tab="'+t+'"]')) await ensureRole(role||'Scheduler'); const b=await waitFor('.tab[data-tab="'+t+'"]'); if(b){ b.click(); await sleep(450); } }
+
+async function chat(text){
+  await tab('copilot');
+  const inp = await waitFor('#chatInput'); if(!inp) return;
+  inp.focus(); inp.value='';
+  for(const ch of text){ inp.value += ch; await sleep(28); }
+  await sleep(250);
+  const send = dq('#chatSend'); if(send) send.click();
+}
+async function bookWalk(){
+  await tab('schedule');
+  (await waitFor('#newAppt'))?.click();
+  (await waitFor('[data-spec="Cardiology"]'))?.click();
+  (await waitFor('[data-doc="p3"]'))?.click();      // Dr. Raj Patel
+  await waitFor('.slot.open');
+}
+async function bookComplete(){
+  const slot = await waitFor('.slot.open'); if(!slot) return; slot.click();
+  const pat = await waitFor('#pat'); if(pat){ pat.value='SYN-00003'; }   // Robert Castellano
+  (await waitFor('#confirmBtn'))?.click();
+}
+async function ptoImpact(){
+  await tab('pto');
+  const pr=await waitFor('#ptoProv'); if(pr){ pr.value='p7'; }            // Yuki Tanaka
+  const s=dq('#ptoStart'); if(s) s.value='2026-06-16';
+  const e=dq('#ptoEnd'); if(e) e.value='2026-06-20';
+  (dq('#ptoRun'))?.click();
+  await waitFor('#applyAuto', 14000);
+}
+async function applyAuto(){ (await waitFor('#applyAuto'))?.click(); }
+function openGrafana(){ window.open('https://grafana-rhoai-monitoring.apps.ai-demo.iisdemolab.click/d/nychhc-workforce','nychhcGrafana'); }
+
+// generic runner: highlight the active step + run an action with error guard
+async function go(fn){ return fn(); }
+async function run(stepId, fn){
+  document.querySelectorAll('.step').forEach(s=>s.classList.remove('active'));
+  const el = document.getElementById(stepId); if(el) el.classList.add('active');
+  try{ await fn(); }catch(e){ console.warn('step error', e); }
+}
+
+// Quick prompt grid
+const PROMPTS = [
+  "How is everything? Give me a status table.",
+  "Which cardiologists have openings, and what's the soonest slot?",
+  "Show me Pulmonology doctors and their next availability.",
+  "Show Dr. Raj Patel's calendar for 2026-06-09.",
+  "Book a cardiology follow-up for Robert Castellano with Dr. Raj Patel on 2026-06-09 at 13:30.",
+  "Cancel the appointment for Anthony Russo.",
+  "Move Darnell Brooks's appointment to 2026-06-09 at 15:00.",
+  "Put Dr. Tanaka on PTO from 2026-06-16 to 2026-06-20 and show the impact.",
+  "Apply all the auto-resolvable reassignments for Dr. Tanaka's PTO.",
+  "What's the no-show rate by provider?",
+  "List all pending PTO requests.",
+  "Which appointments today are high no-show risk?"
+];
+const grid = document.getElementById('promptGrid');
+PROMPTS.forEach(p=>{ const b=document.createElement('button'); b.className='btn sm'; b.style.textAlign='left'; b.textContent='⌨ '+p; b.onclick=()=>run('s8',()=>chat(p)); grid.appendChild(b); });
+</script>
+</body>
+</html>
