@@ -82,3 +82,19 @@ class WorkflowProvider(Protocol):
 
 class ReadOnlySQLError(ValueError):
     """Raised when a tool is asked to run non-SELECT SQL (demo safety guard)."""
+
+
+def risk_band(score: float) -> str:
+    """Map a no-show probability (0..1) to a red/amber/green tier (UC1).
+
+    Thresholds are tunable post-deployment via config (BR-3): NYCHHC_RISK_RED /
+    NYCHHC_RISK_AMBER. Spec defaults: red > 65%, amber 35-65%, green < 35%.
+    """
+    from ...config import get_settings
+
+    s = get_settings()
+    if score >= s.risk_red:
+        return "red"
+    if score >= s.risk_amber:
+        return "amber"
+    return "green"

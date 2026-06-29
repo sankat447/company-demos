@@ -123,13 +123,31 @@ async def appointment_risk(request: Request, dept_id: int | None = None, limit: 
         f"ORDER BY appt_date DESC LIMIT {int(limit)}"
     )
     appts = [dict(zip(res.columns, r)) for r in res.rows]
-    scores = {s.appt_id: s for s in _p(request).models.no_show_scores([a["appt_id"] for a in appts])}
+    scored = _p(request).models.no_show_scores([a["appt_id"] for a in appts])
+    scores = {s.appt_id: s for s in scored}
     for a in appts:
         s = scores.get(a["appt_id"])
         a["risk_band"] = s.band if s else "green"
         a["risk_score"] = s.score if s else 0.0
         a["drivers"] = s.drivers if s else []
-    return envelope(appts)
+    # UC1 degraded mode (exception flow 3a): if the KServe model was unreachable the
+    # provider returns source='fallback' (rules). Surface it so the UI can banner it
+    # instead of silently presenting rules-based scores as model output.
+    degraded = any(getattr(s, "source", "model") == "fallback" for s in scored)
+    return envelope(appts, degraded=degraded,
+                    source="rules" if degraded else "model")
+
+
+@router.get("/model-status")
+async def model_status(request: Request):
+    """UC1: are the no-show / forecast KServe models reachable? Drives the degraded
+    banner. Probes one no-show score; source='fallback' ⇒ degraded (rules)."""
+    try:
+        probe = _p(request).models.no_show_scores([1])
+        degraded = (not probe) or any(getattr(s, "source", "model") == "fallback" for s in probe)
+    except Exception:
+        degraded = True
+    return envelope({"degraded": degraded, "source": "rules" if degraded else "model"})
 
 
 @router.get("/pto")

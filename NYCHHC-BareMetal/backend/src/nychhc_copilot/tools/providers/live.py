@@ -16,6 +16,7 @@ from .base import (
     ReadOnlySQLError,
     RiskScore,
     WorkflowProvider,
+    risk_band,
 )
 
 _DISALLOWED = (" insert ", " update ", " delete ", " drop ", " alter ", " create ", " grant ")
@@ -116,7 +117,7 @@ class LiveModels(ModelProvider):
             out = []
             for appt_id, p, (prior, lead) in zip(ordered_ids, preds, feats):
                 p = max(0.0, min(1.0, p))
-                band = "red" if p >= 0.6 else "amber" if p >= 0.3 else "green"
+                band = risk_band(p)  # UC1 tunable thresholds (BR-3)
                 drivers = []
                 if (prior or 0) >= 2:
                     drivers.append(f"{prior} prior no-shows")

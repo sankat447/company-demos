@@ -23,6 +23,7 @@ from .base import (
     ReadOnlySQLError,
     RiskScore,
     WorkflowProvider,
+    risk_band,
 )
 
 _DEPTS = [
@@ -207,7 +208,7 @@ class FakeModels(ModelProvider):
             # logistic on the same features the real XGBoost will use
             z = -2.0 + 0.9 * (prior or 0) + 0.06 * (lead or 0)
             p = 1 / (1 + math.exp(-z))
-            band = "red" if p >= 0.6 else "amber" if p >= 0.3 else "green"
+            band = risk_band(p)  # UC1 tunable thresholds (BR-3)
             drivers = []
             if (prior or 0) >= 2:
                 drivers.append(f"{prior} prior no-shows")

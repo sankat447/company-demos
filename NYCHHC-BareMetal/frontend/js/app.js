@@ -142,6 +142,11 @@ const statusPill = (s) => s === "Available" ? '<span class="pill ok">Available</
 /* ---------------- no-show risk ---------------- */
 async function renderRisk(host) {
   const all = await get("/api/data/risk-list");
+  let ms = { degraded: false };
+  try { ms = await get("/api/data/model-status"); } catch {}
+  const degBanner = ms.degraded
+    ? `<div class="banner" style="background:#7a3b12;border-color:#a85a1f">⚠ Degraded mode — the No-Show model endpoint is unreachable; showing rules-based scores. No fabricated model output.</div>`
+    : "";
   let filter = "ALL", q = "";
   const draw = () => {
     const rows = all.filter((r) => (filter === "ALL" || r.tier === filter) && (r.patient_name + r.mrn + r.provider + r.appt_time).toLowerCase().includes(q));
@@ -150,7 +155,7 @@ async function renderRisk(host) {
       return `<tr><td><span class="badge ${bClass(r.tier)}">${r.tier}</span></td><td><b>${esc(r.patient_name)}</b></td><td class="mono">${esc(r.mrn)}</td><td class="mono">${esc(r.phone)}</td><td><b>${esc(r.appt_time)}</b></td><td>${esc(r.provider)}</td><td class="pct ${pClass(r.tier)}">${r.risk_pct}%</td><td><div class="factors">${f.map((x) => `<span class="factor">${esc(x)}</span>`).join("")}</div></td><td><button class="btn ${r.tier === "RED" ? "primary" : ""}">${esc(r.action)}</button></td></tr>`;
     }).join("");
   };
-  host.innerHTML = `<div class="toolbar"><div class="seg" id="riskSeg"><button class="on">All</button><button>Red</button><button>Amber</button><button>Green</button></div><input class="search" id="riskSearch" placeholder="Search patient, MRN, provider…"><button class="btn primary">Text all RED</button></div>
+  host.innerHTML = `${degBanner}<div class="toolbar"><div class="seg" id="riskSeg"><button class="on">All</button><button>Red</button><button>Amber</button><button>Green</button></div><input class="search" id="riskSearch" placeholder="Search patient, MRN, provider…"><button class="btn primary">Text all RED</button></div>
     <div class="card"><div class="card-h"><div><h3>No-Show Risk · today</h3><div class="sub">Risk from the <b>No-Show KServe</b> model (rules fallback if down)</div></div></div>
       <div class="card-b" style="padding:0"><table><thead><tr><th>Risk</th><th>Patient</th><th>MRN</th><th>Phone</th><th>Appt</th><th>Provider</th><th>Risk %</th><th>Top factors</th><th>Action</th></tr></thead><tbody id="riskBody"></tbody></table></div></div>`;
   draw();

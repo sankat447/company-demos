@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     forecast_model_url: str = ""     # e.g. http://nychhc-forecast.iis-ai-ai.svc:8080/v1/models/forecast:predict
     # When True and an endpoint is unreachable, degrade to rules (confirmed design D4).
     models_fallback_enabled: bool = True
+    # UC1 risk tiers (BR-3, tunable post-deployment). Spec: red >65%, amber 35-65%, green <35%.
+    risk_red: float = 0.65
+    risk_amber: float = 0.35
 
     # --- workflow (DR-05/07/09): in-app impact engine only on baremetal; no n8n ---
     n8n_webhook_url: str = ""        # left blank -> FakeWorkflow; engine runs in-process
