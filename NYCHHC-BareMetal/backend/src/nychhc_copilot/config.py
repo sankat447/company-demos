@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # nychhc-creds Secret. %23 == '#' (url-escaped, the password is Demo1234#).
     aurora_dsn: str = ""             # e.g. postgresql://rhoai_admin:Demo1234%23@iis-ai-postgres-primary.iis-ai-data.svc:5432/rhoai_demo
     minio_endpoint_url: str = "http://minio.iis-ai-data.svc:9000"  # S3-compatible (model artifacts)
+    # UC8: data-access mode. 'mcp' = the agent reads scheduling data through the Epic
+    # MCP adapter (FHIR-shaped); the synthetic Postgres stands in for Epic in the demo.
+    data_mode: str = "mcp"
 
     # --- predictive models (DR-06 / DR-08), fixed CPU KServe endpoints ---
     # Stable in-cluster ClusterIP Services in front of the KServe predictors.

@@ -17,12 +17,14 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import get_settings
 from .disclaimer import DISCLAIMER
+from .mcp import EpicAdapter, EpicError
 from .tools import SCHEMA_DOC
 from .tools.providers import ReadOnlySQLError, build_providers
 
 mcp = FastMCP("nychhc-workforce-copilot")
 
 _providers = build_providers(get_settings())
+_epic = EpicAdapter(_providers)  # UC8 — FHIR-shaped Epic data seam
 
 
 @mcp.tool(
@@ -71,6 +73,34 @@ def propose_schedule_change(summary: str) -> str:
     """Propose a schedule change — routed to a human approver via n8n. Never applied directly."""
     prop = _providers.workflow.propose_schedule_change(summary, {"summary": summary})
     return f"Proposal {prop.proposal_id} — STATUS: {prop.status} (via {prop.routed_via}). Human approval required."
+
+
+# ── UC8: Epic FHIR-shaped tools (the AI's only data path; BR-12/BR-14) ────────
+@mcp.tool()
+def get_patient_appointments(patient_id: str) -> list[dict]:
+    """FHIR Appointments for a patient (Epic via the MCP adapter — never Epic directly)."""
+    try:
+        return _epic.get_patient_appointments(patient_id)
+    except EpicError as e:
+        return [e.as_dict()]
+
+
+@mcp.tool()
+def get_provider_schedule(provider_id: str, date: str) -> list[dict]:
+    """A provider's booked FHIR Appointments for a date (via the MCP adapter)."""
+    try:
+        return _epic.get_provider_schedule(provider_id, date)
+    except EpicError as e:
+        return [e.as_dict()]
+
+
+@mcp.tool()
+def check_slot_availability(provider_id: str, date: str) -> list[dict]:
+    """Open FHIR Slots for a provider on a date (via the MCP adapter)."""
+    try:
+        return _epic.check_slot_availability(provider_id, date)
+    except EpicError as e:
+        return [e.as_dict()]
 
 
 @mcp.resource("disclaimer://demo")
