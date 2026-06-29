@@ -1,0 +1,13 @@
+# Build context = NYCHHC-BareMetal/ (backend image). Keep the upload small: the
+# Dockerfile only needs backend/{pyproject.toml,src}, models/artifacts, build/.
+**/.venv/
+**/__pycache__/
+*.pyc
+**/.pytest_cache/
+**/*.egg-info/
+.git/
+frontend/
+docs/
+grafana/
+gitops/
+*.md

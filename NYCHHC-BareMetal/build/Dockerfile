@@ -21,7 +21,8 @@ COPY models/artifacts/noshow/model.joblib   /opt/app-root/models/noshow.joblib
 COPY models/artifacts/forecast/model.joblib /opt/app-root/models/forecast.joblib
 
 COPY build/entrypoint.sh /opt/app-root/entrypoint.sh
-RUN chmod +x /opt/app-root/entrypoint.sh
 
 EXPOSE 8000 8080
-CMD ["/opt/app-root/entrypoint.sh"]
+# Invoke via bash so we don't need the exec bit — the UBI build runs as a non-root
+# user that can't chmod a root-owned COPY'd file ("Operation not permitted").
+CMD ["/bin/bash", "/opt/app-root/entrypoint.sh"]
