@@ -77,13 +77,13 @@ ok "Application nychhc-demo applied"
 info "Phase 5 — waiting for ArgoCD to sync the demo (up to ~10 min)…"
 sync=""; health=""
 for i in $(seq 1 120); do
-  sync="$(oc -n openshift-gitops get application nychhc-demo -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
-  health="$(oc -n openshift-gitops get application nychhc-demo -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
+  sync="$(oc -n openshift-gitops get applications.argoproj.io nychhc-demo -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
+  health="$(oc -n openshift-gitops get applications.argoproj.io nychhc-demo -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
   [ "$sync" = "Synced" ] && [ "$health" = "Healthy" ] && break
   sleep 5
 done
 echo "    sync=$sync health=$health"
-[ "${sync:-}" = "Synced" ] || warn "app not fully Synced yet — check: oc -n openshift-gitops get app nychhc-demo"
+[ "${sync:-}" = "Synced" ] || warn "app not fully Synced yet — check: oc -n openshift-gitops get applications.argoproj.io nychhc-demo"
 
 # ── 6. pin the KServe models to the freshly-built DIGEST ─────────────────────
 # The git manifests reference nychhc:latest; KServe scale cycles + node :latest

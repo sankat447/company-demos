@@ -5,7 +5,25 @@
 Canonical state of the demo. Update on every meaningful change.
 
 ## Current state (2026-06-29)
-**Built end-to-end; `make verify` GREEN offline; NOT yet deployed live on ocp419.**
+**LIVE on ocp419 — deployed end-to-end via `./deploy.sh`; `make verify` + `make verify-cluster` GREEN.**
+
+- ArgoCD app `nychhc-demo` Synced + Healthy. Pods: `nychhc-backend` 1/1, `nychhc-frontend` 1/1,
+  both KServe predictors 1/1 (`nychhc-noshow`/`nychhc-forecast` InferenceServices READY, models Loaded).
+  Bootstrap jobs (pgvector schema/seed, minio bucket+artifacts) Complete.
+- **Live URLs**
+  - UI: https://nychhc-frontend-iis-ai-ui.apps.ocp419.crucible.iisl.com
+  - Backend: https://nychhc-copilot-iis-ai-ai.apps.ocp419.crucible.iisl.com (`/health`, `/api/capabilities`)
+  - Grafana: https://grafana-iis-ai-ui.apps.ocp419.crucible.iisl.com (dashboard "NYCHHC — Workforce & Patient-Flow")
+- **Smoke (`make verify-cluster`) PASSED** — all 8 checks. The 3 headline asks answer with REAL data
+  via the deterministic router (no LLM key set): cardiologists Patel/Sokolova + openings; no-show rate
+  by provider (Adebayo 42% / Tanaka 39%); Tanaka PTO 6/16-6/20 → 4 appts auto-reassigned to Haddad.
+- **Deploy fixes applied this run**: (1) build invokes the entrypoint via `bash` (UBI build can't chmod
+  a root-owned COPY'd file); (2) `_dates()` parses the `6/16-6/20` M/D form so PTO impact routes
+  deterministically; (3) scripts use `applications.argoproj.io` (`oc get application` is ambiguous with
+  the `app.k8s.io` CRD → the sync-wait was reading empty status).
+
+### Build history note
+`make verify` GREEN offline (kubectl kustomize 17 resources + lint + 27 backend + 4 model tests).
 
 - **M0 recon** — both reference folders read; baremetal service DNS/creds verified against
   `ai-demo-stack-baremetal/gitops/config/apps/`; scope confirmed (router+LLM, no RAG; in-app

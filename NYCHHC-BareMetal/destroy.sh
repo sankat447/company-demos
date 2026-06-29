@@ -35,7 +35,7 @@ ok "cluster $(oc whoami --show-server)"
 
 # ── 1. disable ArgoCD auto-sync FIRST (else selfHeal re-creates as we delete) ──
 info "Phase 1 — disable ArgoCD automated sync (teardown-race fix)"
-oc -n openshift-gitops patch application nychhc-demo --type=merge \
+oc -n openshift-gitops patch applications.argoproj.io nychhc-demo --type=merge \
   -p '{"spec":{"syncPolicy":{"automated":null}}}' >/dev/null 2>&1 \
   && ok "automated sync disabled" || warn "app nychhc-demo not found (already gone?)"
 
@@ -45,7 +45,7 @@ grafana_remove
 
 # ── 3. delete the ArgoCD Application (finalizer cascade-prunes children) ──────
 info "Phase 3 — delete ArgoCD Application (cascade prune)"
-oc -n openshift-gitops delete application nychhc-demo --ignore-not-found --timeout=120s >/dev/null 2>&1 \
+oc -n openshift-gitops delete applications.argoproj.io nychhc-demo --ignore-not-found --timeout=120s >/dev/null 2>&1 \
   && ok "Application deleted" || warn "Application delete timed out — continuing with label sweep"
 
 # ── 4. belt-and-braces label sweep (deletes ONLY demo=nychhc objects) ────────
