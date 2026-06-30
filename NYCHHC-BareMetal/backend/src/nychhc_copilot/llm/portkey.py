@@ -19,11 +19,10 @@ from ..config import Settings
 
 def _portkey_headers(settings: Settings) -> dict[str, str]:
     headers: dict[str, str] = {}
-    # Portkey reads the gateway key, the target provider, and (optionally) the
-    # provider virtual key from headers. On baremetal the provider is Anthropic
-    # (Claude via Portkey) — matches the proven amboy setup on this same stack.
-    if settings.portkey_api_key:
-        headers["x-portkey-api-key"] = settings.portkey_api_key
+    # On baremetal the provider is Anthropic (Claude via Portkey) — the proven amboy
+    # setup on this same stack: send x-portkey-provider and let the provider API key
+    # ride as the Authorization bearer (ChatOpenAI api_key below). A separate Portkey
+    # virtual key is optional.
     if settings.portkey_provider:
         headers["x-portkey-provider"] = settings.portkey_provider
     if settings.portkey_virtual_key:
