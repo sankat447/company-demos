@@ -154,6 +154,29 @@ def test_augment_seed_adds_and_is_idempotent(p):
     assert counts() == after
 
 
+# ── 3-Month Bird's-Eye reporting dashboard ───────────────────────────────────
+def test_birdseye_payload_shape(p):
+    from nychhc_copilot.scheduling import reporting as R
+    b = R.birdseye(p.aurora, p.models)
+    # KPI scorecard with RAG + target + 3-month series
+    assert len(b["kpis"]) >= 6
+    k0 = b["kpis"][0]
+    assert {"kpi", "target", "m1", "m2", "m3", "quarter", "trend", "status"} <= set(k0)
+    assert k0["status"] in {"ON TARGET", "WATCH", "ACTION", "INFO"}
+    # capacity model has a weekly roll-up; 13-week grid; cancellations carry a double-block signal
+    assert b["capacity"]["weekly"]["utilization"] > 0
+    assert len(b["grid13"]) == 13
+    assert any(c["signal"] in {"Double-block", "Tighten waitlist", "Hold"} for c in b["cancellations"])
+    # cycle-time stages sum toward the total; reference tables present
+    assert b["cycle"]["stages"] and b["visit_types"] and b["roster"]
+
+
+def test_birdseye_endpoint():
+    with TestClient(create_app()) as c:
+        d = c.get("/api/data/birdseye").json()["data"]
+    assert d["period"] and d["kpis"] and d["capacity"]["rows"]
+
+
 # ── proactive insights endpoint ─────────────────────────────────────────────
 def test_insights_endpoint_surfaces_patterns():
     with TestClient(create_app()) as c:

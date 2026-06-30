@@ -153,6 +153,14 @@ async def cycle_time(request: Request):
     return envelope(S.cycle_time(_p(request).aurora))
 
 
+# ── 3-Month Bird's-Eye — the Leadership reporting dashboard ───────────────────
+@router.get("/birdseye")
+async def birdseye(request: Request):
+    from ..scheduling import reporting as R
+    p = _p(request)
+    return envelope(R.birdseye(p.aurora, p.models))
+
+
 # ── Proactive, system-initiated insights (ASK1 Flow1 / ASK2 Flow1a) ──────────
 @router.get("/insights")
 async def insights(request: Request):

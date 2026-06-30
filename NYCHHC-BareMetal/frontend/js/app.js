@@ -330,33 +330,114 @@ async function renderApprovals(host) {
   host.querySelectorAll("[data-no]").forEach((b) => b.onclick = async () => { await post(`/api/actions/${b.dataset.no}/decision`, { decision: "reject" }); toast("Rejected — audited"); renderApprovals(host); });
 }
 
-/* ---------------- Leadership reporting (department-level) ---------------- */
+/* ---------------- Leadership reporting — 3-Month Bird's-Eye dashboard ---------------- */
+const _pct = (v) => `${Math.round(v * 100)}%`;
+const _ragClass = (s) => ({ "ON TARGET": "ontarget", "WATCH": "watch", "ACTION": "action", "INFO": "info" }[s] || "info");
+const _fmtKpi = (v, fmt) => fmt === "pct" ? _pct(v) : fmt === "days" ? `${v}d` : `${v}`;
+const _arrow = (t) => t === "down" ? "▼" : t === "up" ? "▲" : "▬";
+
+function _kpiCard(k) {
+  const bars = [k.m1, k.m2, k.m3];
+  const max = Math.max(...bars, k.target || 0) || 1;
+  const spark = bars.map((b) => `<i style="height:${Math.max(10, Math.round((b / max) * 22))}px"></i>`).join("");
+  const tgt = k.target == null ? "—" : _fmtKpi(k.target, k.fmt);
+  return `<div class="card"><div class="card-b" style="display:flex;flex-direction:column;gap:6px">
+    <div class="sub" style="font-weight:700">${esc(k.kpi)}</div>
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <div style="font-family:Fraunces,serif;font-size:30px;font-weight:700">${_fmtKpi(k.quarter, k.fmt)}</div>
+      <span class="trend ${k.trend}">${_arrow(k.trend)}</span></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span class="spark">${spark}</span><span class="rag ${_ragClass(k.status)}">${esc(k.status)}</span></div>
+    <div class="sub" style="color:var(--ink-3)">Target ${tgt} · Q avg of Jul–Sep</div></div></div>`;
+}
+
+function _scorecardRow(k) {
+  return `<tr><td><b>${esc(k.kpi)}</b></td>
+    <td class="sub">${k.target == null ? "—" : _fmtKpi(k.target, k.fmt)}</td>
+    <td>${_fmtKpi(k.m1, k.fmt)}</td><td>${_fmtKpi(k.m2, k.fmt)}</td><td>${_fmtKpi(k.m3, k.fmt)}</td>
+    <td><b>${_fmtKpi(k.quarter, k.fmt)}</b></td>
+    <td class="trend ${k.trend}">${_arrow(k.trend)}</td>
+    <td><span class="rag ${_ragClass(k.status)}">${esc(k.status)}</span></td></tr>`;
+}
+
+function _capRow(r) {
+  const u = r.utilization, cls = u >= 0.92 ? "over" : u <= 0.80 ? "under" : "";
+  return `<tr><td><b>${esc(r.weekday)}</b></td><td>${r.providers}</td><td>${r.demand_min}</td><td>${r.supply_min}</td>
+    <td style="min-width:140px"><div style="display:flex;align-items:center;gap:8px">
+      <span class="tbar ${cls}"><i style="width:${Math.min(100, Math.round(u * 100))}%"></i></span>
+      <span class="pct ${u >= 0.92 ? "r" : u <= 0.80 ? "a" : "g"}">${_pct(u)}</span></div></td></tr>`;
+}
+
+function _heat(v, floor) {
+  const cls = v < floor ? "lo" : v === floor ? "fl" : v >= floor + 2 ? "hi" : "ok";
+  return `<div class="heat ${cls}">${v}</div>`;
+}
+
 async function renderReporting(host) {
-  const [risk, pto, ct, lb] = await Promise.all([
-    get("/api/data/risk-list"), get("/api/data/pto-queue"),
-    get("/api/data/cycle-time"), get("/api/data/load-balance")]);
-  const mix = { RED: 0, AMBER: 0, GREEN: 0 };
-  risk.forEach((r) => { mix[r.tier] = (mix[r.tier] || 0) + 1; });
-  const conflicts = pto.filter((p) => p.coverage_gap).length;
-  const tile = (v, l, sub) => `<div class="card"><div class="card-b"><div style="font-family:Fraunces,serif;font-size:34px;font-weight:700">${v}</div><div class="sub">${l}</div>${sub ? `<div class="sub" style="color:var(--ink-3)">${sub}</div>` : ""}</div></div>`;
-  const s = ct.stages_recent || {}, sp = ct.stages_prior || {};
-  const stageRow = (lab, r, p) => `<tr><td>${lab}</td><td><b>${r}d</b></td><td class="sub">${p}d</td><td>${r > p ? "<span class='badge a'>↑</span>" : "<span class='badge g'>flat</span>"}</td></tr>`;
+  host.innerHTML = `<div class="banner">Consolidated department view for the Chair / CCO — synthetic, demonstration only.</div><div class="sub" style="margin:14px 2px">Loading 3-month bird's-eye…</div>`;
+  let b;
+  try { b = await get("/api/data/birdseye"); } catch (e) { host.innerHTML += `<div class="card"><div class="card-b">Could not load reporting data.</div></div>`; return; }
+
+  const kpiCards = b.kpis.slice(0, 4).map(_kpiCard).join("");
+  const scorecard = b.kpis.map(_scorecardRow).join("");
+  const cap = b.capacity.rows.map(_capRow).join("") +
+    `<tr style="border-top:2px solid var(--line-2)"><td><b>Weekly</b></td><td><b>${b.capacity.weekly.providers}</b></td>
+     <td><b>${b.capacity.weekly.demand_min}</b></td><td><b>${b.capacity.weekly.supply_min}</b></td>
+     <td><b>${_pct(b.capacity.weekly.utilization)}</b></td></tr>`;
+  const heatHead = `<div class="hh">Week of</div>` + ["Mon", "Tue", "Wed", "Thu", "Fri"].map((d) => `<div class="hh">${d}</div>`).join("") + `<div class="hh">Total</div><div class="hh">Util</div>`;
+  const heatRows = b.grid13.map((g) => `<div class="sub" style="align-self:center">${esc(g.week_of.slice(5))}</div>` +
+    [g.Mon, g.Tue, g.Wed, g.Thu, g.Fri].map((v) => _heat(v, b.floor)).join("") +
+    `<div class="heat ${g.below_floor ? "lo" : "ok"}">${g.total}${g.below_floor ? " ⚠" : ""}</div><div class="sub" style="align-self:center;text-align:center">${_pct(g.util)}</div>`).join("");
+  const cancel = b.cancellations.map((c) => `<tr><td><b>${esc(c.slot)}</b></td><td>${c.booked}</td>
+    <td>${_pct(c.advance_pct)}</td><td class="pct ${c.noshow_pct >= 0.06 ? "r" : "g"}">${_pct(c.noshow_pct)}</td>
+    <td><span class="badge ${c.signal === "Double-block" ? "b-red" : c.signal === "Tighten waitlist" ? "b-amber" : "b-green"}">${esc(c.signal)}</span></td></tr>`).join("");
+  const walk = b.walkins.map((w) => `<tr><td><b>${esc(w.weekday)}</b></td><td>${w.am}</td><td>${w.pm}</td><td>${w.total}</td>
+    <td>${_pct(w.pm_share)}</td><td><span class="badge ${w.idle === "HIGH" ? "b-amber" : "b-green"}">${esc(w.idle)}</span></td>
+    <td class="sub">${esc(w.signal)}</td></tr>`).join("");
+  const floors = b.pto.floors.map((f) => `<tr><td>${esc(f.service)}</td><td><b>${f.floor}</b>/day</td></tr>`).join("");
+  const reqs = b.pto.requests.length ? b.pto.requests.map((r) => `<tr><td><b>${esc(r.week_of)}</b></td><td>${esc(r.service)}</td>
+    <td>${r.on_floor}→${r.if_approved}</td><td><span class="badge ${r.result === "BREACH" ? "b-red" : "b-green"}">${esc(r.result)}</span></td>
+    <td class="sub">${esc(r.action)}</td></tr>`).join("") : `<tr><td colspan="5" class="sub">No breaching requests in the horizon.</td></tr>`;
+  const cyc = b.cycle.stages.map((s) => `<tr><td>${esc(s.stage)}</td><td><b>${s.this_q}d</b></td><td class="sub">${s.last_q}d</td>
+    <td class="${s.change > 0 ? "pct r" : s.change < 0 ? "pct g" : "sub"}">${s.change > 0 ? "+" : ""}${s.change}d</td>
+    <td style="min-width:120px"><div style="display:flex;align-items:center;gap:8px"><span class="tbar ${s.flag === "Worsening" ? "over" : ""}"><i style="width:${Math.round(s.pct * 100)}%"></i></span><span class="sub">${_pct(s.pct)}</span></div></td>
+    <td><span class="badge ${s.flag === "Worsening" ? "b-red" : s.flag === "Improving" ? "b-green" : "b-amber"}">${esc(s.flag)}</span></td></tr>`).join("");
+  const visit = b.visit_types.map((v) => `<tr><td>${esc(v.type)}</td><td>${v.duration}</td><td>${v.buffer}</td><td><b>${v.total}</b></td><td class="sub">${esc(v.notes)}</td></tr>`).join("");
+  const roster = b.roster.map((r) => `<tr><td><b>${esc(r.provider)}</b></td><td>${esc(r.panel)}</td><td>${esc(r.type)}</td><td>${esc(r.high_risk)}</td><td>${r.sessions}</td><td>${r.weekly_cap_min}</td></tr>`).join("");
+
+  const card = (title, meta, sub, body, pad0 = true) => `<div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>${title}${meta ? ` <span class="meta">· ${meta}</span>` : ""}</h3>${sub ? `<div class="sub">${sub}</div>` : ""}</div></div><div class="card-b"${pad0 ? ` style="padding:0"` : ""}>${body}</div></div>`;
+
   host.innerHTML = `<div class="banner">Consolidated department view for the Chair / CCO — synthetic, demonstration only.</div>
-    <div class="grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">
-      ${tile(`${ct.cycle_days_recent}d`, "Cycle time (referral→seen)", `was ${ct.cycle_days_prior}d last quarter`)}
-      ${tile(mix.RED + mix.AMBER, "At-risk appointments today", `${mix.RED} red · ${mix.AMBER} amber`)}
-      ${tile(conflicts, "Open coverage conflicts", "overlapping leave windows")}
-      ${tile(`${lb.avg_utilization_pct}%`, "Provider utilization", "minute-weighted, dept avg")}
+    <div class="be-head"><div><h3 style="margin:0">Department Dashboard — 3-Month Bird's-Eye</h3>
+      <div class="sub">RAG vs targets · the same live analytics behind Planning, rolled up for leadership</div></div>
+      <span class="per">${esc(b.period)}</span></div>
+    <div class="kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">${kpiCards}</div>
+    ${card("KPI scorecard", "RAG vs target", "Month-by-month with quarter average, trend, and red/amber/green status",
+      `<table><thead><tr><th>KPI</th><th>Target</th><th>Jul</th><th>Aug</th><th>Sep</th><th>Quarter</th><th>Trend</th><th>Status</th></tr></thead><tbody>${scorecard}</tbody></table>`)}
+    <div class="be-grid2">
+      ${card("Capacity model — minute-weighted", "ASK4", `Headcount ≠ capacity · demand from ${b.capacity.demand_source === "model" ? "the KServe forecast model" : "history"}`,
+        `<table><thead><tr><th>Weekday</th><th>Prov</th><th>Demand</th><th>Supply</th><th>Utilization</th></tr></thead><tbody>${cap}</tbody></table>`)}
+      ${card("Cycle time by stage", "ASK3", `Total ${b.cycle.total_this_q}d (was ${b.cycle.total_last_q}d) — bottleneck: ${esc(b.cycle.bottleneck_label)}`,
+        `<table><thead><tr><th>Stage (owner)</th><th>This Q</th><th>Last Q</th><th>Δ</th><th>% of total</th><th>Flag</th></tr></thead><tbody>${cyc}</tbody></table>`)}
     </div>
-    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>Cycle time by handoff <span class="meta">· ASK3</span></h3>
-      <div class="sub">The bottleneck lives at a handoff — the slip is clerical intake, not provider capacity</div></div></div>
-      <div class="card-b" style="padding:0"><table><thead><tr><th>Stage owner</th><th>Now</th><th>Prior</th><th></th></tr></thead><tbody>
-        ${stageRow("Clerical intake / logging", s.clerical, sp.clerical)}
-        ${stageRow("Clinical scheduling", s.scheduling, sp.scheduling)}
-        ${stageRow("Provider availability", s.provider, sp.provider)}
-      </tbody></table></div></div>
-    <div class="card"><div class="card-h"><div><h3>Why this matters</h3><div class="sub">The business case is department-level (throughput, coverage reliability, cost)</div></div></div>
-      <div class="card-b">Three roles touch a patient before they're seen, and the delay concentrates at the first one — consolidating intake compresses cycle time more than anything on the provider side. Ask the Assistant to <b>"make the case for the chair"</b> for an approval-ready brief. Every recommendation is human-approved and audited; no PHI is used.</div></div>`;
+    ${card("13-week staffing grid", `floor ${b.floor}/day`, "Providers scheduled per weekday · amber = at floor, red = below",
+      `<div class="heatgrid">${heatHead}${heatRows}</div>`, false)}
+    <div class="be-grid2">
+      ${card("Cancellations & no-shows", "ASK1", "Advance (refilled) vs no-show (wasted) → double-block signal",
+        `<table><thead><tr><th>Slot</th><th>Booked</th><th>Advance</th><th>No-show</th><th>Signal</th></tr></thead><tbody>${cancel}</tbody></table>`)}
+      ${card("Walk-in volume", "ASK1", "AM/PM split → full-day vs half-day template",
+        `<table><thead><tr><th>Weekday</th><th>AM</th><th>PM</th><th>Total</th><th>PM share</th><th>Idle</th><th>Signal</th></tr></thead><tbody>${walk}</tbody></table>`)}
+    </div>
+    <div class="be-grid2">
+      ${card("PTO & 90-day coverage", "ASK2", `Per-service floors · ${b.pto.gap_count} breach-day(s) in ${b.pto.horizon_days}d`,
+        `<table><thead><tr><th>Service</th><th>Floor</th></tr></thead><tbody>${floors}</tbody></table>
+         <table style="margin-top:8px"><thead><tr><th>Week</th><th>Service</th><th>On→If appr.</th><th>Result</th><th>Action</th></tr></thead><tbody>${reqs}</tbody></table>`)}
+      ${card("Visit-type reference", "capacity inputs", "Durations drive the capacity math",
+        `<table><thead><tr><th>Type</th><th>Dur</th><th>Buf</th><th>Total</th><th>Notes</th></tr></thead><tbody>${visit}</tbody></table>`)}
+    </div>
+    ${card("Provider roster", "credentials & FTE", "Who can cover which service",
+      `<table><thead><tr><th>Provider</th><th>Panel</th><th>Type</th><th>High-risk</th><th>Sessions/wk</th><th>Wkly cap (min)</th></tr></thead><tbody>${roster}</tbody></table>`)}
+    <div class="card"><div class="card-b">Every figure is grounded in the same live analytics shown in Planning, rolled up for the Chair/CCO. Ask the Assistant to <b>"make the case for the chair"</b> for an approval-ready brief. Human-approved &amp; audited; no PHI.</div></div>`;
 }
 
 /* ---------------- Planning: coverage (UC2) · capacity (ASK4) · cancellations+template (ASK1) ---------------- */
