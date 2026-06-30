@@ -4,7 +4,18 @@
 
 Canonical state of the demo. Update on every meaningful change.
 
-## Design-Brief rebuild — P2 (2026-06-30) — offline GREEN, redeploy pending push+key
+## Design-Brief rebuild — P2 (2026-06-30) — LIVE on ocp419 ✅
+Redeployed (destroy→deploy) with the Portkey key set. ArgoCD Synced/Healthy; backend +
+frontend + both KServe predictors 1/1 (models Loaded); Grafana provisioned. `make
+verify-cluster` PASSED 10/10 (incl. UC2 coverage + UC3 template via chat). **Claude live**:
+open-ended "who should I call first?" answered through Claude via Portkey, grounded (Daniel
+Brooks 87%, 5 prior no-shows, no text on file) and using conversation memory from the prior
+turn. (NOTE: the Anthropic key was shared in chat — rotate it.)
+URLs: UI https://nychhc-frontend-iis-ai-ui.apps.ocp419.crucible.iisl.com ·
+backend https://nychhc-copilot-iis-ai-ai.apps.ocp419.crucible.iisl.com ·
+Grafana https://grafana-iis-ai-ui.apps.ocp419.crucible.iisl.com.
+
+### Build record (offline)
 Rebuilt to the full NYC_HHC_AI_Design_Brief dataset + use cases (client feedback: "not
 enough data / functionality missing; chat must work; keep the session"). `make verify`
 GREEN (51 backend + 4 model). Committed locally on sanjeev-dev (not pushed).

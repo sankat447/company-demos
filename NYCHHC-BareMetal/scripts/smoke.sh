@@ -22,7 +22,7 @@ if curl -fsk "$BE/health" | grep -q '"status"'; then pass "/health ok"; else fai
 if curl -fsk "$BE/api/capabilities" | grep -q 'DR-01'; then pass "/api/capabilities lists DR-01…"; else fail "/api/capabilities"; fi
 # 3. scheduling reads — roster + specialties
 if curl -fsk "$BE/api/sched/specialties" | grep -qi 'Obstetrics'; then pass "specialties include Obstetrics"; else fail "specialties"; fi
-if curl -fsk "$BE/api/sched/doctors?specialty=Obstetrics" | grep -qiE 'Okonkwo|Stein'; then pass "Obstetrics roster (Okonkwo/Stein)"; else fail "Obstetrics doctors"; fi
+if curl -fsk "$BE/api/sched/doctors?specialty=Obstetrics" | grep -qiE 'Chen|Santos'; then pass "Obstetrics roster (Chen/Santos)"; else fail "Obstetrics doctors"; fi
 
 # 4. chat headline asks via the deterministic router (real data, no LLM needed)
 chat(){ curl -fsk -X POST "$BE/api/chat" -H 'content-type: application/json' \
@@ -31,8 +31,13 @@ if chat "Which OB providers have openings?" | grep -qiE 'Obstetrics|Okonkwo|Stei
   pass "chat: OB provider openings (router)"; else fail "chat: OB provider openings"; fi
 if chat "What's the no-show rate by provider?" | grep -qiE 'risk|%|no-show'; then
   pass "chat: no-show rate (router)"; else fail "chat: no-show rate"; fi
-if chat "Put Dr. Okonkwo on PTO 6/16-6/20 and show the impact" | grep -qiE 'impact|appointment|reassign|Okonkwo'; then
-  pass "chat: PTO impact (router)"; else fail "chat: PTO impact"; fi
+if chat "Put Dr. Brooks on PTO 7/14-7/18 and show the impact" | grep -qiE 'impact|conflict|coverage|reassign|Brooks'; then
+  pass "chat: PTO impact + conflict (router)"; else fail "chat: PTO impact"; fi
+# new P2 capabilities via chat
+if chat "How can I cover the service for the next 90 days?" | grep -qiE 'coverage|High-Risk|gap|minimum'; then
+  pass "chat: 90-day coverage (UC2)"; else fail "chat: coverage"; fi
+if chat "Should we double-block Tuesday afternoons?" | grep -qiE 'double-block|no-show|template'; then
+  pass "chat: template optimization (UC3)"; else fail "chat: template"; fi
 
 # 5. frontend route serves the SPA
 if [ -n "$FE_HOST" ] && curl -fsk "$FE/" | grep -qiE 'NYC|Workforce|<!doctype html>'; then pass "frontend SPA served"; else fail "frontend SPA"; fi
