@@ -378,8 +378,9 @@ async function renderPlanning(host) {
     <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>90-day coverage plan <span class="meta">· UC2 / ASK2</span></h3>
       <div class="sub">${cov.gap_count} day(s) below a service-line minimum over ${cov.horizon_days} days — coverage is a skill-mix, not a headcount, question</div></div></div>
       <div class="card-b" style="padding:0"><table><thead><tr><th>Date</th><th>Service line</th><th>On / min</th><th>Providers out</th></tr></thead><tbody>${gaps}</tbody></table></div></div>
-    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>Provider capacity — minute-weighted <span class="meta">· ASK4</span></h3>
-      <div class="sub">Headcount isn't capacity — weighted by visit-type mix. ${esc(lb.rebalance || "Load is balanced.")}</div></div></div>
+    <div class="card" style="margin-bottom:16px"><div class="card-h" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><h3>Provider capacity — minute-weighted <span class="meta">· ASK4</span></h3>
+      <div class="sub">Headcount isn't capacity — weighted by visit-type mix. ${esc(lb.rebalance || "Load is balanced.")}</div></div>
+      ${(lb.rebalance && (ROLE === "Scheduler" || ROLE === "Approver")) ? `<button class="btn primary" id="draftRebalance" style="white-space:nowrap">Draft proposal →</button>` : ""}</div>
       <div class="card-b" style="padding:0"><table><thead><tr><th>Day</th><th>Providers</th><th>Avg visit</th><th>Utilization</th><th>Status</th></tr></thead><tbody>${load}</tbody></table></div></div>
     <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>Cancellations — advance vs true no-show <span class="meta">· ASK1</span></h3>
       <div class="sub">Clinic avg ${cb.clinic_avg_cancel_pct}%. Double-block only where TRUE no-shows are high; tighten the waitlist where cancels are advance.</div></div></div>
@@ -387,6 +388,25 @@ async function renderPlanning(host) {
     <div class="card"><div class="card-h"><div><h3>Template recommendation <span class="meta">· UC3 / ASK1</span></h3>
       <div class="sub">Walk-ins: Fri ${((wk.by_day || []).find((d) => d.day === "Friday") || {}).avg_total || "—"}/day (AM-heavy). ${esc((wk.friday_scenario || {}).recommendation || "")}</div></div></div>
       <div class="card-b" style="padding:0"><table><thead><tr><th>Day / shift</th><th>True no-show</th><th>Advance</th><th>Recommendation</th></tr></thead><tbody>${tplrows}</tbody></table></div></div>`;
+
+  // One-click: stage the minute-weighted rebalance into the approver queue (UC6 HITL).
+  const btn = host.querySelector("#draftRebalance");
+  if (btn) btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = "Drafting…";
+    const over = (lb.by_day || []).find((d) => d.flag === "over-loaded");
+    const summary = `Rebalance provider coverage — ${lb.rebalance}`;
+    const rationale = over
+      ? `Minute-weighted load: ${over.day} at ${over.utilization_pct}% vs dept avg ${lb.avg_utilization_pct}% (demand from the forecast model). Cost-neutral — no added headcount.`
+      : lb.rebalance;
+    try {
+      const prop = await post("/api/actions/propose", {
+        action: "schedule_change", summary, rationale, payload: { rebalance: lb.rebalance, source: "planning" } });
+      toast(`Proposal ${prop.id} sent to the approver queue`);
+      switchTab("approvals");
+    } catch (e) {
+      toast("Could not draft proposal"); btn.disabled = false; btn.textContent = "Draft proposal →";
+    }
+  };
 }
 
 /* proactive, system-initiated insights strip (ASK1 Flow1 / ASK2 Flow1a) */
