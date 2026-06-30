@@ -4,6 +4,22 @@
 
 Canonical state of the demo. Update on every meaningful change.
 
+## ASK-list build — P3 (2026-06-30) — offline GREEN, redeploy in progress
+Implemented the clarified "Ask list & approach" doc (ASK 1-6 + proactive). `make verify`
+GREEN (60 backend + 4 model). See [USE_CASES.md](USE_CASES.md) ASK table.
+- **Data:** appt_history `outcome` (attended/advance_cancel/no_show — Tue-PM advance-heavy,
+  Mon-AM true-no-show); `walkin_daily` volumes (Tue 38 / Fri 11 AM-heavy); `cycle_log` handoff
+  timings (clerical 3.75 recent vs 2.9 prior).
+- **Analytics:** `cancellation_breakdown`, advance-cancel-aware `template_reco`, `walkin_volume/
+  scenario` (half-day Friday: ~48 hrs/~$5,280 saved, 0 turned away), `can_approve_pto` (stagger/
+  per-diem), `cycle_time` (bottleneck = clerical intake), minute-weighted `load_balance`
+  (Mon 77% / Tue 104% → "move one provider Mon→Tue").
+- **Chat:** router flows for all asks + Epic routing (post-to-Epic audit, PHI decline, read-from-Epic)
+  + value-narrative ("make the case", department-framed); enriched Claude system prompt (advisory).
+- **Proactive insights:** `/api/data/insights` + dashboard strip (heads-up + one-click "Ask").
+- **UI:** Planning pane (coverage / minute-capacity / cancellations / template), Reporting cycle-time
+  by handoff (ASK3), proactive strip.
+
 ## Design-Brief rebuild — P2 (2026-06-30) — LIVE on ocp419 ✅
 Redeployed (destroy→deploy) with the Portkey key set. ArgoCD Synced/Healthy; backend +
 frontend + both KServe predictors 1/1 (models Loaded); Grafana provisioned. `make

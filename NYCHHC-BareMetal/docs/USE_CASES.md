@@ -39,6 +39,25 @@ UC7 (outreach execution) remains the one roadmap item.
 | BR-13 | BAA before real PHI | synthetic only; documented cutover gate |
 | BR-14 | Synthetic schema mirrors FHIR for seamless cutover | `epic_adapter` returns FHIR R4 Appointment/Slot; `fhir/` sample |
 
+## Design-Brief ASK list (clarified flows) → implementation
+
+The "Ask list & approach" doc specified the exact assistant flows. Each is built as a
+deterministic router intent (grounded, advisory) + an LLM tool, computed from the data:
+
+| ASK | Capability | Implementation |
+|----|-----------|----------------|
+| **1** Template / Tuesday | Cancellation split (**advance vs true no-show**); double-block only where true no-shows are high (Mon AM), tighten waitlist where advance (Tue PM); walk-in full-vs-half-day scenario + $ savings | `service.cancellation_breakdown`, `template_reco`, `walkin_volume/scenario`; `/api/data/{cancellations,walkins,template}`; Planning pane |
+| **2** Forward PTO coverage | Coverage = skill/service-mix minimums + clustering; proactive 90-day scan; **approve-ahead** with stagger / per-diem options | `coverage_plan`, `can_approve_pto`; chat + Planning |
+| **3** Consolidated dept view | Cycle time = sum of handoffs; attribute the slip to the **clerical intake** stage | `cycle_time` over `cycle_log`; `/api/data/cycle-time`; Reporting pane |
+| **4** Load & duration | **Headcount ≠ capacity** — provider-minutes weighted by visit-mix; rebalance (Mon 3 / Tue 7) | `load_balance` (minute-weighted); chat + Planning |
+| **5** Epic backbone (NFR) | PHI stays in Epic — analyse aggregates, **route patient-level to Epic chat**, decline PHI, read-from-Epic framing | router intents + `epic_post` audit action; system prompt |
+| **6** Value story | Reframe individual → **department-level** justification artifact | router value-narrative from real metrics + Claude; advisory |
+| **Proactive** | System-initiated "heads-up" (Tue-PM cancellations, forming coverage risk, Tuesday overload, cycle-time slip) | `/api/data/insights`; dashboard insights strip |
+
+Cross-cutting: the Claude **system prompt** encodes this logic (advance≠no-show, coverage=skill-mix,
+headcount≠capacity, cycle-time=handoffs, PHI-in-Epic, reframe→department) and every recommendation is
+**advisory** with a confirm-before-acting nudge.
+
 ## Actors & roles (DR-01 / spec §2)
 Scheduler (persona **Selamawit**), **Approver** (HR/Operational Manager), Provider,
 **Leadership** (Chair/CCO reporting). Dev-mode role header `X-NYCHHC-Roles`; OIDC-ready.

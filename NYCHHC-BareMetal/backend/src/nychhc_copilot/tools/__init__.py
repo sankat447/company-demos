@@ -21,7 +21,9 @@ Read-only OBGYN scheduling schema (unqualified table names are fine):
 - sched_pto(id, provider_id, start_date, end_date, type, status)
 - risk_today(tier['RED'|'AMBER'|'GREEN'], patient_name, provider, appt_time, risk_pct, factors, action) -- today's no-show panel
 - pto_queue(provider_name, type, dates, coverage_gap, status)
-- appt_history(appt_date, day_of_week, time_of_day, appt_type, provider_id, provider_type, prior_noshows, has_contact, visit_count, actual_noshow) -- ~18 months for analytics
+- appt_history(appt_date, day_of_week, time_of_day, appt_type, duration_min, provider_id, provider_type, prior_noshows, has_contact, visit_count, actual_noshow, outcome['attended'|'advance_cancel'|'no_show']) -- ~18 months for analytics
+- walkin_daily(wdate, day_of_week, am, pm) -- last 12 weeks of walk-in volume by AM/PM
+- cycle_log(referral_date, clerical_days, scheduling_days, provider_days, cohort['recent'|'prior']) -- referral→seen handoff timings
 Joins: sched_appointments.provider_id = sched_providers.id; sched_appointments.patient_id = sched_patients.id.
 Only SELECT/WITH allowed. Dates are ISO strings (today is 2026-06-09)."""
 
@@ -66,22 +68,49 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
                          f"(out: {', '.join(g['providers_out']) or 'PTO'})")
         return "\n".join(lines)
 
+    def cancellation_breakdown() -> str:
+        """ASK1/UC3: cancellation rate by weekday/shift split into advance cancellations
+        (refilled from waitlist) vs TRUE no-shows — drives the double-block decision."""
+        from ..scheduling import service as _S
+        cb = _S.cancellation_breakdown(providers.aurora)
+        rows = sorted(cb["by_slot"], key=lambda s: -s["cancel_pct"])[:6]
+        return (f"clinic avg cancel {cb['clinic_avg_cancel_pct']}%\n" + "\n".join(
+            f"- {s['day']} {s['shift']}: {s['cancel_pct']}% ({s['advance_pct']}% advance / "
+            f"{s['noshow_pct']}% true no-show)" for s in rows))
+
     def template_optimization() -> str:
-        """UC3: recommend booked/walk-in/double-block mix per weekday/shift from historical
-        cancel + walk-in patterns (e.g. don't double-block high-cancel Tuesday PM)."""
+        """UC3/ASK1: double-block only where TRUE no-shows are high; where cancellations are
+        advance (refilled), tighten waitlist auto-fill instead."""
         from ..scheduling import service as _S
         recs = _S.template_reco(providers.aurora)["recommendations"]
-        hot = [r for r in recs if r["no_show_rate"] >= 30 or r["walk_in_pct"] >= 25] or recs
-        return "\n".join(f"- {r['day']} {r['shift']}: {r['no_show_rate']}% no-show, "
-                         f"{r['walk_in_pct']}% walk-in → {r['booking']}; {r['walk_in']}" for r in hot[:8])
+        hot = [r for r in recs if "Double-block" in r["booking"] or "Do NOT" in r["booking"]] or recs
+        return "\n".join(f"- {r['day']} {r['shift']}: {r['no_show_rate']}% true no-show, "
+                         f"{r['advance_rate']}% advance → {r['booking']}" for r in hot[:8])
+
+    def walkin_scenario(day: str = "Friday") -> str:
+        """ASK1: model a half-day (AM-only) walk-in template for a weekday vs full-day —
+        coverage, provider-hours and cost saved, overflow risk."""
+        from ..scheduling import service as _S
+        return _S.walkin_scenario(providers.aurora, day or "Friday")["recommendation"]
 
     def provider_load() -> str:
-        """VC-A: provider headcount vs demand by weekday; flags over/under-staffed days."""
+        """ASK4/VC-A: provider load by weekday in provider-MINUTES weighted by visit mix
+        (headcount ≠ capacity); flags over/under-load + a rebalance recommendation."""
         from ..scheduling import service as _S
         lb = _S.load_balance(providers.aurora)
-        return f"avg {lb['avg_appts_per_provider']} appts/provider\n" + "\n".join(
-            f"- {d['day']}: {d['appts_per_day']} appts/day, {d['providers_per_day']} providers "
-            f"→ {d['appts_per_provider']}/provider ({d['flag']})" for d in lb["by_day"])
+        return (f"dept avg {lb['avg_utilization_pct']}% utilization\n" + "\n".join(
+            f"- {d['day']}: {d['providers_per_day']} providers, {d['avg_visit_min']}-min avg visit "
+            f"→ {d['utilization_pct']}% ({d['flag']})" for d in lb["by_day"]) +
+            ("\n" + lb["rebalance"] if lb.get("rebalance") else ""))
+
+    def cycle_time() -> str:
+        """ASK3: department cycle time (referral→seen) across role handoffs, with the
+        increase attributed to a stage (the clerical-intake bottleneck)."""
+        from ..scheduling import service as _S
+        ct = _S.cycle_time(providers.aurora)
+        s = ct["stages_recent"]
+        return (f"cycle {ct['cycle_days_recent']}d (was {ct['cycle_days_prior']}d) — clerical {s['clerical']}d / "
+                f"scheduling {s['scheduling']}d / provider {s['provider']}d; bottleneck: {ct['bottleneck_label']}")
 
     def propose_schedule_change(summary: str) -> str:
         """Propose a schedule change (backfill/swap/overbook). Does NOT apply it —
@@ -243,8 +272,11 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
         StructuredTool.from_function(query_workforce_db, description=query_desc),
         StructuredTool.from_function(no_show_risk),
         StructuredTool.from_function(coverage_plan),
+        StructuredTool.from_function(cancellation_breakdown),
         StructuredTool.from_function(template_optimization),
+        StructuredTool.from_function(walkin_scenario),
         StructuredTool.from_function(provider_load),
+        StructuredTool.from_function(cycle_time),
         StructuredTool.from_function(propose_schedule_change),
         *sched_tools,
     ]

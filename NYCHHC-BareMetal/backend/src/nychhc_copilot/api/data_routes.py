@@ -128,7 +128,66 @@ async def load_balance(request: Request):
     return envelope(S.load_balance(_p(request).aurora))
 
 
-# ── UC3 — template optimization ──────────────────────────────────────────────
+# ── UC3 / ASK1 — template optimization + cancellation breakdown ─────────────
 @router.get("/template")
 async def template(request: Request):
     return envelope(S.template_reco(_p(request).aurora))
+
+
+@router.get("/cancellations")
+async def cancellations(request: Request):
+    return envelope(S.cancellation_breakdown(_p(request).aurora))
+
+
+# ── ASK1 — walk-in volume + scenario ─────────────────────────────────────────
+@router.get("/walkins")
+async def walkins(request: Request):
+    a = _p(request).aurora
+    return envelope({**S.walkin_volume(a), "friday_scenario": S.walkin_scenario(a, "Friday")})
+
+
+# ── ASK3 — department cycle time + stage attribution ─────────────────────────
+@router.get("/cycle-time")
+async def cycle_time(request: Request):
+    return envelope(S.cycle_time(_p(request).aurora))
+
+
+# ── Proactive, system-initiated insights (ASK1 Flow1 / ASK2 Flow1a) ──────────
+@router.get("/insights")
+async def insights(request: Request):
+    """The 'bot does the noticing' moments — surfaced unprompted in the UI."""
+    a = _p(request).aurora
+    items = []
+    cb = S.cancellation_breakdown(a)
+    o = cb.get("outlier")
+    if o and o["cancel_pct"] >= cb["clinic_avg_cancel_pct"] + 5:
+        items.append({"kind": "pattern", "severity": "info",
+                      "title": f"{o['day']} {o['shift']} cancellations running high",
+                      "detail": f"{o['cancel_pct']}% vs {cb['clinic_avg_cancel_pct']}% clinic avg — "
+                                f"~{o['advance_pct']}% advance (refilled), {o['noshow_pct']}% true no-show.",
+                      "ask": "How do cancellations break down by day this quarter?"})
+    plan = S.coverage_plan(a)
+    if plan["gap_count"]:
+        sl = next(iter(plan["by_service_line"]))
+        g = plan["gaps"][0]
+        items.append({"kind": "coverage", "severity": "warning",
+                      "title": "Coverage risk forming in the next 90 days",
+                      "detail": f"{sl} drops below minimum (earliest {g['date']}, "
+                                f"out: {', '.join(g['providers_out']) or 'PTO'}). Still approvable if staggered.",
+                      "ask": "Where can't I cover service in the next 90 days?"})
+    lb = S.load_balance(a)
+    over = next((d for d in lb["by_day"] if d["flag"] == "over-loaded"), None)
+    if over and lb.get("rebalance"):
+        items.append({"kind": "load", "severity": "info",
+                      "title": f"{over['day']} is over-loaded by minute-weighted demand",
+                      "detail": f"{over['utilization_pct']}% utilization vs {lb['avg_utilization_pct']}% avg — "
+                                "headcount looks balanced, the minute-weighted load isn't.",
+                      "ask": "Is our provider distribution actually matching demand?"})
+    cyc = S.cycle_time(a)
+    if cyc["cycle_days_recent"] > cyc["cycle_days_prior"]:
+        items.append({"kind": "cycle", "severity": "info",
+                      "title": "Cycle time is up vs last quarter",
+                      "detail": f"{cyc['cycle_days_recent']}d (was {cyc['cycle_days_prior']}d) — the slip is at "
+                                f"the {cyc['bottleneck_label']} handoff, not provider capacity.",
+                      "ask": "Where's the cycle-time increase coming from?"})
+    return envelope(items)

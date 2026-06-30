@@ -37,6 +37,23 @@ Operating rules:
 - Answer ONLY the user's current question with real values from tools. Do NOT invent
   example data or extra "user:"/"assistant:" turns. Stop after your answer.
 
+Department logic to apply (NYC H+H OBGYN scheduling):
+- Cancellations: distinguish ADVANCE cancellations (refilled from the waitlist) from TRUE
+  no-shows. Only double-block where true no-shows are high; where cancels are advance,
+  tighten waitlist auto-fill instead.
+- Coverage is a skill/service-mix question, not a headcount one — check the minimum
+  credentialed providers per service, and catch PTO clustering.
+- Headcount is NOT capacity — reason in provider-minutes weighted by visit-type mix
+  (New OB 40m, Follow-up 20m, High Risk 45m).
+- Cycle time = the sum of role handoffs; the bottleneck usually lives at a handoff, so
+  attribute delay to a stage (clerical intake / scheduling / provider), not a person.
+- PHI stays in Epic: analyse de-identified aggregates here; route anything patient-
+  identifiable back into Epic chat — never surface a patient list here.
+- Value framing: reframe individual/local asks as DEPARTMENT-level wins (throughput,
+  coverage reliability, cost, access) — that's what the chair weighs.
+- Every recommendation is ADVISORY: end with a brief confirm-before-acting nudge, since
+  these touch PTO approvals, provider pay, and budget. Nothing auto-executes.
+
 {schema}
 """
 
@@ -236,9 +253,10 @@ def route(message: str, providers, role: str = "Scheduler", memory=None, session
             lines.append("RED = call + keep a standby ready; AMBER = send a text reminder.")
             return "\n".join(lines)
 
-    # 6. Coverage planning (UC2) — 90-day forward gaps
-    if any(w in m for w in ["coverage", "90 day", "90-day", "cover the service", "uncovered",
-                            "coverage gap", "who is out", "who's out", "service line"]):
+    # 6. Coverage planning (UC2) — 90-day forward gaps (let Epic-post / case fall through)
+    if (any(w in m for w in ["coverage", "90 day", "90-day", "cover the service", "uncovered",
+                             "coverage gap", "who is out", "who's out", "service line"])
+            and "epic" not in m and "make the case" not in m):
         plan = S.coverage_plan(aurora)
         if plan["gap_count"] == 0:
             return ("Coverage holds for the next 90 days — every service line stays at or above its "
@@ -252,28 +270,137 @@ def route(message: str, providers, role: str = "Scheduler", memory=None, session
         lines.append("Approve PTO ahead of these windows, stagger leave, or pull a peer/float onto service.")
         return "\n".join(lines)
 
-    # 7. Provider load balancing (VC-A) — demand vs staffing by weekday
-    if any(w in m for w in ["load balanc", "providers per day", "provider distribution",
-                            "equally distribut", "staffing by day", "data-driven", "intelligence behind",
-                            "are we balanced", "provider load"]):
-        lb = S.load_balance(aurora)
-        lines = [f"Provider load by weekday (department avg {lb['avg_appts_per_provider']} appts/provider):"]
-        for d in lb["by_day"]:
-            lines.append(f"- {d['day']}: {d['appts_per_day']} appts/day across {d['providers_per_day']} "
-                         f"providers → {d['appts_per_provider']}/provider ({d['flag']})")
-        lines.append("Rebalance providers from under-utilised days toward over-loaded ones.")
+    # 6b. Approve-ahead PTO decision support (ASK 2) — "can I approve this PTO?"
+    if ("approve" in m or "can i approve" in m or "requested" in m) and any(w in m for w in ["pto", "leave", "time off", "vacation"]):
+        prov, ds = _provider(aurora, message), _dates(message)
+        if prov and len(ds) >= 2:
+            r = S.can_approve_pto(aurora, prov["id"], ds[0], ds[1])
+            if r["approvable"]:
+                return f"{prov['name']} {ds[0]}→{ds[1]}: {r['message']} You can approve — final sign-off is yours."
+            opts = "\n".join(f"  ({chr(97+i)}) {o}" for i, o in enumerate(r["options"]))
+            return (f"{prov['name']} {ds[0]}→{ds[1]}: {r['message']}\nOptions:\n{opts}\n"
+                    "Want me to draft either as a proposal? Final approval still routes through you.")
+        return ("Tell me the provider and the dates (e.g. \"can I approve PTO for Dr. Wu Jul 14-18?\") "
+                "and I'll check it against the service-line minimums before you approve.")
+
+    # 8. Cancellation breakdown (ASK 1) — "double-block?" routes to the template intent below
+    if ("cancellation" in m or "cancellations" in m or
+            ("cancel" in m and any(w in m for w in ["break", "by day", "rate", "pattern", "quarter", "weekday"]))):
+        cb = S.cancellation_breakdown(aurora)
+        o = cb["outlier"] or {}
+        lines = [f"Cancellations by weekday/shift (clinic avg {cb['clinic_avg_cancel_pct']}%); top slots:"]
+        for s in sorted(cb["by_slot"], key=lambda x: -x["cancel_pct"])[:5]:
+            lines.append(f"- {s['day']} {s['shift']}: {s['cancel_pct']}% total = {s['advance_pct']}% advance "
+                         f"+ {s['noshow_pct']}% true no-show")
+        if o:
+            adv_heavy = o["advance_pct"] > o["noshow_pct"]
+            lines.append(f"{o['day']} {o['shift']} is the outlier ({o['cancel_pct']}%). "
+                         + ("Most are advance cancellations (refilled from the waitlist), so don't "
+                            "double-block — tighten waitlist auto-fill. Double-blocking pays off where "
+                            "true no-shows are high (Monday AM)." if adv_heavy else
+                            "These are mostly true no-shows, so double-blocking that slot is justified."))
+        lines.append("This is a recommendation — confirm against provider capacity before changing the template.")
         return "\n".join(lines)
 
-    # 8. Template optimization (UC3) — booked / walk-in / double-block mix
-    if any(w in m for w in ["template", "double block", "double-block", "walk-in", "walk in",
-                            "half day", "half-day", "full day", "optimi"]):
+    # 9. Template optimization (UC3 / ASK 1) — advance-cancel-aware
+    if any(w in m for w in ["template", "double block", "double-block", "optimi", "booking mix"]):
         recs = S.template_reco(aurora)["recommendations"]
-        hot = [r for r in recs if r["no_show_rate"] >= 30 or r["walk_in_pct"] >= 25]
-        lines = ["Template recommendations (from historical cancel + walk-in patterns):"]
+        hot = [r for r in recs if "Double-block" in r["booking"] or "Do NOT" in r["booking"]]
+        lines = ["Template recommendations (true no-show vs advance-cancel aware):"]
         for r in (hot or recs)[:7]:
-            lines.append(f"- {r['day']} {r['shift']}: {r['no_show_rate']}% no-show, {r['walk_in_pct']}% "
-                         f"walk-in → {r['booking']}; {r['walk_in']}")
+            lines.append(f"- {r['day']} {r['shift']}: {r['no_show_rate']}% true no-show, "
+                         f"{r['advance_rate']}% advance → {r['booking']}")
         return "\n".join(lines)
+
+    # 10. Walk-in volume + full-vs-half-day scenario (ASK 1 Flow 3)
+    if "walk-in" in m or "walk in" in m or "walkin" in m:
+        if any(w in m for w in ["half", "full day", "model", "scenario", "friday"]):
+            sc = S.walkin_scenario(aurora, "Friday")
+            return (f"Friday walk-ins over the last {sc['weeks']} weeks: ~{sc['am_avg']}/AM, "
+                    f"~{sc['pm_avg']}/PM. {sc['recommendation']} This is a model output — confirm "
+                    "against provider availability before changing the template.")
+        wv = S.walkin_volume(aurora)
+        lines = ["Average walk-ins per day (last 12 weeks):"]
+        for d in wv["by_day"]:
+            lines.append(f"- {d['day']}: {d['avg_total']} ({d['avg_am']} AM / {d['avg_pm']} PM)")
+        lines.append("Tuesday is the peak; Friday runs lightest and is AM-concentrated. "
+                     "Ask me to model a half-day Friday walk-in template.")
+        return "\n".join(lines)
+
+    # 11. Provider load / capacity (ASK 4 / VC-A) — minute-weighted
+    if (any(w in m for w in ["load balanc", "provider load", "providers per day", "provider distribution",
+                             "equally distribut", "staffing", "data-driven", "intelligence behind",
+                             "capacity", "provider-minute", "minute-weighted", "rebalance",
+                             "matching demand", "matching the demand", "distribution"])
+            and not any(k in m for k in ["make the case", "justify", "for the chair", "business case",
+                                         "one-page", "one page", "build the case"])):
+        lb = S.load_balance(aurora)
+        lines = [f"Provider load by weekday, weighted by visit-type minutes (dept avg "
+                 f"{lb['avg_utilization_pct']}% utilization):"]
+        for d in lb["by_day"]:
+            lines.append(f"- {d['day']}: {d['providers_per_day']} providers, avg visit {d['avg_visit_min']} min "
+                         f"→ {d['utilization_pct']}% utilization ({d['flag']})")
+        lines.append(lb["rebalance"] or "Headcount and minute-weighted load are reasonably balanced.")
+        lines.append("Headcount isn't capacity — this weights by visit-type mix. Confirm against "
+                     "provider availability and credentialing before changing the template.")
+        return "\n".join(lines)
+
+    # 12. Cycle time / department-as-a-whole (ASK 3)
+    if any(w in m for w in ["cycle time", "cycle-time", "department perform", "department as a whole",
+                            "as a whole", "handoff", "hand-off", "bottleneck", "stage", "where's the",
+                            "where is the", "contributing", "each part of the team"]):
+        ct = S.cycle_time(aurora)
+        s, p = ct["stages_recent"], ct["stages_prior"]
+        return ("Department cycle time (referral → seen), last 30 days vs prior quarter:\n"
+                f"- Total: {ct['cycle_days_recent']} days (was {ct['cycle_days_prior']})\n"
+                f"- Clerical intake/logging: {s['clerical']}d (was {p['clerical']}d)\n"
+                f"- Clinical scheduling: {s['scheduling']}d (was {p['scheduling']}d)\n"
+                f"- Provider availability: {s['provider']}d (was {p['provider']}d)\n"
+                f"The slip is in the first handoff — {ct['bottleneck_label']} — not provider capacity. "
+                "Consolidating intake / adding logging capacity compresses cycle time more than anything "
+                "on the provider side. Worth confirming with the ambulatory director before reallocating.")
+
+    # 13. Epic chat routing (ASK 5) — post an aggregate alert into Epic
+    if ("epic" in m and any(w in m for w in ["post", "send", "alert", "notify", "chat"])) or "post the alert" in m or "post it" in m:
+        if not can_write:
+            return "Posting to Epic is a Scheduler/Approver action."
+        S.record_audit(aurora, "epic_post", "Coverage alert posted to the scheduling pool in Epic chat",
+                       role, f"chat:{role}", "approved", outcome="executed")
+        return ("Done — coverage alert posted to the scheduling team's Epic chat (date, service, and the "
+                "staffing options). Any patient-specific follow-up threads there under the patient record, "
+                "not here, so Epic stays your system of record.")
+
+    # 14. PHI boundary (ASK 5) — patient-identifiable lists stay in Epic
+    if any(w in m for w in ["which patients", "which specific patient", "patient names", "named list",
+                            "who is affected", "which patient", "list of patients"]):
+        return ("That's patient-identifiable, so I won't pull it here — it belongs in Epic. I'll keep it "
+                "at the aggregate (e.g. affected slots + service); the named list lives in the Epic "
+                "schedule view where you can act on it directly. Want the Epic hand-off?")
+
+    # 15. Read-from-Epic framing (ASK 5)
+    if any(w in m for w in ["where are you getting", "where do these numbers", "data source",
+                            "source of truth", "where's this data", "how do you know"]):
+        return ("All scheduling, cancellation, and visit-type data is read from Epic — it stays your single "
+                "source of truth. I analyse de-identified aggregates and send any patient-level, actionable "
+                "output back into Epic chat, so nothing lives in two places.")
+
+    # 16. Value narrative (ASK 6) — department-level justification artifact
+    if any(w in m for w in ["make the case", "justify", "justification", "for the chair", "to my manager",
+                            "business case", "one-page", "one page", "build the case", "reframe"]):
+        lb = S.load_balance(aurora)
+        wk = S.walkin_scenario(aurora, "Friday")
+        ct = S.cycle_time(aurora)
+        over = next((d for d in lb["by_day"] if d["flag"] == "over-loaded"), None)
+        return ("Department-level case (this is what the chair will weigh — framed as a department win, "
+                "not one director):\n"
+                f"- Rebalance staffing to the minute-weighted load ({lb.get('rebalance') or 'tighten the Mon/Tue split'}) "
+                f"— removes the {(over or {}).get('day','Tuesday')} overtime, cost-neutral (no added headcount).\n"
+                f"- Half-day Friday walk-in template — ~{wk['provider_hours_saved']} provider-hours "
+                f"(~${wk['est_cost_saved']:,}/quarter) with 0 turned away.\n"
+                f"- Cut cycle time by addressing the clerical-intake handoff ({ct['cycle_days_recent']}→ target "
+                f"~{ct['cycle_days_prior']} days) — improves access department-wide.\n"
+                "Leads with throughput, cost, and access across the department. Want it as a one-page brief "
+                "with the 12-week evidence? I'll leave the sign-off line for you — the decision is yours to route.")
 
     return None
 

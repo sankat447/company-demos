@@ -41,6 +41,33 @@ DAY_TIME_MULT = {
     ("Friday", "AM"): 1.10, ("Friday", "PM"): 1.30,
 }
 
+# ASK 1: aggregate cancellation profile per slot — the KEY nuance is advance
+# cancellation (refilled from waitlist) vs TRUE no-show. Tuesday PM is high-cancel
+# but advance-dominated (don't double-block); Monday AM has the higher true no-show
+# (double-block pays off there). Clinic average lands ~9%.
+SLOT_TRUE_NOSHOW = {
+    ("Monday", "AM"): 0.11, ("Monday", "PM"): 0.08, ("Tuesday", "AM"): 0.06,
+    ("Tuesday", "PM"): 0.04, ("Wednesday", "AM"): 0.06, ("Wednesday", "PM"): 0.07,
+    ("Thursday", "AM"): 0.06, ("Thursday", "PM"): 0.08, ("Friday", "AM"): 0.07,
+    ("Friday", "PM"): 0.09,
+}
+SLOT_ADV_CANCEL = {
+    ("Monday", "AM"): 0.03, ("Monday", "PM"): 0.05, ("Tuesday", "AM"): 0.08,
+    ("Tuesday", "PM"): 0.18, ("Wednesday", "AM"): 0.07, ("Wednesday", "PM"): 0.07,
+    ("Thursday", "AM"): 0.06, ("Thursday", "PM"): 0.09, ("Friday", "AM"): 0.05,
+    ("Friday", "PM"): 0.07,
+}
+
+# ASK 4: visit-type durations (provider-minutes) — headcount ≠ capacity.
+APPT_MINUTES = {"New OB": 40, "Follow-up": 20, "High Risk": 45, "GYN Consult": 30, "Walk-in": 20}
+
+# ASK 1 Flow 3: walk-in volume by weekday (last 12 weeks) — Tue peak, Fri ~3x lighter
+# and AM-concentrated. (mean per day, AM share).
+WALKIN_PROFILE = {
+    "Monday": (31, 0.55), "Tuesday": (38, 0.55), "Wednesday": (29, 0.55),
+    "Thursday": (27, 0.6), "Friday": (12, 0.75),
+}
+
 # ── 12 named providers (brief §8) ────────────────────────────────────────────
 # (id, name, credential, specialty, provider_type, phone, room, work_start, work_end, slot_min)
 _PROV = [
@@ -275,38 +302,94 @@ def history(n_rows: int = 2400):
             cur += timedelta(days=1)
             continue
         n_prov = {"Tuesday": 6, "Monday": 5, "Wednesday": 5}.get(dname, 4)
+        # ASK 4: Tuesday is the genuinely busy day (more booked slots/provider).
+        emit_p = {"Monday": 0.45, "Tuesday": 0.80, "Wednesday": 0.58,
+                  "Thursday": 0.52, "Friday": 0.50}.get(dname, 0.55)
         for prov in rng.sample(_PROV, n_prov):
             (pid_p, pname, cred, spec, ptype, *_rest) = prov
             for tod in ("AM", "PM"):
-                if rng.random() > 0.6:
+                if rng.random() > emit_p:
                     continue
-                atype = ("Walk-in" if ptype == "Walk-in"
-                         else "High Risk" if spec == "Maternal-Fetal Medicine"
-                         else "GYN Consult" if spec == "Gynecology" and rng.random() < 0.5
-                         else rng.choice(["New OB", "Follow-up"]) if spec == "Obstetrics"
-                         else "Follow-up")
+                if ptype == "Walk-in":
+                    atype = "Walk-in"
+                elif spec == "Maternal-Fetal Medicine":
+                    atype = "High Risk"
+                elif spec == "Gynecology":
+                    atype = "GYN Consult" if rng.random() < 0.5 else "Follow-up"
+                elif spec == "Obstetrics":
+                    # ASK 4: Tuesday skews to new-patient (40 min); Monday to returns (20 min).
+                    w_newob = 0.60 if dname == "Tuesday" else 0.15 if dname == "Monday" else 0.30
+                    atype = rng.choices(["New OB", "Follow-up"], weights=[w_newob, 1 - w_newob])[0]
+                else:
+                    atype = "Follow-up"
                 pt = rng.choice(pats)
-                base = APPT_TYPES[atype]["base"]
-                mult = DAY_TIME_MULT.get((dname, tod), 1.0)
+                # ASK 1: split the slot outcome into attended / advance_cancel / no_show.
+                ns = SLOT_TRUE_NOSHOW.get((dname, tod), 0.07)
                 if pt["prior_noshows"] >= 3:
-                    mult *= 1.60
+                    ns *= 1.5
                 elif pt["prior_noshows"] >= 1:
-                    mult *= 1.20
+                    ns *= 1.2
                 if not pt["has_contact"]:
-                    mult *= 1.30
-                prob = min(0.92, base * mult)
+                    ns *= 1.3
+                adv = SLOT_ADV_CANCEL.get((dname, tod), 0.06)
+                r = rng.random()
+                outcome = "no_show" if r < ns else "advance_cancel" if r < ns + adv else "attended"
                 rows.append({
                     "date": cur.isoformat(), "day_of_week": dname, "time_of_day": tod,
-                    "appt_type": atype, "duration_min": APPT_TYPES[atype]["duration"],
+                    "appt_type": atype, "duration_min": APPT_MINUTES.get(atype, 20),
                     "provider_id": pid_p, "provider_type": ptype, "patient_id": pt["id"],
                     "prior_noshows": pt["prior_noshows"], "has_contact": 1 if pt["has_contact"] else 0,
                     "contact_pref": pt["contact_pref"], "visit_count": pt["visit_count"],
-                    "noshow_prob": round(prob, 3), "risk_tier": _tier(prob),
-                    "actual_noshow": 1 if rng.random() < prob else 0,
+                    "noshow_prob": round(min(0.92, ns), 3), "risk_tier": _tier(ns),
+                    "actual_noshow": 1 if outcome == "no_show" else 0, "outcome": outcome,
                 })
                 if len(rows) >= n_rows:
                     break
         cur += timedelta(days=1)
+    return rows
+
+
+def walkin_daily(weeks: int = 12):
+    """ASK 1 Flow 3: per-date walk-in volume (AM/PM split) for the last `weeks` weeks,
+    following the transcript profile (Tue peak, Fri ~3x lighter and AM-concentrated)."""
+    rng = random.Random(SEED + 4)
+    rows = []
+    start = date.fromisoformat(TODAY) - timedelta(weeks=weeks)
+    cur = start
+    while cur < date.fromisoformat(TODAY):
+        dname = DOW[cur.weekday()]
+        if dname in WALKIN_PROFILE:
+            mean, am_share = WALKIN_PROFILE[dname]
+            total = max(0, int(round(mean + rng.uniform(-4, 4))))
+            am = int(round(total * am_share))
+            rows.append({"date": cur.isoformat(), "day_of_week": dname,
+                         "am": am, "pm": total - am})
+        cur += timedelta(days=1)
+    return rows
+
+
+def cycle_log(n_recent: int = 220, n_prior: int = 220):
+    """ASK 3: per-referral handoff timing across role-owned stages — clerical
+    intake/logging, clinical scheduling, provider availability — for a recent 30-day
+    cohort and a prior-quarter cohort, so cycle time + its increase are computed and
+    the bottleneck (clerical intake) is attributable to a stage."""
+    rng = random.Random(SEED + 5)
+    rows = []
+    today = date.fromisoformat(TODAY)
+
+    def emit(n, day_lo, day_hi, clerical_mean):
+        for _ in range(n):
+            d = today - timedelta(days=rng.randint(day_lo, day_hi))
+            clerical = max(0.3, rng.gauss(clerical_mean, 1.1))   # intake/logging (the slip)
+            scheduling = max(0.2, rng.gauss(1.1, 0.4))           # clinical scheduling (stable)
+            provider = max(0.3, rng.gauss(1.3, 0.5))             # provider availability (stable)
+            rows.append({"referral_date": d.isoformat(),
+                         "clerical_days": round(clerical, 2),
+                         "scheduling_days": round(scheduling, 2),
+                         "provider_days": round(provider, 2),
+                         "cohort": "recent" if day_lo == 0 else "prior"})
+    emit(n_recent, 0, 30, 3.8)     # last 30 days — clerical up to 3.8
+    emit(n_prior, 95, 185, 2.9)    # prior quarter — clerical was 2.9
     return rows
 
 

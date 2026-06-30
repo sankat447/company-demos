@@ -104,29 +104,30 @@ function bars(points) {
   }).join("")}</div>`;
 }
 
-/* ---------------- dashboard (KPIs + charts) ---------------- */
+/* ---------------- dashboard (KPIs + proactive insights) ---------------- */
 async function renderDashboard(host) {
-  const [k, cov] = await Promise.all([get("/api/data/kpis"), get("/api/data/coverage/1", { days: 7 }).catch(() => [])]);
+  const [k, strip] = await Promise.all([get("/api/data/kpis"), insightsStrip()]);
   const mix = k.risk_mix || { RED: 0, AMBER: 0, GREEN: 0 };
   const tile = (lab, val, sub) => `<div class="kpi"><span class="rail"></span><div class="lab">${lab}</div><div class="val">${val}</div><div class="delta">${sub}</div></div>`;
   host.innerHTML = `
+    ${strip}
     <div class="toolbar" style="justify-content:flex-end;margin-bottom:6px"><a class="btn" href="${GRAFANA_DASH}" target="_blank" rel="noopener">Open in Grafana ↗</a></div>
     <div class="kpis">
       ${tile("Coverage today", `${k.coverage_pct}<small>%</small>`, "vs plan")}
       ${tile("Open shifts · 7d", k.open_shifts_7d, "smart-fill ready")}
-      ${tile("Predicted no-shows", `${k.predicted_no_shows} <small>/ ${k.appts_today}</small>`, "KServe model")}
+      ${tile("Predicted no-shows", `${k.predicted_no_shows} <small>/ ${k.appts_today}</small>`, "today's panel")}
       ${tile("Overtime · week", `${k.overtime_h}<small>h</small>`, `target ${k.overtime_target}h`)}
-      ${tile("Bed occupancy", `${k.bed_occupancy_pct}<small>%</small>`, `${k.beds_used} / ${k.beds_total} beds`)}
-      ${tile("Predicted admits · 4h", k.predicted_admits_4h, "2 from ED")}
+      ${tile("Pending PTO", k.pending_pto, "awaiting decision")}
+      ${tile("Appts today", k.appts_today, "scheduled")}
     </div>
     <div class="chart-grid">
-      <div class="card"><div class="card-h"><div><h3>Staffing vs forecast demand</h3><div class="sub">Required vs scheduled · next 7 days (Emergency)</div></div></div>
-        <div class="card-b">${cov.length ? bars(cov) : "<div class='sub'>No forecast.</div>"}
-          <div class="legend"><span><i style="background:var(--clay-tint)"></i>Required</span><span><i style="background:var(--clay)"></i>Scheduled</span></div></div></div>
       <div class="card"><div class="card-h"><div><h3>No-show risk mix</h3><div class="sub">Today · ${k.appts_today} scheduled appts</div></div></div>
         <div class="card-b"><div class="donut-wrap">${donut(mix)}
           <div class="donut-legend"><span><i style="background:#5E7C58"></i><b>${mix.GREEN}</b> Low (green)</span><span><i style="background:#C08A2D"></i><b>${mix.AMBER}</b> Watch (amber)</span><span><i style="background:#B24A38"></i><b>${mix.RED}</b> High (red)</span></div></div></div></div>
+      <div class="card"><div class="card-h"><div><h3>Today at a glance</h3><div class="sub">Jump into Planning or the Assistant for detail</div></div></div>
+        <div class="card-b">Use <b>Planning</b> for 90-day coverage, minute-weighted provider load, cancellation patterns and template recommendations — or ask the <b>Assistant</b> a plain-English question. Proactive patterns surface above.</div></div>
     </div>`;
+  host.querySelectorAll("[data-ask]").forEach((b) => b.onclick = () => { window.__pendingAsk = b.dataset.ask; switchTab("copilot"); });
 }
 
 /* ---------------- schedule ---------------- */
@@ -331,44 +332,74 @@ async function renderApprovals(host) {
 
 /* ---------------- Leadership reporting (department-level) ---------------- */
 async function renderReporting(host) {
-  const [risk, pto] = await Promise.all([get("/api/data/risk-list"), get("/api/data/pto-queue")]);
+  const [risk, pto, ct, lb] = await Promise.all([
+    get("/api/data/risk-list"), get("/api/data/pto-queue"),
+    get("/api/data/cycle-time"), get("/api/data/load-balance")]);
   const mix = { RED: 0, AMBER: 0, GREEN: 0 };
   risk.forEach((r) => { mix[r.tier] = (mix[r.tier] || 0) + 1; });
   const conflicts = pto.filter((p) => p.coverage_gap).length;
   const tile = (v, l, sub) => `<div class="card"><div class="card-b"><div style="font-family:Fraunces,serif;font-size:34px;font-weight:700">${v}</div><div class="sub">${l}</div>${sub ? `<div class="sub" style="color:var(--ink-3)">${sub}</div>` : ""}</div></div>`;
-  host.innerHTML = `<div class="banner">Department view for the Chair / CCO — synthetic, demonstration only.</div>
+  const s = ct.stages_recent || {}, sp = ct.stages_prior || {};
+  const stageRow = (lab, r, p) => `<tr><td>${lab}</td><td><b>${r}d</b></td><td class="sub">${p}d</td><td>${r > p ? "<span class='badge a'>↑</span>" : "<span class='badge g'>flat</span>"}</td></tr>`;
+  host.innerHTML = `<div class="banner">Consolidated department view for the Chair / CCO — synthetic, demonstration only.</div>
     <div class="grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">
-      ${tile("92%", "Coverage reliability", "Inpatient OB + GYN on plan")}
+      ${tile(`${ct.cycle_days_recent}d`, "Cycle time (referral→seen)", `was ${ct.cycle_days_prior}d last quarter`)}
       ${tile(mix.RED + mix.AMBER, "At-risk appointments today", `${mix.RED} red · ${mix.AMBER} amber`)}
       ${tile(conflicts, "Open coverage conflicts", "overlapping leave windows")}
-      ${tile("87%", "Capacity utilization", "booked vs. available slots")}
+      ${tile(`${lb.avg_utilization_pct}%`, "Provider utilization", "minute-weighted, dept avg")}
     </div>
-    <div class="card"><div class="card-h"><div><h3>Why this matters</h3><div class="sub">The business case is department-level (throughput, coverage reliability, utilization)</div></div></div>
-      <div class="card-b">Predictive no-show + coverage tools protect 24/7 OB + GYN coverage and reduce wasted slots. Every AI recommendation is human-approved and audited; no PHI is used. Drill into the Dashboard for the operational detail.</div></div>`;
+    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>Cycle time by handoff <span class="meta">· ASK3</span></h3>
+      <div class="sub">The bottleneck lives at a handoff — the slip is clerical intake, not provider capacity</div></div></div>
+      <div class="card-b" style="padding:0"><table><thead><tr><th>Stage owner</th><th>Now</th><th>Prior</th><th></th></tr></thead><tbody>
+        ${stageRow("Clerical intake / logging", s.clerical, sp.clerical)}
+        ${stageRow("Clinical scheduling", s.scheduling, sp.scheduling)}
+        ${stageRow("Provider availability", s.provider, sp.provider)}
+      </tbody></table></div></div>
+    <div class="card"><div class="card-h"><div><h3>Why this matters</h3><div class="sub">The business case is department-level (throughput, coverage reliability, cost)</div></div></div>
+      <div class="card-b">Three roles touch a patient before they're seen, and the delay concentrates at the first one — consolidating intake compresses cycle time more than anything on the provider side. Ask the Assistant to <b>"make the case for the chair"</b> for an approval-ready brief. Every recommendation is human-approved and audited; no PHI is used.</div></div>`;
 }
 
-/* ---------------- Planning: coverage (UC2) · load balance (VC-A) · template (UC3) ---------------- */
+/* ---------------- Planning: coverage (UC2) · capacity (ASK4) · cancellations+template (ASK1) ---------------- */
 async function renderPlanning(host) {
-  const [cov, lb, tpl] = await Promise.all([
-    get("/api/data/coverage"), get("/api/data/load-balance"), get("/api/data/template")]);
+  const [cov, lb, tpl, cb, wk] = await Promise.all([
+    get("/api/data/coverage"), get("/api/data/load-balance"), get("/api/data/template"),
+    get("/api/data/cancellations"), get("/api/data/walkins")]);
   const flag = (f) => `<span class="badge ${f === "over-loaded" ? "r" : f === "under-utilised" ? "a" : "g"}">${esc(f)}</span>`;
   const gaps = (cov.gaps || []).slice(0, 8).map((g) =>
     `<tr><td><b>${esc(g.date)}</b></td><td>${esc(g.service_line)}</td><td>${g.available}/${g.required}</td><td>${esc((g.providers_out || []).join(", "))}</td></tr>`).join("")
     || `<tr><td colspan="4" style="color:var(--ink-3)">No coverage gaps in the horizon.</td></tr>`;
   const load = (lb.by_day || []).map((d) =>
-    `<tr><td><b>${esc(d.day)}</b></td><td>${d.appts_per_day}</td><td>${d.providers_per_day}</td><td>${d.appts_per_provider}</td><td>${flag(d.flag)}</td></tr>`).join("");
-  const tplrows = (tpl.recommendations || []).filter((r) => r.no_show_rate >= 30 || r.walk_in_pct >= 25).slice(0, 8).map((r) =>
-    `<tr><td><b>${esc(r.day)} ${esc(r.shift)}</b></td><td class="pct ${r.no_show_rate >= 30 ? "r" : "a"}">${r.no_show_rate}%</td><td>${r.walk_in_pct}%</td><td>${esc(r.booking)}</td></tr>`).join("");
+    `<tr><td><b>${esc(d.day)}</b></td><td>${d.providers_per_day}</td><td>${d.avg_visit_min} min</td><td class="pct ${d.utilization_pct >= 92 ? "r" : d.utilization_pct <= 80 ? "a" : "g"}">${d.utilization_pct}%</td><td>${flag(d.flag)}</td></tr>`).join("");
+  const cancel = (cb.by_slot || []).slice().sort((a, b) => b.cancel_pct - a.cancel_pct).slice(0, 6).map((s) =>
+    `<tr><td><b>${esc(s.day)} ${esc(s.shift)}</b></td><td>${s.cancel_pct}%</td><td>${s.advance_pct}%</td><td class="pct ${s.noshow_pct >= 9 ? "r" : "g"}">${s.noshow_pct}%</td></tr>`).join("");
+  const tplrows = (tpl.recommendations || []).filter((r) => /Double-block|Do NOT/.test(r.booking)).slice(0, 8).map((r) =>
+    `<tr><td><b>${esc(r.day)} ${esc(r.shift)}</b></td><td>${r.no_show_rate}%</td><td>${r.advance_rate}%</td><td>${esc(r.booking)}</td></tr>`).join("");
   host.innerHTML = `
-    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>90-day coverage plan <span class="meta">· UC2</span></h3>
-      <div class="sub">${cov.gap_count} day(s) below service-line minimum over ${cov.horizon_days} days — approve PTO ahead of these windows</div></div></div>
+    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>90-day coverage plan <span class="meta">· UC2 / ASK2</span></h3>
+      <div class="sub">${cov.gap_count} day(s) below a service-line minimum over ${cov.horizon_days} days — coverage is a skill-mix, not a headcount, question</div></div></div>
       <div class="card-b" style="padding:0"><table><thead><tr><th>Date</th><th>Service line</th><th>On / min</th><th>Providers out</th></tr></thead><tbody>${gaps}</tbody></table></div></div>
-    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>Provider load balancing <span class="meta">· transcript</span></h3>
-      <div class="sub">Demand vs staffing by weekday (avg ${lb.avg_appts_per_provider} appts/provider) — "is the Mon 4 / Tue 6 split data-driven?"</div></div></div>
-      <div class="card-b" style="padding:0"><table><thead><tr><th>Day</th><th>Appts/day</th><th>Providers/day</th><th>Appts/provider</th><th>Status</th></tr></thead><tbody>${load}</tbody></table></div></div>
-    <div class="card"><div class="card-h"><div><h3>Template optimization <span class="meta">· UC3</span></h3>
-      <div class="sub">Booked / walk-in / double-block mix from historical cancel + walk-in patterns</div></div></div>
-      <div class="card-b" style="padding:0"><table><thead><tr><th>Day / shift</th><th>No-show</th><th>Walk-in</th><th>Recommendation</th></tr></thead><tbody>${tplrows}</tbody></table></div></div>`;
+    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>Provider capacity — minute-weighted <span class="meta">· ASK4</span></h3>
+      <div class="sub">Headcount isn't capacity — weighted by visit-type mix. ${esc(lb.rebalance || "Load is balanced.")}</div></div></div>
+      <div class="card-b" style="padding:0"><table><thead><tr><th>Day</th><th>Providers</th><th>Avg visit</th><th>Utilization</th><th>Status</th></tr></thead><tbody>${load}</tbody></table></div></div>
+    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>Cancellations — advance vs true no-show <span class="meta">· ASK1</span></h3>
+      <div class="sub">Clinic avg ${cb.clinic_avg_cancel_pct}%. Double-block only where TRUE no-shows are high; tighten the waitlist where cancels are advance.</div></div></div>
+      <div class="card-b" style="padding:0"><table><thead><tr><th>Day / shift</th><th>Cancel %</th><th>Advance</th><th>True no-show</th></tr></thead><tbody>${cancel}</tbody></table></div></div>
+    <div class="card"><div class="card-h"><div><h3>Template recommendation <span class="meta">· UC3 / ASK1</span></h3>
+      <div class="sub">Walk-ins: Fri ${((wk.by_day || []).find((d) => d.day === "Friday") || {}).avg_total || "—"}/day (AM-heavy). ${esc((wk.friday_scenario || {}).recommendation || "")}</div></div></div>
+      <div class="card-b" style="padding:0"><table><thead><tr><th>Day / shift</th><th>True no-show</th><th>Advance</th><th>Recommendation</th></tr></thead><tbody>${tplrows}</tbody></table></div></div>`;
+}
+
+/* proactive, system-initiated insights strip (ASK1 Flow1 / ASK2 Flow1a) */
+async function insightsStrip() {
+  let items = [];
+  try { items = await get("/api/data/insights"); } catch { return ""; }
+  if (!items.length) return "";
+  return `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent,#cc785c)">
+    <div class="card-h"><div><h3>Proactive insights</h3><div class="sub">Patterns the assistant noticed — click to dig in</div></div></div>
+    <div class="card-b">${items.map((i) => `<div style="padding:8px 0;border-bottom:1px solid var(--line,#eee)">
+      <b>${esc(i.title)}</b> <span class="badge ${i.severity === "warning" ? "a" : "g"}">${esc(i.kind)}</span>
+      <div class="sub">${esc(i.detail)}</div>
+      <button class="chip" data-ask="${esc(i.ask)}" style="margin-top:6px">Ask: ${esc(i.ask)}</button></div>`).join("")}</div></div>`;
 }
 
 /* ---------------- copilot ---------------- */
@@ -413,6 +444,10 @@ function renderCopilot(host) {
   $("#chatSend").onclick = () => { const i = $("#chatInput"); send(i.value); i.value = ""; };
   $("#chatInput").onkeydown = (e) => { if (e.key === "Enter") { send(e.target.value); e.target.value = ""; } };
   host.querySelectorAll(".chip").forEach((c) => c.onclick = () => send(c.dataset.q));
+  // A proactive-insight "Ask" click (from the dashboard) lands here.
+  if (typeof window !== "undefined" && window.__pendingAsk) {
+    const q = window.__pendingAsk; window.__pendingAsk = null; send(q);
+  }
 }
 
 /* ---------------- boot ---------------- */

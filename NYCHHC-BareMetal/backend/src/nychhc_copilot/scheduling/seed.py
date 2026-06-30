@@ -38,7 +38,12 @@ _DDL = [
         id text PRIMARY KEY, appt_date text, day_of_week text, time_of_day text, appt_type text,
         duration_min int, provider_id text, provider_type text, patient_id text, prior_noshows int,
         has_contact int, contact_pref text, visit_count int, noshow_prob real, risk_tier text,
-        actual_noshow int, status text)""",
+        actual_noshow int, outcome text, status text)""",
+    """CREATE TABLE IF NOT EXISTS walkin_daily (
+        id serial PRIMARY KEY, wdate text, day_of_week text, am int, pm int)""",
+    """CREATE TABLE IF NOT EXISTS cycle_log (
+        id text PRIMARY KEY, referral_date text, clerical_days real, scheduling_days real,
+        provider_days real, cohort text)""",
     """CREATE TABLE IF NOT EXISTS audit_log (
         id text PRIMARY KEY, action text, summary text, rationale text, actor_role text,
         actor_user text, decision text, outcome text, ts text)""",
@@ -74,8 +79,16 @@ def ensure_seeded(aurora) -> None:
         aurora.execute(
             "INSERT INTO appt_history (id,appt_date,day_of_week,time_of_day,appt_type,duration_min,"
             "provider_id,provider_type,patient_id,prior_noshows,has_contact,contact_pref,visit_count,"
-            "noshow_prob,risk_tier,actual_noshow,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "noshow_prob,risk_tier,actual_noshow,outcome,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (f"h{i}", h["date"], h["day_of_week"], h["time_of_day"], h["appt_type"], h["duration_min"],
              h["provider_id"], h["provider_type"], h["patient_id"], h["prior_noshows"], h["has_contact"],
              h["contact_pref"], h["visit_count"], h["noshow_prob"], h["risk_tier"], h["actual_noshow"],
-             "Completed"))
+             h["outcome"], "Completed"))
+    for w in G.walkin_daily():
+        aurora.execute("INSERT INTO walkin_daily (wdate,day_of_week,am,pm) VALUES (?,?,?,?)",
+                       (w["date"], w["day_of_week"], w["am"], w["pm"]))
+    for i, c in enumerate(G.cycle_log(), 1):
+        aurora.execute("INSERT INTO cycle_log (id,referral_date,clerical_days,scheduling_days,"
+                       "provider_days,cohort) VALUES (?,?,?,?,?,?)",
+                       (f"c{i}", c["referral_date"], c["clerical_days"], c["scheduling_days"],
+                        c["provider_days"], c["cohort"]))
