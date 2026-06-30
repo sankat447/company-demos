@@ -4,17 +4,28 @@
 
 Canonical state of the demo. Update on every meaningful change.
 
-## Forecast model on KServe — P3.8 (2026-06-30) — offline GREEN, redeploy pending
+## Forecast model on KServe + live seed fix — P3.8 (2026-06-30) — LIVE on ocp419 ✅
 Both predictive models are now genuinely **served by KServe (OpenShift AI)** and **used**:
 no-show (`nychhc-noshow`, UC1) + **demand forecast (`nychhc-forecast`)** — retrained to
 `day_of_week → demand-minutes` (r²=0.97), called by the ASK4 capacity view via
 `models.demand_forecast()` (history fallback → `demand_source`). Deterministic analytics stay
-as code; the conversational LLM stays Claude/Portkey (CPU-only, no GPU). `make verify` GREEN
-(61 backend + 4 model). See [USE_CASES.md](USE_CASES.md) "AI model serving".
+as code; the conversational LLM stays Claude/Portkey (CPU-only, no GPU). See
+[USE_CASES.md](USE_CASES.md) "AI model serving". `make verify` GREEN (63 backend + 4 model).
+- **Live-verified:** both ISes Ready/Loaded; `/api/data/load-balance` → `demand_source: model`;
+  `/api/data/appointments/risk` → `source: model`; `make verify-cluster` PASSED; capacity + value
+  chat flows answer correctly. Numbers are model-driven (demand profile ÷ actual per-weekday
+  staffing) so the over-loaded day + rebalance recommendation are **dynamic**, not hard-coded.
+- **Live seed bug fixed (caught during this verification):** `pto_queue.coverage_gap` is a
+  Postgres `boolean` but the generator emitted int `0/1` → the INSERT aborted `ensure_seeded`
+  mid-run, leaving `appt_history`/`walkin_daily`/`cycle_log` EMPTY in production (so ASK1/3/4 had
+  no live data; sqlite is typeless so all offline tests passed). Fixed: emit `bool`; rewrote
+  `ensure_seeded` to be **per-table idempotent** with per-table error isolation, so a
+  partially-seeded DB self-heals on the next backend start (verified: backfilled to
+  2402/60/440 on rollout — no destructive redeploy needed). +regression tests.
 
 ## ASK-list build — P3 (2026-06-30) — LIVE on ocp419 ✅
-Redeployed (destroy→deploy) Synced/Healthy; KServe models pinned. (Forecast-model wiring
-above redeploys on top.)
+Synced/Healthy; KServe models pinned. (Forecast-model wiring + seed fix above redeploy on top,
+non-destructively.)
 Implemented the clarified "Ask list & approach" doc (ASK 1-6 + proactive). `make verify`
 GREEN (60 backend + 4 model). See [USE_CASES.md](USE_CASES.md) ASK table.
 - **Data:** appt_history `outcome` (attended/advance_cancel/no_show — Tue-PM advance-heavy,
@@ -23,7 +34,8 @@ GREEN (60 backend + 4 model). See [USE_CASES.md](USE_CASES.md) ASK table.
 - **Analytics:** `cancellation_breakdown`, advance-cancel-aware `template_reco`, `walkin_volume/
   scenario` (half-day Friday: ~48 hrs/~$5,280 saved, 0 turned away), `can_approve_pto` (stagger/
   per-diem), `cycle_time` (bottleneck = clerical intake), minute-weighted `load_balance`
-  (Mon 77% / Tue 104% → "move one provider Mon→Tue").
+  (demand from the KServe forecast model ÷ per-weekday staffing → flags the over-loaded day +
+  a dynamic "move one provider" rebalance).
 - **Chat:** router flows for all asks + Epic routing (post-to-Epic audit, PHI decline, read-from-Epic)
   + value-narrative ("make the case", department-framed); enriched Claude system prompt (advisory).
 - **Proactive insights:** `/api/data/insights` + dashboard strip (heads-up + one-click "Ask").

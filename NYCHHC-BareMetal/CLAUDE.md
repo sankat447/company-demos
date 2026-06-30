@@ -75,4 +75,10 @@ Deterministic router > small-model tool-calling · disable ArgoCD auto-sync BEFO
 (teardown race) · `HOME=/tmp` on the mc job · `oc start-build --wait` · `max_tokens` every Portkey
 call · digest-pin KServe + `ignoreDifferences` (`:latest` caching serves stale) · `oc exec -i` for
 stdin · own a stable ClusterIP for the KServe predictor · single-stage UBI python (lib→lib64 drops
-pip pkgs) · single-quote `cat <<'EOF'` for inline YAML; quote `&`-paths.
+pip pkgs) · single-quote `cat <<'EOF'` for inline YAML; quote `&`-paths · BOTH models are KServe-served
+AND used: no-show (`nychhc-noshow`) + demand forecast (`nychhc-forecast`, day_of_week→demand-min, used
+by `load_balance`) · seed values must match PG column types — sqlite is typeless so type bugs (e.g. int
+into a `boolean` column) only surface live and **abort `ensure_seeded`**, silently emptying later tables;
+`ensure_seeded` is now **per-table idempotent** (self-heals on restart) · backend Deployment uses
+`:latest` and won't auto-roll on rebuild — `oc rollout restart deployment/nychhc-backend` after deploy;
+re-run the Completed `nychhc-minio-init` Job to republish model joblibs.
