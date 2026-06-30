@@ -272,12 +272,15 @@ def risk_panel() -> list[tuple]:
 def pto_queue() -> list[tuple]:
     """workforce.pto_queue rows: ini,color,provider_name,type,dates,coverage_gap,status."""
     name = {p[0]: p[1] for p in _PROV}
+    # coverage_gap is a BOOLEAN column — emit Python bools (psycopg maps bool→PG boolean;
+    # an int here raises "column is of type boolean but expression is of type smallint"
+    # on Postgres and aborts the whole seed, which silently empties the analytics tables).
     return [
-        (_initials(name["p2"]),  _COLORS[0], name["p2"],  "PTO",            "Jun 26 – Jul 10", 0, "ok"),
-        (_initials(name["p9"]),  _COLORS[1], name["p9"],  "CME / Education", "Jul 14 – Jul 18", 1, "pend"),
-        (_initials(name["p10"]), _COLORS[2], name["p10"], "PTO",            "Jul 7 – Jul 21",  1, "pend"),
-        (_initials(name["p1"]),  _COLORS[3], name["p1"],  "PTO",            "Sep 1 – Sep 12",  0, "pend"),
-        (_initials(name["p5"]),  _COLORS[4], name["p5"],  "PTO",            "Aug 4 – Aug 8",   0, "ok"),
+        (_initials(name["p2"]),  _COLORS[0], name["p2"],  "PTO",            "Jun 26 – Jul 10", False, "ok"),
+        (_initials(name["p9"]),  _COLORS[1], name["p9"],  "CME / Education", "Jul 14 – Jul 18", True,  "pend"),
+        (_initials(name["p10"]), _COLORS[2], name["p10"], "PTO",            "Jul 7 – Jul 21",  True,  "pend"),
+        (_initials(name["p1"]),  _COLORS[3], name["p1"],  "PTO",            "Sep 1 – Sep 12",  False, "pend"),
+        (_initials(name["p5"]),  _COLORS[4], name["p5"],  "PTO",            "Aug 4 – Aug 8",   False, "ok"),
     ]
 
 

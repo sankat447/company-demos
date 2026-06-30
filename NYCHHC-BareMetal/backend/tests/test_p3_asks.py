@@ -91,6 +91,20 @@ def test_provider_role_cannot_post_to_epic(p):
     assert out and "scheduler" in out.lower()
 
 
+# ── seed integrity (live-Postgres type contracts; sqlite is typeless) ────────
+def test_pto_queue_coverage_gap_is_boolean():
+    # coverage_gap is a BOOLEAN column — an int aborts the seed on Postgres and
+    # silently empties the analytics tables (appt_history/walkin/cycle). Pin the type.
+    from nychhc_copilot.scheduling import seed_data as G
+    assert all(isinstance(r[5], bool) for r in G.pto_queue())
+
+
+def test_all_analytics_tables_seeded(p):
+    # the per-table idempotent seed must populate the ASK1/3/4 corpora, not just sched_*
+    for t in ("appt_history", "walkin_daily", "cycle_log", "pto_queue"):
+        assert p.aurora.query(f"SELECT COUNT(*) FROM {t}").rows[0][0] > 0, t
+
+
 # ── proactive insights endpoint ─────────────────────────────────────────────
 def test_insights_endpoint_surfaces_patterns():
     with TestClient(create_app()) as c:

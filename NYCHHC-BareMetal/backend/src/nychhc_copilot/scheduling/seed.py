@@ -52,43 +52,85 @@ _DDL = [
 # serial PRIMARY KEY isn't valid on SQLite; the fake provider rewrites it.
 
 
+def _empty(aurora, table: str) -> bool:
+    try:
+        return not aurora.query(f"SELECT COUNT(*) FROM {table}").rows[0][0]
+    except Exception:
+        return True
+
+
 def ensure_seeded(aurora) -> None:
+    """Create + seed every demo table. PER-TABLE idempotent: each table is seeded only
+    when empty, so a partially-seeded database self-heals on the next start (e.g. if one
+    INSERT previously failed and aborted the run). Each block is isolated — a failure in
+    one table is logged and never blocks the others."""
     for ddl in _DDL:
         aurora.execute(ddl)
-    if aurora.query("SELECT COUNT(*) FROM sched_providers").rows[0][0]:
-        return  # already seeded
 
-    for r in G.providers():
-        aurora.execute("INSERT INTO sched_providers VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuple(r))
-    for r in G.patients():
-        aurora.execute("INSERT INTO sched_patients VALUES (?,?,?,?,?,?,?,?,?,?)", tuple(r))
-    for r in G.appointments():
-        aurora.execute("INSERT INTO sched_appointments VALUES (?,?,?,?,?,?,?,?,?)", tuple(r))
-    for r in G.pto_blocks():
-        aurora.execute("INSERT INTO sched_pto VALUES (?,?,?,?,?,?)", tuple(r))
-    for r in G.roster():
-        aurora.execute("INSERT INTO roster (ini,color,name,role,license,phone,shift,weekly_hours,"
-                       "status,pto_balance_pct,pto_balance_hours) VALUES (?,?,?,?,?,?,?,?,?,?,?)", tuple(r))
-    for r in G.risk_panel():
-        aurora.execute("INSERT INTO risk_today (tier,patient_name,syn_id,mrn,phone,appt_time,"
-                       "provider,risk_pct,factors,action) VALUES (?,?,?,?,?,?,?,?,?,?)", tuple(r))
-    for r in G.pto_queue():
-        aurora.execute("INSERT INTO pto_queue (ini,color,provider_name,type,dates,coverage_gap,status) "
-                       "VALUES (?,?,?,?,?,?,?)", tuple(r))
-    for i, h in enumerate(G.history(), 1):
-        aurora.execute(
-            "INSERT INTO appt_history (id,appt_date,day_of_week,time_of_day,appt_type,duration_min,"
-            "provider_id,provider_type,patient_id,prior_noshows,has_contact,contact_pref,visit_count,"
-            "noshow_prob,risk_tier,actual_noshow,outcome,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (f"h{i}", h["date"], h["day_of_week"], h["time_of_day"], h["appt_type"], h["duration_min"],
-             h["provider_id"], h["provider_type"], h["patient_id"], h["prior_noshows"], h["has_contact"],
-             h["contact_pref"], h["visit_count"], h["noshow_prob"], h["risk_tier"], h["actual_noshow"],
-             h["outcome"], "Completed"))
-    for w in G.walkin_daily():
-        aurora.execute("INSERT INTO walkin_daily (wdate,day_of_week,am,pm) VALUES (?,?,?,?)",
-                       (w["date"], w["day_of_week"], w["am"], w["pm"]))
-    for i, c in enumerate(G.cycle_log(), 1):
-        aurora.execute("INSERT INTO cycle_log (id,referral_date,clerical_days,scheduling_days,"
-                       "provider_days,cohort) VALUES (?,?,?,?,?,?)",
-                       (f"c{i}", c["referral_date"], c["clerical_days"], c["scheduling_days"],
-                        c["provider_days"], c["cohort"]))
+    def _seed(table: str, fn) -> None:
+        if not _empty(aurora, table):
+            return
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001 — one bad table must not empty the rest
+            print(f"[scheduling] seed {table} failed: {e}")
+
+    def _providers():
+        for r in G.providers():
+            aurora.execute("INSERT INTO sched_providers VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tuple(r))
+
+    def _patients():
+        for r in G.patients():
+            aurora.execute("INSERT INTO sched_patients VALUES (?,?,?,?,?,?,?,?,?,?)", tuple(r))
+
+    def _appointments():
+        for r in G.appointments():
+            aurora.execute("INSERT INTO sched_appointments VALUES (?,?,?,?,?,?,?,?,?)", tuple(r))
+
+    def _pto():
+        for r in G.pto_blocks():
+            aurora.execute("INSERT INTO sched_pto VALUES (?,?,?,?,?,?)", tuple(r))
+
+    def _roster():
+        for r in G.roster():
+            aurora.execute("INSERT INTO roster (ini,color,name,role,license,phone,shift,weekly_hours,"
+                           "status,pto_balance_pct,pto_balance_hours) VALUES (?,?,?,?,?,?,?,?,?,?,?)", tuple(r))
+
+    def _risk():
+        for r in G.risk_panel():
+            aurora.execute("INSERT INTO risk_today (tier,patient_name,syn_id,mrn,phone,appt_time,"
+                           "provider,risk_pct,factors,action) VALUES (?,?,?,?,?,?,?,?,?,?)", tuple(r))
+
+    def _pto_queue():
+        for r in G.pto_queue():
+            aurora.execute("INSERT INTO pto_queue (ini,color,provider_name,type,dates,coverage_gap,status) "
+                           "VALUES (?,?,?,?,?,?,?)", tuple(r))
+
+    def _history():
+        for i, h in enumerate(G.history(), 1):
+            aurora.execute(
+                "INSERT INTO appt_history (id,appt_date,day_of_week,time_of_day,appt_type,duration_min,"
+                "provider_id,provider_type,patient_id,prior_noshows,has_contact,contact_pref,visit_count,"
+                "noshow_prob,risk_tier,actual_noshow,outcome,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (f"h{i}", h["date"], h["day_of_week"], h["time_of_day"], h["appt_type"], h["duration_min"],
+                 h["provider_id"], h["provider_type"], h["patient_id"], h["prior_noshows"], h["has_contact"],
+                 h["contact_pref"], h["visit_count"], h["noshow_prob"], h["risk_tier"], h["actual_noshow"],
+                 h["outcome"], "Completed"))
+
+    def _walkin():
+        for w in G.walkin_daily():
+            aurora.execute("INSERT INTO walkin_daily (wdate,day_of_week,am,pm) VALUES (?,?,?,?)",
+                           (w["date"], w["day_of_week"], w["am"], w["pm"]))
+
+    def _cycle():
+        for i, c in enumerate(G.cycle_log(), 1):
+            aurora.execute("INSERT INTO cycle_log (id,referral_date,clerical_days,scheduling_days,"
+                           "provider_days,cohort) VALUES (?,?,?,?,?,?)",
+                           (f"c{i}", c["referral_date"], c["clerical_days"], c["scheduling_days"],
+                            c["provider_days"], c["cohort"]))
+
+    for table, fn in (("sched_providers", _providers), ("sched_patients", _patients),
+                      ("sched_appointments", _appointments), ("sched_pto", _pto),
+                      ("roster", _roster), ("risk_today", _risk), ("pto_queue", _pto_queue),
+                      ("appt_history", _history), ("walkin_daily", _walkin), ("cycle_log", _cycle)):
+        _seed(table, fn)
