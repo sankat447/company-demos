@@ -37,13 +37,11 @@ def test_reject_records_no_execution():
 
 def test_pto_approve_blocks_on_uncovered_window():
     with TestClient(create_app()) as c:
-        # First create Okonkwo's pending PTO so the impact/conflict is real.
-        c.post("/api/sched/pto", json={"provider_id": "p1", "start": "2026-06-16",
-                                       "end": "2026-06-20", "type": "Vacation"})
+        # Brooks (p9) CME Jul 14-18 overlaps Wu's pending PTO → High-Risk Panel uncovered.
         prop = c.post("/api/actions/propose", json={
-            "action": "pto_approve", "summary": "Approve Okonkwo PTO",
-            "payload": {"provider_id": "p1", "start": "2026-06-16", "end": "2026-06-20",
-                        "pto_id": "pto-x"}}).json()["data"]
+            "action": "pto_approve", "summary": "Approve Brooks CME",
+            "payload": {"provider_id": "p9", "start": "2026-07-14", "end": "2026-07-18",
+                        "pto_id": "pto2"}}).json()["data"]
         out = c.post(f"/api/actions/{prop['id']}/decision",
                      headers=HDR, json={"decision": "approve"}).json()["data"]
         # BR-6: not silently approved — blocked with the conflict surfaced.

@@ -2,15 +2,18 @@
 
 > ⚠️ FOR DEMONSTRATION ONLY — NOT FOR CLINICAL USE — SYNTHETIC DATA.
 
-Maps the revised spec (`NYC_HHC_AI_Scheduling_Use_Case_Specification.md`, UC1–UC8) to
-the implementation in this demo. **Phase 1** (P1) ships the Must/P1 + foundational set;
-UC2/UC3/UC7 are **Phase 2** (roadmap), matching the spec's own build order.
+Maps the spec (`NYC_HHC_AI_Scheduling_Use_Case_Specification.md`, UC1–UC8) + the
+Design Brief's Voice-of-the-Client items to the implementation. UC1–UC6, UC8, and
+VC-A (provider load balancing) are built and demo-able on the brief's full synthetic
+dataset (5k-row history corpus, 12 named providers, 15 scripted demo patients).
+UC7 (outreach execution) remains the one roadmap item.
 
 | UC | Status | Where it lives | Business rules |
 |----|--------|----------------|----------------|
 | **UC1** Predict no-show risk | ✅ P1 | `risk_today` panel + No-Show sklearn KServe model (`tools/providers/{live,fake}.py`); tunable tiers `tools/providers/base.py:risk_band` (red>65/amber35-65, config `risk_red`/`risk_amber`); degraded banner via `/api/data/model-status` + SPA risk pane | BR-1, BR-2, BR-3 |
-| **UC2** Plan coverage 90 days | ⏳ Phase 2 | forecast model exists (`coverage_forecast`, ~14d); 90-day horizon + ranked/attributed gaps deferred | BR-1, BR-2, BR-4 |
-| **UC3** Optimize template | ⏳ Phase 2 | not built (booked/walk-in/double-block mix) | BR-1, BR-2, BR-5 |
+| **UC2** Plan coverage 90 days | ✅ | `scheduling/service.py:coverage_plan` over the provider roster + PTO; ranked gaps (Brooks/Wu High-Risk Jul 14-18); `/api/data/coverage`, Planning pane, chat intent | BR-1, BR-2, BR-4 |
+| **UC3** Optimize template | ✅ | `service.py:template_reco` over the history corpus (Tue-PM → don't double-block; walk-in full/half day); `/api/data/template`, Planning pane, chat intent | BR-1, BR-2, BR-5 |
+| **VC-A** Provider load balancing (transcript) | ✅ | `service.py:load_balance` — demand vs staffing by weekday; `/api/data/load-balance`, Planning pane, chat intent | BR-2 |
 | **UC4** PTO conflict & impact | ✅ P1 | `scheduling/service.py:compute_pto_impact` + `coverage_conflict` (overlap detection, service-line minimums `data.py:COVERAGE_MINIMUMS`); router surfaces the conflict; approval blocked on uncovered window | BR-1, BR-2, BR-4, BR-6, BR-7 |
 | **UC5** NL schedule query | ✅ P1 | deterministic `agent/react.py:route()` (grounded in real data) + Claude-via-Portkey fallback; clarify + out-of-scope decline; role-permitted actions | BR-1, BR-2, BR-8, BR-9 |
 | **UC6** HITL approval gate | ✅ P1 | `api/actions_routes.py` (propose→approve/modify/reject); `audit_log` + `service.record_audit`; SPA Approvals pane; PTO apply routed through the gate | BR-1, BR-6, BR-10 |

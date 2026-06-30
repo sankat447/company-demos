@@ -1,4 +1,4 @@
-"""Data API tests (echo mode → fakes). Powers the dashboard without the LLM."""
+"""Data API tests (echo mode → fakes). Powers the dashboard + planning panes."""
 
 from __future__ import annotations
 
@@ -12,37 +12,36 @@ def _client() -> TestClient:
     return TestClient(create_app())
 
 
-def test_departments():
+def test_roster_and_disclaimer():
     with _client() as c:
-        body = c.get("/api/data/departments").json()
+        body = c.get("/api/data/roster").json()
     assert body["disclaimer"] == DISCLAIMER
-    assert any(d["name"] == "Inpatient OB" for d in body["data"])
+    assert any("Chen" in r["name"] for r in body["data"])  # 12 named providers
 
 
-def test_schedule_has_upcoming_shifts():
+def test_risk_list_daniel_brooks_first():
     with _client() as c:
-        rows = c.get("/api/data/schedule", params={"dept_id": 1, "days": 14}).json()["data"]
-    assert rows and {"shift_date", "dept", "provider", "block", "status"} <= set(rows[0])
+        rows = c.get("/api/data/risk-list").json()["data"]
+    assert rows[0]["patient_name"] == "Daniel Brooks" and rows[0]["risk_pct"] == 87
 
 
-def test_coverage_flags_tuesday_gap():
+def test_coverage_plan_flags_high_risk_panel_gap():
     with _client() as c:
-        rows = c.get("/api/data/coverage/1", params={"days": 14}).json()["data"]
-    assert any(r["understaffed"] for r in rows)
+        plan = c.get("/api/data/coverage").json()["data"]
+    assert plan["gap_count"] >= 1
+    assert "High-Risk Panel" in plan["by_service_line"]
 
 
-def test_appointment_risk_has_bands():
+def test_load_balance_and_template():
     with _client() as c:
-        rows = c.get("/api/data/appointments/risk", params={"dept_id": 1, "limit": 10}).json()["data"]
-    assert rows and rows[0]["risk_band"] in ("red", "amber", "green")
+        lb = c.get("/api/data/load-balance").json()["data"]
+        tpl = c.get("/api/data/template").json()["data"]
+    assert {d["day"] for d in lb["by_day"]} >= {"Monday", "Tuesday", "Friday"}
+    tue_pm = [r for r in tpl["recommendations"] if r["day"] == "Tuesday" and r["shift"] == "PM"]
+    assert tue_pm and "NOT double-block" in tue_pm[0]["booking"]
 
 
-def test_pto_pending_and_decision_returns_impact_and_proposal():
+def test_model_status_reports_source():
     with _client() as c:
-        pending = c.get("/api/data/pto", params={"status": "pending"}).json()["data"]
-        assert pending
-        pid = pending[0]["pto_id"]
-        out = c.post(f"/api/data/pto/{pid}/decision", params={"decision": "approve"}).json()["data"]
-    assert out["proposal_id"].startswith("PROP-")
-    assert out["status"] == "pending_approval"
-    assert "coverage_impact" in out
+        out = c.get("/api/data/model-status").json()["data"]
+    assert "degraded" in out and out["source"] in ("model", "rules")

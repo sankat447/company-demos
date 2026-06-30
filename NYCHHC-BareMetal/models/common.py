@@ -14,39 +14,59 @@ from __future__ import annotations
 
 import numpy as np
 
-# ── Feature schemas (ORDER IS THE CONTRACT) ──────────────────────────────────
-# No-show: [lead_time_days, prior_noshows, age_band_ord, dept_id]
-NOSHOW_FEATURES = ["lead_time_days", "prior_noshows", "age_band_ord", "dept_id"]
-# Forecast: [dept_id, day_of_week]  (dow: Mon=0 .. Sun=6)
+# ── Feature schemas (ORDER IS THE CONTRACT — mirrors seed_data.encode_features) ─
+# No-show: [appt_type_ord, day_of_week, time_of_day_ord, prior_noshows,
+#           has_contact, provider_type_ord, visit_count]
+NOSHOW_FEATURES = ["appt_type", "day_of_week", "time_of_day", "prior_noshows",
+                   "has_contact", "provider_type", "visit_count"]
+# Forecast: [dept_id, day_of_week]  (retained; UC2 coverage is rule-based now)
 FORECAST_FEATURES = ["dept_id", "day_of_week"]
 
-AGE_BANDS = {"0-17": 0, "18-39": 1, "40-64": 2, "65+": 3}
-
-# Department rosters (drives the forecast target = normal full staffing).
-DEPT_ROSTER = {1: 4, 2: 2, 3: 2}  # matches db/schema.sql seed
+# Brief patterns (transcript-sourced). Keep in sync with backend seed_data.py.
+APPT_TYPES = {"New OB": 0.28, "Follow-up": 0.12, "High Risk": 0.08, "GYN Consult": 0.18, "Walk-in": 0.45}
+APPT_TYPE_ORD = {t: i for i, t in enumerate(APPT_TYPES)}
+PROVIDER_TYPE_ORD = {"MD": 0, "Midwife": 1, "PA": 2, "Walk-in": 3}
+DAY_TIME_MULT = {
+    (0, 0): 0.70, (0, 1): 0.85, (1, 0): 1.10, (1, 1): 1.80, (2, 0): 0.90,
+    (2, 1): 1.00, (3, 0): 0.95, (3, 1): 1.05, (4, 0): 1.10, (4, 1): 1.30,
+}
+DEPT_ROSTER = {1: 4, 2: 2, 3: 2}  # retained for the (unused) forecast model
 
 
 def _rng(seed: int = 1729) -> np.random.Generator:
     return np.random.default_rng(seed)
 
 
-def make_noshow_dataset(n: int = 6000, seed: int = 1729):
-    """Synthetic appointment features + a 0/1 no-show label from a latent logistic.
-
-    The label has real signal (prior no-shows and long lead times raise risk) plus
-    noise, so a model can learn something non-trivial.
-    """
+def make_noshow_dataset(n: int = 6000, seed: int = 42):
+    """Synthetic no-show corpus on the BRIEF's features (transcript patterns):
+    appt-type base rates × day/time multipliers × prior-no-show × no-contact, with
+    Tuesday-PM the high-cancel slot. Returns (X[7 cols], 0/1 label)."""
     rng = _rng(seed)
-    lead = rng.integers(1, 30, n)
-    prior = rng.integers(0, 5, n)
-    age_ord = rng.integers(0, 4, n)
-    dept = rng.integers(1, 4, n)
-    # Latent risk: higher with prior no-shows + long lead; younger adults slightly higher.
-    z = -2.3 + 0.85 * prior + 0.06 * lead + 0.15 * (age_ord == 1) - 0.05 * dept
-    p = 1 / (1 + np.exp(-z))
-    label = (rng.random(n) < p).astype(int)
-    X = np.column_stack([lead, prior, age_ord, dept]).astype(float)
-    return X, label
+    atypes = list(APPT_TYPES)
+    rows, labels = [], []
+    for _ in range(n):
+        atype = atypes[rng.integers(0, len(atypes))]
+        dow = int(rng.integers(0, 5))            # Mon..Fri
+        tod = int(rng.integers(0, 2))            # AM/PM
+        prior = int(rng.poisson(0.9))
+        has_contact = 1 if rng.random() > 0.15 else 0
+        ptype = ("Walk-in" if atype == "Walk-in"
+                 else "MD" if atype == "High Risk"
+                 else ["MD", "Midwife", "PA"][int(rng.integers(0, 3))])
+        visit = int(rng.integers(1, 24))
+        base = APPT_TYPES[atype]
+        mult = DAY_TIME_MULT.get((dow, tod), 1.0)
+        if prior >= 3:
+            mult *= 1.60
+        elif prior >= 1:
+            mult *= 1.20
+        if not has_contact:
+            mult *= 1.30
+        p = min(0.92, base * mult)
+        rows.append([APPT_TYPE_ORD[atype], dow, tod, prior, has_contact,
+                     PROVIDER_TYPE_ORD[ptype], visit])
+        labels.append(1 if rng.random() < p else 0)
+    return np.array(rows, dtype=float), np.array(labels, dtype=int)
 
 
 def make_forecast_dataset(weeks: int = 26, seed: int = 1729):

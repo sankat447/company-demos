@@ -21,6 +21,7 @@ const TABS = {
   schedule: { label: "Schedule", icon: ICONS.calendar },
   risk: { label: "No-Show Risk", icon: ICONS.risk },
   pto: { label: "PTO", icon: ICONS.pto },
+  planning: { label: "Planning", icon: ICONS.calendar },
   approvals: { label: "Approvals", icon: ICONS.pto },
   reporting: { label: "Reporting", icon: ICONS.dashboard },
   copilot: { label: "Assistant", icon: ICONS.chat },
@@ -29,13 +30,13 @@ const TABS = {
 /* ---------------- role / persona (OBGYN; UC1/DR-01 + UC6 + Leadership) ---------------- */
 const ROLE_CONFIG = {
   Scheduler: { persona: "Selamawit M.", title: "Scheduling Lead", initials: "SM",
-    sub: "no-show risk, coverage, and smart fills", tabs: ["dashboard", "schedule", "risk", "approvals", "copilot"] },
+    sub: "no-show risk, coverage, and smart fills", tabs: ["dashboard", "schedule", "risk", "planning", "approvals", "copilot"] },
   Approver: { persona: "Marcus Ellison", title: "HR / Operational Manager", initials: "ME",
-    sub: "PTO impact, coverage conflicts, and approvals", tabs: ["dashboard", "pto", "approvals", "copilot"] },
-  Provider: { persona: "Dr. Amara Okonkwo", title: "Obstetrics · MD", initials: "AO",
+    sub: "PTO impact, coverage conflicts, and approvals", tabs: ["dashboard", "pto", "planning", "approvals", "copilot"] },
+  Provider: { persona: "Dr. Sarah Chen", title: "Obstetrics · MD", initials: "SC",
     sub: "my schedule and time-off requests", tabs: ["schedule", "pto", "copilot"] },
   Leadership: { persona: "Dr. R. Adeyinka", title: "OBGYN Chair / CCO", initials: "RA",
-    sub: "department throughput, coverage reliability, and utilization", tabs: ["reporting", "dashboard", "copilot"] },
+    sub: "department throughput, coverage reliability, and utilization", tabs: ["reporting", "planning", "dashboard", "copilot"] },
 };
 let ROLE = "Scheduler";
 
@@ -74,6 +75,7 @@ async function render(tab) {
     if (tab === "schedule") return renderSchedule(host);
     if (tab === "risk") return renderRisk(host);
     if (tab === "pto") return renderPto(host);
+    if (tab === "planning") return renderPlanning(host);
     if (tab === "approvals") return renderApprovals(host);
     if (tab === "reporting") return renderReporting(host);
     if (tab === "copilot") return renderCopilot(host);
@@ -345,31 +347,67 @@ async function renderReporting(host) {
       <div class="card-b">Predictive no-show + coverage tools protect 24/7 OB + GYN coverage and reduce wasted slots. Every AI recommendation is human-approved and audited; no PHI is used. Drill into the Dashboard for the operational detail.</div></div>`;
 }
 
+/* ---------------- Planning: coverage (UC2) · load balance (VC-A) · template (UC3) ---------------- */
+async function renderPlanning(host) {
+  const [cov, lb, tpl] = await Promise.all([
+    get("/api/data/coverage"), get("/api/data/load-balance"), get("/api/data/template")]);
+  const flag = (f) => `<span class="badge ${f === "over-loaded" ? "r" : f === "under-utilised" ? "a" : "g"}">${esc(f)}</span>`;
+  const gaps = (cov.gaps || []).slice(0, 8).map((g) =>
+    `<tr><td><b>${esc(g.date)}</b></td><td>${esc(g.service_line)}</td><td>${g.available}/${g.required}</td><td>${esc((g.providers_out || []).join(", "))}</td></tr>`).join("")
+    || `<tr><td colspan="4" style="color:var(--ink-3)">No coverage gaps in the horizon.</td></tr>`;
+  const load = (lb.by_day || []).map((d) =>
+    `<tr><td><b>${esc(d.day)}</b></td><td>${d.appts_per_day}</td><td>${d.providers_per_day}</td><td>${d.appts_per_provider}</td><td>${flag(d.flag)}</td></tr>`).join("");
+  const tplrows = (tpl.recommendations || []).filter((r) => r.no_show_rate >= 30 || r.walk_in_pct >= 25).slice(0, 8).map((r) =>
+    `<tr><td><b>${esc(r.day)} ${esc(r.shift)}</b></td><td class="pct ${r.no_show_rate >= 30 ? "r" : "a"}">${r.no_show_rate}%</td><td>${r.walk_in_pct}%</td><td>${esc(r.booking)}</td></tr>`).join("");
+  host.innerHTML = `
+    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>90-day coverage plan <span class="meta">· UC2</span></h3>
+      <div class="sub">${cov.gap_count} day(s) below service-line minimum over ${cov.horizon_days} days — approve PTO ahead of these windows</div></div></div>
+      <div class="card-b" style="padding:0"><table><thead><tr><th>Date</th><th>Service line</th><th>On / min</th><th>Providers out</th></tr></thead><tbody>${gaps}</tbody></table></div></div>
+    <div class="card" style="margin-bottom:16px"><div class="card-h"><div><h3>Provider load balancing <span class="meta">· transcript</span></h3>
+      <div class="sub">Demand vs staffing by weekday (avg ${lb.avg_appts_per_provider} appts/provider) — "is the Mon 4 / Tue 6 split data-driven?"</div></div></div>
+      <div class="card-b" style="padding:0"><table><thead><tr><th>Day</th><th>Appts/day</th><th>Providers/day</th><th>Appts/provider</th><th>Status</th></tr></thead><tbody>${load}</tbody></table></div></div>
+    <div class="card"><div class="card-h"><div><h3>Template optimization <span class="meta">· UC3</span></h3>
+      <div class="sub">Booked / walk-in / double-block mix from historical cancel + walk-in patterns</div></div></div>
+      <div class="card-b" style="padding:0"><table><thead><tr><th>Day / shift</th><th>No-show</th><th>Walk-in</th><th>Recommendation</th></tr></thead><tbody>${tplrows}</tbody></table></div></div>`;
+}
+
 /* ---------------- copilot ---------------- */
+// Conversation transcript persists across tab/role switches (no refresh on return).
+let CHAT = [];
+const CHAT_WELCOME = `<div class="msg bot"><div class="ic">${ICONS.chat}</div><div class="bubble">Hi — I can answer questions about no-show risk, coverage, PTO impact, template patterns, and provider load, and book / cancel appointments — all from chat. Try a suggestion, or ask <b>"which slots are at risk this week?"</b> <span style="color:var(--ink-3);font-size:12px">All data is synthetic.</span></div></div>`;
+
 function renderCopilot(host) {
   host.innerHTML = `<div class="chatwrap">
     <div class="chat"><div class="chat-h"><div class="bot">${ICONS.chat}</div><div class="nm">OBGYN Scheduling Assistant<small>OBGYN · Claude via Portkey (rules fallback) · synthetic</small></div><button class="btn" id="chatClear" style="margin-left:auto;padding:5px 11px;font-size:12px">Clear</button></div>
-      <div class="chat-log" id="chatLog"><div class="msg bot"><div class="ic">${ICONS.chat}</div><div class="bubble">Hi — I can book, modify, or cancel appointments, run PTO impact, and summarise the unit — all from chat. Ask <b>"how is everything?"</b> for a status table, or try a suggestion. <span style="color:var(--ink-3);font-size:12px">All data is synthetic.</span></div></div></div>
-      <div class="chat-in"><input id="chatInput" placeholder="Ask the Workforce Assistant…"><button class="btn primary" id="chatSend">Send</button></div></div>
+      <div class="chat-log" id="chatLog"></div>
+      <div class="chat-in"><input id="chatInput" placeholder="Ask the OBGYN Scheduling Assistant…"><button class="btn primary" id="chatSend">Send</button></div></div>
     <div class="chips"><div class="side-label">Suggested</div>
-      <button class="chip" data-q="How is everything? Give me a status table.">How is everything?</button>
-      <button class="chip" data-q="Which OB providers have openings and the soonest slot?">OB providers with openings</button>
-      <button class="chip" data-q="Put Dr. Okonkwo on PTO from 6/16 to 6/20 and show the impact">Dr. Okonkwo PTO Jun 16–20 impact</button>
-      <button class="chip" data-q="Cancel the appointment for Fatou Diallo">Cancel Fatou Diallo</button>
-      <div class="modelnote">The assistant routes to the same scheduling actions the UI uses (one source of truth). After a chat action, the tabs reflect the change.</div></div></div>`;
+      <button class="chip" data-q="Which slots are at risk this week?">Which slots are at risk?</button>
+      <button class="chip" data-q="How can I cover the service for the next 90 days?">Cover the service 90 days out</button>
+      <button class="chip" data-q="Should we double-block Tuesday afternoons?">Double-block Tuesday PM?</button>
+      <button class="chip" data-q="Put Dr. Brooks on PTO 7/14 to 7/18 and show the impact">Dr. Brooks PTO impact</button>
+      <button class="chip" data-q="Are providers evenly distributed across the week?">Provider load balance</button>
+      <div class="modelnote">The assistant routes to the same scheduling actions the UI uses (one source of truth) and remembers the conversation — switch tabs and come back, your thread stays.</div></div></div>`;
   const log = $("#chatLog");
-  const welcomeHTML = log.innerHTML;
-  $("#chatClear").onclick = () => { log.innerHTML = welcomeHTML; resetChat(); };
-  const push = (role, html) => { const m = document.createElement("div"); m.className = "msg " + (role === "me" ? "me" : "bot"); m.innerHTML = `<div class="ic">${role === "me" ? "🧑" : ICONS.chat}</div><div class="bubble">${html}</div>`; log.appendChild(m); log.scrollTop = log.scrollHeight; return m.querySelector(".bubble"); };
+  const renderAll = () => {
+    log.innerHTML = CHAT.length
+      ? CHAT.map((m) => `<div class="msg ${m.who === "me" ? "me" : "bot"}"><div class="ic">${m.who === "me" ? "🧑" : ICONS.chat}</div><div class="bubble">${m.html}</div></div>`).join("")
+      : CHAT_WELCOME;
+    log.scrollTop = log.scrollHeight;
+  };
+  renderAll();
+  $("#chatClear").onclick = () => { CHAT = []; resetChat(); renderAll(); };
   const send = async (q) => {
     if (!q.trim()) return;
-    push("me", esc(q));
-    const bubble = push("bot", "<span style='color:var(--ink-3)'>thinking…</span>");
+    CHAT.push({ who: "me", html: esc(q) });
+    const bot = { who: "bot", html: "<span style='color:var(--ink-3)'>thinking…</span>" };
+    CHAT.push(bot); renderAll();
+    const bubble = log.lastElementChild.querySelector(".bubble");
     let acc = "";
     try {
-      for await (const chunk of streamChat(q, ROLE)) { acc += chunk; bubble.innerHTML = mdToHtml(acc); log.scrollTop = log.scrollHeight; }
-      if (!acc) bubble.innerHTML = "<span style='color:var(--alert)'>No response — the LLM may still be warming up.</span>";
-    } catch (e) { bubble.innerHTML = `<span style='color:var(--alert)'>Assistant error: ${esc(e.message)}</span>`; }
+      for await (const chunk of streamChat(q, ROLE)) { acc += chunk; bot.html = mdToHtml(acc); bubble.innerHTML = bot.html; log.scrollTop = log.scrollHeight; }
+      if (!acc) { bot.html = "<span style='color:var(--alert)'>No response — the LLM may still be warming up.</span>"; bubble.innerHTML = bot.html; }
+    } catch (e) { bot.html = `<span style='color:var(--alert)'>Assistant error: ${esc(e.message)}</span>`; bubble.innerHTML = bot.html; }
     _provCache = null;
   };
   $("#chatSend").onclick = () => { const i = $("#chatInput"); send(i.value); i.value = ""; };

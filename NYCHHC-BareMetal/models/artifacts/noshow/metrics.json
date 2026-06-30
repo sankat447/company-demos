@@ -1,13 +1,16 @@
 {
-  "auc": 0.7879,
-  "brier": 0.1879,
+  "auc": 0.7428,
+  "brier": 0.1715,
   "n_train": 4500,
   "n_test": 1500,
   "features": [
-    "lead_time_days",
+    "appt_type",
+    "day_of_week",
+    "time_of_day",
     "prior_noshows",
-    "age_band_ord",
-    "dept_id"
+    "has_contact",
+    "provider_type",
+    "visit_count"
   ],
-  "positive_rate": 0.5327
+  "positive_rate": 0.2913
 }

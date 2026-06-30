@@ -4,6 +4,25 @@
 
 Canonical state of the demo. Update on every meaningful change.
 
+## Design-Brief rebuild — P2 (2026-06-30) — offline GREEN, redeploy pending push+key
+Rebuilt to the full NYC_HHC_AI_Design_Brief dataset + use cases (client feedback: "not
+enough data / functionality missing; chat must work; keep the session"). `make verify`
+GREEN (51 backend + 4 model). Committed locally on sanjeev-dev (not pushed).
+- **Data (single-source generator `scheduling/seed_data.py`, seed=42):** 12 named providers
+  (Chen/Patel/Santos/Hassan/Walsh/Kim/Rivera/Nair/Brooks/Wu/Moore/Okafor), 15 scripted demo
+  patients (Daniel Brooks first red @87%), populated upcoming schedule with Tue-PM/Mon-AM
+  patterns, Brooks/Wu High-Risk PTO conflict, ~2,400-row `appt_history` corpus. Seeding moved
+  to the backend (`ensure_seeded` fills all tables); `schema.sql` is DDL-only.
+- **Model:** no-show retrained on the brief's 7 features (appt_type, day, time, prior_noshows,
+  has_contact, provider_type, visit_count); `LiveModels` + rules fallback updated to the contract.
+- **Chat works:** router expanded (no-show, at-risk list, 90-day coverage, template/double-block,
+  provider load, PTO, cancel, status) + Claude-via-Portkey agent tools (coverage_plan,
+  template_optimization, provider_load) + corrected SQL schema doc. **Session persists** across
+  tab/role switches in the SPA.
+- **Use cases:** UC1–UC6, UC8 + VC-A all demo-able; new **Planning** pane (coverage/load/template).
+- **Next (gated on you):** push sanjeev-dev + set PORTKEY_API_KEY, then `./destroy.sh && ./deploy.sh`
+  (drops old schemas so OBGYN data reseeds) + `make verify-cluster`.
+
 ## OBGYN revision — Phase 1 (2026-06-29) — LIVE on ocp419
 Evolved the demo to the revised **OBGYN AI Scheduling** spec (UC1–UC8) — see
 [USE_CASES.md](USE_CASES.md). `make verify` GREEN (46 backend + 4 model); **redeployed via

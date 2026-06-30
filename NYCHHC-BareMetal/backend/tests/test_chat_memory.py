@@ -29,12 +29,13 @@ def test_memory_history_is_bounded_and_isolated():
 def test_followup_apply_uses_last_pto_context(providers):
     mem = SessionMemory()
     sid = "sess-A"
-    # Turn 1: PTO impact → router remembers the pending apply context.
-    first = route("Put Dr. Okonkwo on PTO 6/16-6/20 and show the impact", providers,
+    # Pre-book OB appts so Dr. Chen's PTO window has impact to apply.
+    S.book_appointment(providers.aurora, "PT0088", "p1", "2026-06-17", "10:00", type="Follow-up")
+    S.book_appointment(providers.aurora, "PT0134", "p1", "2026-06-17", "11:00", type="Follow-up")
+    first = route("Put Dr. Chen on PTO 6/16-6/20 and show the impact", providers,
                   role="Scheduler", memory=mem, session_id=sid)
     assert first and "impact" in first.lower()
     assert mem.get_context(sid, "pending_pto_apply"), "router should remember the PTO context"
-    # Turn 2: a bare follow-up confirm → applies the auto reassignments + audits.
     second = route("apply all auto", providers, role="Scheduler", memory=mem, session_id=sid)
     assert second and "applied" in second.lower()
     assert mem.get_context(sid, "pending_pto_apply") is None  # consumed
@@ -43,14 +44,14 @@ def test_followup_apply_uses_last_pto_context(providers):
 
 def test_followup_without_context_does_not_apply(providers):
     mem = SessionMemory()
-    # "apply all auto" with no prior PTO impact → router returns None (no action).
     assert route("apply all auto", providers, role="Scheduler", memory=mem, session_id="z") is None
 
 
 def test_provider_cannot_apply_followup(providers):
     mem = SessionMemory()
     sid = "sess-B"
-    route("Put Dr. Okonkwo on PTO 6/16-6/20 and show the impact", providers,
+    S.book_appointment(providers.aurora, "PT0088", "p1", "2026-06-17", "10:00", type="Follow-up")
+    route("Put Dr. Chen on PTO 6/16-6/20 and show the impact", providers,
           role="Scheduler", memory=mem, session_id=sid)
     out = route("yes", providers, role="Provider", memory=mem, session_id=sid)
     assert out and "scheduler" in out.lower()

@@ -12,15 +12,18 @@ from langchain_core.tools import StructuredTool
 
 from .providers import Providers, ReadOnlySQLError, build_providers
 
-# The schema the LLM needs to write correct text-to-SQL (DR-12). Kept terse.
+# The schema the LLM needs to write correct text-to-SQL (UC5). Kept terse.
 SCHEMA_DOC = """\
-Read-only Postgres-like schema `workforce`:
-- departments(dept_id, name, min_staff_ratio, baseline_census)
-- providers(provider_id, name, role['MD'|'APP'|'RN'], dept_id)
-- shifts(shift_id, provider_id, dept_id, shift_date, block['day'|'evening'|'night'], status['scheduled'|'open'|'swapped'|'cancelled'])
-- pto_requests(pto_id, provider_id, start_date, end_date, status['pending'|'approved'|'denied'])
-- appointments(appt_id, patient_ref, dept_id, provider_id, appt_date, lead_time_days, prior_noshows, age_band, outcome['attended'|'no_show'|'cancelled'])
-Only SELECT/WITH allowed. Dates are ISO strings."""
+Read-only OBGYN scheduling schema (unqualified table names are fine):
+- sched_providers(id, name, credential, specialty['Obstetrics'|'Gynecology'|'Maternal-Fetal Medicine'|'Midwifery'], provider_type['MD'|'Midwife'|'PA'|'Walk-in'], room, work_start, work_end, slot_min)
+- sched_patients(id, name, mrn, risk_tier, prior_noshows, has_contact, visit_count, contact_pref)
+- sched_appointments(id, patient_id, provider_id, appt_date, appt_time, duration_min, type['New OB'|'Follow-up'|'High Risk'|'GYN Consult'|'Walk-in'], status)
+- sched_pto(id, provider_id, start_date, end_date, type, status)
+- risk_today(tier['RED'|'AMBER'|'GREEN'], patient_name, provider, appt_time, risk_pct, factors, action) -- today's no-show panel
+- pto_queue(provider_name, type, dates, coverage_gap, status)
+- appt_history(appt_date, day_of_week, time_of_day, appt_type, provider_id, provider_type, prior_noshows, has_contact, visit_count, actual_noshow) -- ~18 months for analytics
+Joins: sched_appointments.provider_id = sched_providers.id; sched_appointments.patient_id = sched_patients.id.
+Only SELECT/WITH allowed. Dates are ISO strings (today is 2026-06-09)."""
 
 
 def build_tools(providers: Providers) -> list[StructuredTool]:
@@ -38,8 +41,8 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
             return "No rows."
         return res.as_markdown()
 
-    def no_show_risk(appt_ids: list[int]) -> str:
-        """Get no-show risk scores (red/amber/green) for the given appointment ids.
+    def no_show_risk(appt_ids: list[str]) -> str:
+        """Get no-show risk scores (red/amber/green) for the given appointment ids (e.g. 'a1').
         Backed by the No-Show KServe model (falls back to a rules model if down)."""
         scores = providers.models.no_show_scores(appt_ids)
         if not scores:
@@ -48,19 +51,37 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
                  for s in scores]
         return "\n".join(lines)
 
-    def coverage_forecast(dept_id: int, horizon_days: int = 14) -> str:
-        """Forecast staffing coverage for a department over the next N days.
-        Flags days where projected staff < required. Backed by the Coverage
-        Forecast KServe model (rules fallback if down)."""
-        pts = providers.models.coverage_forecast(dept_id, horizon_days)
-        if not pts:
-            return "No forecast (unknown dept_id?)."
-        flagged = [p for p in pts if p.understaffed]
-        if not flagged:
-            return f"No understaffed day-blocks in the next {horizon_days} days for dept {dept_id}."
-        return "Understaffed day-blocks:\n" + "\n".join(
-            f"- {p.date} {p.block}: need {p.required:.0f}, have {p.projected:.0f}" for p in flagged
-        )
+    def coverage_plan(horizon_days: int = 90) -> str:
+        """UC2: project provider coverage vs service-line minimums over N days (default 90)
+        and list the days/service-lines that fall short (with who is out)."""
+        from ..scheduling import service as _S
+        plan = _S.coverage_plan(providers.aurora, horizon_days)
+        if not plan["gap_count"]:
+            return f"No coverage gaps in the next {horizon_days} days — all service lines meet minimum."
+        lines = [f"{plan['gap_count']} day(s) below minimum in {horizon_days} days:"]
+        for sl, cnt in plan["by_service_line"].items():
+            lines.append(f"- {sl}: short on {cnt} day(s)")
+        for g in plan["gaps"][:5]:
+            lines.append(f"  · {g['date']} {g['service_line']} {g['available']}/{g['required']} "
+                         f"(out: {', '.join(g['providers_out']) or 'PTO'})")
+        return "\n".join(lines)
+
+    def template_optimization() -> str:
+        """UC3: recommend booked/walk-in/double-block mix per weekday/shift from historical
+        cancel + walk-in patterns (e.g. don't double-block high-cancel Tuesday PM)."""
+        from ..scheduling import service as _S
+        recs = _S.template_reco(providers.aurora)["recommendations"]
+        hot = [r for r in recs if r["no_show_rate"] >= 30 or r["walk_in_pct"] >= 25] or recs
+        return "\n".join(f"- {r['day']} {r['shift']}: {r['no_show_rate']}% no-show, "
+                         f"{r['walk_in_pct']}% walk-in → {r['booking']}; {r['walk_in']}" for r in hot[:8])
+
+    def provider_load() -> str:
+        """VC-A: provider headcount vs demand by weekday; flags over/under-staffed days."""
+        from ..scheduling import service as _S
+        lb = _S.load_balance(providers.aurora)
+        return f"avg {lb['avg_appts_per_provider']} appts/provider\n" + "\n".join(
+            f"- {d['day']}: {d['appts_per_day']} appts/day, {d['providers_per_day']} providers "
+            f"→ {d['appts_per_provider']}/provider ({d['flag']})" for d in lb["by_day"])
 
     def propose_schedule_change(summary: str) -> str:
         """Propose a schedule change (backfill/swap/overbook). Does NOT apply it —
@@ -93,7 +114,7 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
         return None
 
     def find_doctors(specialty: str) -> str:
-        """List doctors in a specialty (e.g. Cardiology, Pulmonology) with each one's next open slot."""
+        """List doctors in a specialty (Obstetrics, Gynecology, Maternal-Fetal Medicine, Midwifery) with each one's next open slot."""
         docs = S.list_doctors_by_specialty(aurora, specialty)
         if not docs:
             return f"No doctors found in specialty '{specialty}'. Try one of: {', '.join(S.list_specialties(aurora))}."
@@ -221,7 +242,9 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
     return [
         StructuredTool.from_function(query_workforce_db, description=query_desc),
         StructuredTool.from_function(no_show_risk),
-        StructuredTool.from_function(coverage_forecast),
+        StructuredTool.from_function(coverage_plan),
+        StructuredTool.from_function(template_optimization),
+        StructuredTool.from_function(provider_load),
         StructuredTool.from_function(propose_schedule_change),
         *sched_tools,
     ]

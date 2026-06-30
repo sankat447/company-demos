@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from .data import COVERAGE_MINIMUMS, SERVICE_LINE, TODAY
+from .seed_data import COVERAGE_MINIMUMS, SERVICE_LINE, TODAY
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -295,6 +295,118 @@ def compute_pto_impact(aurora, provider_id, start, end) -> dict:
             "impacted_count": len(impacted), "auto_resolvable_count": auto,
             "needs_manual_count": manual, "coverage_gaps": gaps, "impacted": rows,
             "conflict": conflict}
+
+
+# ── UC2 — 90-day coverage planning ──────────────────────────────────────────
+def coverage_plan(aurora, horizon_days: int = 90, today: str = TODAY) -> dict:
+    """Project provider availability vs. service-line minimums over the horizon and
+    flag uncovered days (gaps), ranked by proximity. Uses the provider roster + PTO
+    (Approved/Pending both threaten coverage). Surfaces the Brooks/Wu High-Risk gap."""
+    start = date.fromisoformat(today)
+    provs = _dicts(aurora.query("SELECT id, name, specialty FROM sched_providers"))
+    lines: dict[str, list[dict]] = {}
+    for p in provs:
+        line = SERVICE_LINE.get(p["specialty"])
+        if line:
+            lines.setdefault(line, []).append(p)
+    gaps = []
+    for off in range(horizon_days):
+        d = (start + timedelta(days=off)).isoformat()
+        for line, team in lines.items():
+            mn = COVERAGE_MINIMUMS.get(line, 1)
+            out = [p["name"] for p in team if _on_leave(aurora, p["id"], d)]
+            avail = len(team) - len(out)
+            if avail < mn:
+                gaps.append({"date": d, "service_line": line, "required": mn,
+                             "available": avail, "providers_out": out})
+    summary = {}
+    for g in gaps:
+        summary[g["service_line"]] = summary.get(g["service_line"], 0) + 1
+    return {"horizon_days": horizon_days, "gap_count": len(gaps),
+            "by_service_line": summary, "gaps": gaps[:60],
+            "service_lines": [{"name": k, "minimum": COVERAGE_MINIMUMS.get(k, 1),
+                               "team_size": len(v)} for k, v in lines.items()]}
+
+
+# ── VC-A — provider load balancing (demand vs staffing by weekday) ──────────
+_WD = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+
+
+def load_balance(aurora) -> dict:
+    """Is provider headcount per weekday data-driven? Compare demand (appts/day) to
+    staffing (distinct providers/day) from history, and flag over/under-staffed days
+    (the 'Monday 4 / Tuesday 6 — is there intelligence behind that?' question)."""
+    rows = aurora.query(
+        "SELECT day_of_week, appt_date, provider_id FROM appt_history").rows
+    by_day: dict[str, dict] = {w: {} for w in _WD}
+    for dow, d, prov in rows:
+        if dow in by_day:
+            by_day[dow].setdefault(d, set()).add(prov)
+    counts = {w: {} for w in _WD}
+    for dow, dates in by_day.items():
+        if not dates:
+            continue
+        appts = sum(len(s) for s in dates.values())  # provider-slots ~ appts proxy
+        appt_total = sum(len([1 for _ in s]) for s in dates.values())
+        ndates = len(dates)
+        provs_per_day = sum(len(s) for s in dates.values()) / ndates
+        # demand = appointments per day; use raw appt rows per weekday
+        counts[dow] = {"dates": ndates, "provs_per_day": round(provs_per_day, 1)}
+    # demand per weekday (appointments/day)
+    dem = aurora.query(
+        "SELECT day_of_week, COUNT(*) FROM appt_history GROUP BY day_of_week").rows
+    demand = {r[0]: r[1] for r in dem}
+    out = []
+    ratios = []
+    for w in _WD:
+        c = counts.get(w) or {}
+        nd = c.get("dates", 0)
+        appts_per_day = round(demand.get(w, 0) / nd, 1) if nd else 0
+        ppd = c.get("provs_per_day", 0)
+        ratio = round(appts_per_day / ppd, 2) if ppd else 0
+        ratios.append(ratio)
+        out.append({"day": w, "appts_per_day": appts_per_day, "providers_per_day": ppd,
+                    "appts_per_provider": ratio})
+    avg = round(sum(ratios) / len([r for r in ratios if r]) , 2) if any(ratios) else 0
+    for o in out:
+        r = o["appts_per_provider"]
+        o["flag"] = ("over-loaded" if r > avg * 1.15 else
+                     "under-utilised" if r and r < avg * 0.85 else "balanced")
+    return {"avg_appts_per_provider": avg, "by_day": out}
+
+
+# ── UC3 — template optimization (booked / walk-in / double-block) ───────────
+def template_reco(aurora) -> dict:
+    """Recommend the template mix per weekday/shift from historical cancel + walk-in
+    patterns: don't double-block high-cancel slots (Tue PM); full vs half-day walk-in."""
+    rows = aurora.query(
+        "SELECT day_of_week, time_of_day, appt_type, actual_noshow FROM appt_history").rows
+    agg: dict = {}
+    for dow, tod, atype, ns in rows:
+        k = (dow, tod)
+        a = agg.setdefault(k, {"n": 0, "ns": 0, "walk": 0})
+        a["n"] += 1
+        a["ns"] += int(ns or 0)
+        a["walk"] += 1 if atype == "Walk-in" else 0
+    recs = []
+    for w in _WD:
+        for tod in ("AM", "PM"):
+            a = agg.get((w, tod))
+            if not a or not a["n"]:
+                continue
+            nsr = a["ns"] / a["n"]
+            walk = a["walk"] / a["n"]
+            if nsr >= 0.30:
+                rec = "Do NOT double-block — high cancel rate; send reminders / keep standby list"
+            elif nsr <= 0.15:
+                rec = "Safe to double-block — low cancel rate"
+            else:
+                rec = "Single-book; monitor"
+            walk_rec = ("Full-day walk-in provider" if walk >= 0.25 else
+                        "Half-day walk-in is enough" if walk >= 0.10 else "No dedicated walk-in")
+            recs.append({"day": w, "shift": tod, "no_show_rate": round(nsr * 100),
+                         "walk_in_pct": round(walk * 100), "booking": rec, "walk_in": walk_rec})
+    return {"recommendations": recs}
 
 
 # ── UC6 audit log (HITL gate) ───────────────────────────────────────────────

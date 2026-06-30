@@ -97,34 +97,46 @@ class LiveModels(ModelProvider):
             r.raise_for_status()
             return [float(p) for p in r.json().get("predictions", [])]
 
-    def no_show_scores(self, appt_ids: list[int]) -> list[RiskScore]:
+    def no_show_scores(self, appt_ids: list[str]) -> list[RiskScore]:
+        """Fetch the brief's features for each appointment, encode them (the shared
+        training/serving contract), POST to the KServe predictor, and map to R/A/G.
+        Falls back to the deterministic rules scorer on any error (UC1 degraded)."""
         if not appt_ids:
             return []
         try:
-            ids = ",".join(str(int(a)) for a in appt_ids)
+            from datetime import date as _date
+
+            from ...scheduling.seed_data import DOW, encode_features
+
+            ids = ",".join("'" + str(a).replace("'", "") + "'" for a in appt_ids)
             res = self.aurora.query(
-                "SELECT appt_id, lead_time_days, prior_noshows, age_band, dept_id "
-                f"FROM workforce.appointments WHERE appt_id IN ({ids})"
-            )
-            # Feature order MUST match models/common.NOSHOW_FEATURES.
-            instances, ordered_ids, feats = [], [], []
-            for appt_id, lead, prior, age_band, dept in res.rows:
-                instances.append([float(lead or 0), float(prior or 0),
-                                  float(_AGE_ORD.get(age_band, 2)), float(dept)])
-                ordered_ids.append(appt_id)
-                feats.append((prior, lead))
+                "SELECT a.id, a.appt_date, a.appt_time, a.type, pr.provider_type, "
+                "pt.prior_noshows, pt.has_contact, pt.visit_count "
+                "FROM sched_appointments a JOIN sched_providers pr ON pr.id = a.provider_id "
+                f"JOIN sched_patients pt ON pt.id = a.patient_id WHERE a.id IN ({ids})")
+            instances, meta = [], []
+            for (aid, d, t, atype, ptype, prior, contact, vc) in res.rows:
+                try:
+                    dname = DOW[_date.fromisoformat(d).weekday()]
+                except Exception:
+                    dname = "Monday"
+                tod = "AM" if int((t or "09:00").split(":")[0]) < 12 else "PM"
+                instances.append(encode_features(atype, dname, tod, prior or 0,
+                                                 contact or 0, ptype, vc or 0))
+                meta.append((aid, atype, prior, contact, dname, tod))
             preds = self._predict(self.noshow_url, instances)
             out = []
-            for appt_id, p, (prior, lead) in zip(ordered_ids, preds, feats):
+            for (aid, atype, prior, contact, dname, tod), p in zip(meta, preds):
                 p = max(0.0, min(1.0, p))
-                band = risk_band(p)  # UC1 tunable thresholds (BR-3)
                 drivers = []
-                if (prior or 0) >= 2:
-                    drivers.append(f"{prior} prior no-shows")
-                if (lead or 0) > 10:
-                    drivers.append(f"{lead}-day lead time")
-                out.append(RiskScore(appt_id=appt_id, score=round(p, 3), band=band,
-                                     drivers=drivers or ["baseline"], source="model"))
+                if (prior or 0) >= 1:
+                    drivers.append(f"{prior} prior no-show(s)")
+                if not contact:
+                    drivers.append("no contact on file")
+                if (dname, tod) in (("Tuesday", "PM"), ("Friday", "PM")):
+                    drivers.append(f"{dname} {tod} high-cancel slot")
+                out.append(RiskScore(appt_id=aid, score=round(p, 3), band=risk_band(p),
+                                     drivers=drivers or [f"{atype} baseline"], source="model"))
             return out
         except Exception:
             if self.fallback is not None:
@@ -132,26 +144,9 @@ class LiveModels(ModelProvider):
             raise
 
     def coverage_forecast(self, dept_id: int, horizon_days: int) -> list[ForecastPoint]:
-        from datetime import date, timedelta
-
-        try:
-            today = date.today()
-            days = [today + timedelta(days=d) for d in range(horizon_days)]
-            # Model predicts required staff from [dept_id, day_of_week].
-            required = self._predict(self.forecast_url, [[float(dept_id), float(d.weekday())] for d in days])
-            pts = []
-            for day, req in zip(days, required):
-                scheduled = self.aurora.query(
-                    f"SELECT COUNT(*) FROM workforce.shifts WHERE dept_id={int(dept_id)} "
-                    f"AND shift_date='{day.isoformat()}' AND block='day' AND status='scheduled'"
-                ).rows[0][0]
-                pts.append(ForecastPoint(dept_id=dept_id, date=day.isoformat(), block="day",
-                                         required=round(float(req)), projected=float(scheduled)))
-            return pts
-        except Exception:
-            if self.fallback is not None:
-                return self.fallback.coverage_forecast(dept_id, horizon_days)
-            raise
+        # UC2 coverage planning is handled by scheduling.service.coverage_plan; this
+        # legacy KServe hook is retained for the data-API/MCP shims and returns none.
+        return []
 
 
 class LiveWorkflow(WorkflowProvider):

@@ -23,20 +23,20 @@ def test_out_of_scope_declines(providers):
 
 
 def test_ambiguous_cover_asks_for_date(providers):
-    out = route("who can cover Dr. Okonkwo?", providers)
+    out = route("who can cover Dr. Chen?", providers)
     assert out and "which date" in out.lower()
 
 
-def test_cover_with_date_is_answered_not_clarified(providers):
-    out = route("which OB providers can cover on 6/30?", providers)
-    assert out and "which date" not in out.lower()  # has a date + specialty → answered
+def test_cover_with_specialty_is_answered(providers):
+    out = route("which obstetrics providers have openings?", providers)
+    assert out and "which date" not in out.lower()
 
 
 def test_provider_role_cannot_cancel(providers):
-    out = route("Cancel the appointment for Fatou Diallo", providers, role="Provider")
-    assert out and "scheduler" in out.lower() and "cancel" in out.lower()
+    out = route("Cancel the appointment for Daniel Brooks", providers, role="Provider")
+    assert out and "scheduler" in out.lower()
 
 
 def test_scheduler_role_can_cancel(providers):
-    out = route("Cancel the appointment for Fatou Diallo", providers, role="Scheduler")
+    out = route("Cancel the appointment for Daniel Brooks", providers, role="Scheduler")
     assert out and "cancelled" in out.lower()

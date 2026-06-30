@@ -223,6 +223,58 @@ def route(message: str, providers, role: str = "Scheduler", memory=None, session
                     a = appts[0]
                     return (f"Cancelled {a['patient_name']}'s {a['appt_time']} appointment with {a['provider_name']} on {a['appt_date']}. "
                             f"The slot is now free — good candidates to re-offer it to: {cands or 'none'}.")
+
+    # 5. At-risk appointment list (UC1) — "which slots are at risk this week?"
+    if ("at risk" in m or "at-risk" in m or "red flag" in m or
+            ("risk" in m and any(w in m for w in ["this week", "today", "appointment", "slot", "which"]))):
+        rows = aurora.query("SELECT tier, patient_name, provider, appt_time, risk_pct FROM risk_today "
+                            "WHERE tier IN ('RED','AMBER') ORDER BY risk_pct DESC").rows
+        if rows:
+            lines = ["At-risk appointments on today's panel (highest first):"]
+            for tier, name, prov, t, pct in rows[:8]:
+                lines.append(f"- {name} — {pct}% {tier} with {prov} at {t}")
+            lines.append("RED = call + keep a standby ready; AMBER = send a text reminder.")
+            return "\n".join(lines)
+
+    # 6. Coverage planning (UC2) — 90-day forward gaps
+    if any(w in m for w in ["coverage", "90 day", "90-day", "cover the service", "uncovered",
+                            "coverage gap", "who is out", "who's out", "service line"]):
+        plan = S.coverage_plan(aurora)
+        if plan["gap_count"] == 0:
+            return ("Coverage holds for the next 90 days — every service line stays at or above its "
+                    "minimum. Tightest margin is the High-Risk Panel (Brooks + Wu).")
+        lines = [f"Coverage gaps in the next {plan['horizon_days']} days — {plan['gap_count']} day(s) below minimum:"]
+        for sl, cnt in plan["by_service_line"].items():
+            lines.append(f"- {sl}: short on {cnt} day(s)")
+        g = plan["gaps"][0]
+        lines.append(f"Earliest: {g['service_line']} on {g['date']} — {g['available']}/{g['required']} on "
+                     f"service (out: {', '.join(g['providers_out']) or 'PTO'}).")
+        lines.append("Approve PTO ahead of these windows, stagger leave, or pull a peer/float onto service.")
+        return "\n".join(lines)
+
+    # 7. Provider load balancing (VC-A) — demand vs staffing by weekday
+    if any(w in m for w in ["load balanc", "providers per day", "provider distribution",
+                            "equally distribut", "staffing by day", "data-driven", "intelligence behind",
+                            "are we balanced", "provider load"]):
+        lb = S.load_balance(aurora)
+        lines = [f"Provider load by weekday (department avg {lb['avg_appts_per_provider']} appts/provider):"]
+        for d in lb["by_day"]:
+            lines.append(f"- {d['day']}: {d['appts_per_day']} appts/day across {d['providers_per_day']} "
+                         f"providers → {d['appts_per_provider']}/provider ({d['flag']})")
+        lines.append("Rebalance providers from under-utilised days toward over-loaded ones.")
+        return "\n".join(lines)
+
+    # 8. Template optimization (UC3) — booked / walk-in / double-block mix
+    if any(w in m for w in ["template", "double block", "double-block", "walk-in", "walk in",
+                            "half day", "half-day", "full day", "optimi"]):
+        recs = S.template_reco(aurora)["recommendations"]
+        hot = [r for r in recs if r["no_show_rate"] >= 30 or r["walk_in_pct"] >= 25]
+        lines = ["Template recommendations (from historical cancel + walk-in patterns):"]
+        for r in (hot or recs)[:7]:
+            lines.append(f"- {r['day']} {r['shift']}: {r['no_show_rate']}% no-show, {r['walk_in_pct']}% "
+                         f"walk-in → {r['booking']}; {r['walk_in']}")
+        return "\n".join(lines)
+
     return None
 
 
