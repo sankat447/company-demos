@@ -417,3 +417,125 @@ def encode_features(appt_type: str, day_of_week: str, time_of_day: str,
         float(PROVIDER_TYPE_ORD.get(provider_type, 0)),
         float(visit_count or 0),
     ]
+
+
+# ── Additive enrichment ──────────────────────────────────────────────────────
+# Extra synthetic volume layered ON TOP of the scripted dataset so the panes look
+# realistically full (more patients, a 4-week upcoming schedule, a fuller at-risk
+# list, more PTO requests). All deterministic + idempotent via seed.augment_seed;
+# the scripted demo beats (Daniel Brooks #1, Brooks/Wu conflict) are untouched.
+_EX_FIRST = ["Amara", "Beatriz", "Chloe", "Dominique", "Elena", "Farah", "Grace", "Hana",
+             "Imani", "Jada", "Keisha", "Lucia", "Mariam", "Nadia", "Olivia", "Priya",
+             "Rosa", "Sofia", "Tanya", "Uma", "Valeria", "Wendy", "Ximena", "Yael", "Zoe",
+             "Aaliyah", "Bianca", "Carmen", "Daniela", "Esther", "Fatima", "Gabriela",
+             "Helena", "Ivy", "Jasmine", "Kira", "Leila", "Maya", "Nina", "Paloma"]
+_EX_LAST = ["Ahmed", "Bello", "Castillo", "Diaz", "Eze", "Flores", "Garcia", "Haddad",
+            "Ibrahim", "Jackson", "Khan", "Lopez", "Mensah", "Nguyen", "Owusu", "Patel",
+            "Quinn", "Reyes", "Santos", "Torres", "Uddin", "Vargas", "Williams", "Xu",
+            "Yusuf", "Zhang"]
+
+
+def extra_patients(n: int = 60) -> list[dict]:
+    """Additional synthetic patients (ids PT2xxx) to back the longer schedule + risk list."""
+    rng = random.Random(SEED + 11)
+    out = []
+    for i in range(n):
+        name = f"{rng.choice(_EX_FIRST)} {rng.choice(_EX_LAST)}"
+        prior = rng.choice([0, 0, 0, 0, 1, 1, 2, 3])
+        contact = rng.random() > 0.18
+        out.append({"id": f"PT2{i:03d}", "name": name, "mrn": f"SYN-2{i:03d}",
+                    "phone": f"(917) 555-0{rng.randint(100, 199)}", "dob": "1990-01-01",
+                    "risk_tier": "High" if prior >= 2 else "Medium" if prior else "Low",
+                    "prior_noshows": prior, "has_contact": contact,
+                    "visit_count": rng.randint(1, 26),
+                    "contact_pref": rng.choice(["SMS", "Call", "Email", "None"])})
+    return out
+
+
+def extra_appointments(weeks: int = 4) -> list[tuple]:
+    """Filler appts for day offsets 14..(weeks*7) — extends the upcoming schedule beyond
+    the scripted 2 weeks. ids 'ax{n}' so they never collide with the scripted 'a{n}'."""
+    rng = random.Random(SEED + 12)
+    prov_spec = {p[0]: p[3] for p in _PROV}
+    prov_type = {p[0]: p[4] for p in _PROV}
+    pool = [p["id"] for p in extra_patients()] + \
+           [p["id"] for p in _all_patients() if p["id"].startswith("PT1")]
+    day_counts = {"Monday": 5, "Tuesday": 6, "Wednesday": 5, "Thursday": 4, "Friday": 4}
+    start = date.fromisoformat(TODAY)
+    out, n = [], 0
+    for off in range(14, weeks * 7):
+        d = start + timedelta(days=off)
+        dname = DOW[d.weekday()]
+        if dname not in day_counts:
+            continue
+        for prov in rng.sample([p[0] for p in _PROV], day_counts[dname]):
+            spec = prov_spec[prov]
+            for slot in ("09:00", "10:00", "11:00", "13:00", "14:00", "15:00"):
+                if rng.random() > 0.5:
+                    continue
+                atype = ("Walk-in" if prov_type[prov] == "Walk-in"
+                         else "High Risk" if spec == "Maternal-Fetal Medicine"
+                         else "GYN Consult" if spec == "Gynecology" and rng.random() < 0.5
+                         else rng.choice(["New OB", "Follow-up"]) if spec == "Obstetrics"
+                         else "Follow-up")
+                n += 1
+                out.append((f"ax{n}", rng.choice(pool), prov, d.isoformat(), slot,
+                            APPT_TYPES[atype]["duration"], atype, f"{atype} visit", "Booked"))
+    return out
+
+
+def extra_risk_panel(n: int = 30) -> list[tuple]:
+    """More at-risk rows for the UC1 panel, computed from real extra/fill patients (so the
+    list reads like a full clinic day). Appended AFTER the 15 scripted patients."""
+    import json
+    rng = random.Random(SEED + 13)
+    prov_name = {p[0]: p[1].split()[-1] for p in _PROV}
+    provs = [p[0] for p in _PROV if p[4] in ("MD", "Midwife")]
+    pats = [p for p in (_all_patients() + extra_patients()) if p["id"].startswith(("PT1", "PT2"))]
+    rng.shuffle(pats)
+    rows = []
+    for p in pats[:n]:
+        prior, contact = p["prior_noshows"], p["has_contact"]
+        prob = min(0.9, 0.12 + 0.17 * prior + (0.16 if not contact else 0) + rng.uniform(-0.02, 0.07))
+        tier = _tier(prob)
+        factors = []
+        if prior >= 1:
+            factors.append(f"{prior} prior no-show(s)")
+        if not contact:
+            factors.append("no contact on file")
+        factors.append(rng.choice(["Booked 5+ weeks out", "New patient", "Afternoon slot",
+                                    "Long gap since last visit", "Tuesday PM high-cancel slot"]))
+        action = ("Call + standby" if tier == "RED" else
+                  "Send text reminder" if tier == "AMBER" else "No action")
+        clock = rng.choice(["8:40 AM", "9:20 AM", "10:00 AM", "11:20 AM", "1:20 PM", "2:40 PM", "3:30 PM"])
+        prov = rng.choice(provs)
+        rows.append((tier, p["name"], p["id"], p["mrn"], p["phone"], clock,
+                     f"Dr. {prov_name[prov]}", round(prob * 100), json.dumps(factors), action))
+    return rows
+
+
+def extra_pto_blocks() -> list[tuple]:
+    """More forward leave requests across providers + the 90-day horizon (richer UC2/ASK2)."""
+    return [
+        ("pto6", "p3", "2026-07-21", "2026-07-25", "PTO", "Pending"),
+        ("pto7", "p6", "2026-08-11", "2026-08-15", "PTO", "Pending"),
+        ("pto8", "p4", "2026-08-25", "2026-09-05", "PTO", "Pending"),
+        ("pto9", "p7", "2026-09-15", "2026-09-19", "CME", "Pending"),
+        ("pto10", "p11", "2026-09-22", "2026-10-03", "PTO", "Pending"),
+        ("pto11", "p8", "2026-07-28", "2026-08-01", "PTO", "Pending"),
+    ]
+
+
+def extra_pto_queue() -> list[tuple]:
+    """pto_queue rows mirroring extra_pto_blocks (ini,color,provider_name,type,dates,gap,status)."""
+    name = {p[0]: p[1] for p in _PROV}
+    rows = [
+        ("p3", "PTO", "Jul 21 – Jul 25", False, "pend"),
+        ("p6", "PTO", "Aug 11 – Aug 15", False, "pend"),
+        ("p4", "PTO", "Aug 25 – Sep 5", True, "pend"),
+        ("p7", "CME / Education", "Sep 15 – Sep 19", False, "pend"),
+        ("p11", "PTO", "Sep 22 – Oct 3", True, "pend"),
+        ("p8", "PTO", "Jul 28 – Aug 1", False, "ok"),
+    ]
+    return [(_initials(name[pid]), _COLORS[i % len(_COLORS)], name[pid], typ, dates, gap, st)
+            for i, (pid, typ, dates, gap, st) in enumerate(rows, start=5)]

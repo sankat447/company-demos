@@ -131,6 +131,29 @@ def test_propose_tool_and_pending_endpoint_share_store():
     AS.pop_pending(pid)
 
 
+# ── additive enrichment (augment_seed) — richer demo data, idempotent ────────
+def test_augment_seed_adds_and_is_idempotent(p):
+    from nychhc_copilot.scheduling import augment_seed
+    from nychhc_copilot.scheduling.seed import _empty  # noqa: F401
+
+    def counts():
+        return {t: p.aurora.query(f"SELECT COUNT(*) FROM {t}").rows[0][0]
+                for t in ("sched_patients", "sched_appointments", "risk_today", "sched_pto")}
+
+    base = counts()
+    augment_seed(p.aurora)
+    after = counts()
+    # every pane-backing table grew
+    for t in base:
+        assert after[t] > base[t], t
+    # scripted beats preserved: Daniel Brooks still the #1 at-risk row
+    top = p.aurora.query("SELECT patient_name FROM risk_today ORDER BY id LIMIT 1").rows[0][0]
+    assert "Brooks" in top
+    # idempotent: a second run is a no-op
+    augment_seed(p.aurora)
+    assert counts() == after
+
+
 # ── proactive insights endpoint ─────────────────────────────────────────────
 def test_insights_endpoint_surfaces_patterns():
     with TestClient(create_app()) as c:

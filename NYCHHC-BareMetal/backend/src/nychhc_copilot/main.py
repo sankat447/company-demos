@@ -20,7 +20,7 @@ from .api.data_routes import router as data_router
 from .api.sched_routes import router as sched_router
 from .api.mcp_routes import router as mcp_router
 from .api.actions_routes import router as actions_router
-from .scheduling import ensure_seeded
+from .scheduling import augment_seed, ensure_seeded
 from .tools.providers import build_providers
 
 
@@ -40,6 +40,7 @@ async def lifespan(app: FastAPI):
     app.state.memory = SessionMemory()               # per-session chat context
     try:
         ensure_seeded(app.state.providers.aurora)  # create + seed sched_* (idempotent)
+        augment_seed(app.state.providers.aurora)    # additive enrichment (idempotent top-up)
     except Exception as e:  # don't block startup if seeding hiccups
         print(f"[scheduling] seed skipped: {e}")
     app.state.copilot = _build_copilot(settings, app.state.memory, app.state.providers)

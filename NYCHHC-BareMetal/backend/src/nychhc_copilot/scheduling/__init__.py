@@ -7,6 +7,6 @@ REST routes and the agent tools call `service`. FOR DEMONSTRATION ONLY — SYNTH
 """
 
 from . import service
-from .seed import ensure_seeded
+from .seed import augment_seed, ensure_seeded
 
-__all__ = ["service", "ensure_seeded"]
+__all__ = ["service", "ensure_seeded", "augment_seed"]

@@ -134,3 +134,72 @@ def ensure_seeded(aurora) -> None:
                       ("roster", _roster), ("risk_today", _risk), ("pto_queue", _pto_queue),
                       ("appt_history", _history), ("walkin_daily", _walkin), ("cycle_log", _cycle)):
         _seed(table, fn)
+
+
+def augment_seed(aurora) -> None:
+    """Additive, idempotent enrichment ON TOP of ensure_seeded — more patients, a 4-week
+    upcoming schedule, a fuller at-risk panel, and more forward PTO requests, so the panes
+    look realistically full. Guarded by id/name so re-runs never duplicate and the scripted
+    demo beats (Daniel Brooks #1, Brooks/Wu conflict) are untouched. Best-effort per block."""
+
+    def _ids(sql):
+        try:
+            return {r[0] for r in aurora.query(sql).rows}
+        except Exception:
+            return set()
+
+    # 1) extra patients (back the longer schedule + risk list)
+    try:
+        have = _ids("SELECT id FROM sched_patients")
+        for p in G.extra_patients():
+            if p["id"] in have:
+                continue
+            aurora.execute("INSERT INTO sched_patients VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           (p["id"], p["name"], p["mrn"], p["phone"], p["dob"], p["risk_tier"],
+                            p["prior_noshows"], 1 if p["has_contact"] else 0, p["visit_count"],
+                            p["contact_pref"]))
+    except Exception as e:  # noqa: BLE001
+        print(f"[augment] patients failed: {e}")
+
+    # 2) extra upcoming appointments (weeks 3–4)
+    try:
+        have = _ids("SELECT id FROM sched_appointments")
+        for a in G.extra_appointments():
+            if a[0] in have:
+                continue
+            aurora.execute("INSERT INTO sched_appointments VALUES (?,?,?,?,?,?,?,?,?)", tuple(a))
+    except Exception as e:  # noqa: BLE001
+        print(f"[augment] appointments failed: {e}")
+
+    # 3) fuller at-risk panel (append after the scripted 15, dedup by patient name)
+    try:
+        names = _ids("SELECT patient_name FROM risk_today")
+        for r in G.extra_risk_panel():
+            if r[1] in names:
+                continue
+            aurora.execute("INSERT INTO risk_today (tier,patient_name,syn_id,mrn,phone,appt_time,"
+                           "provider,risk_pct,factors,action) VALUES (?,?,?,?,?,?,?,?,?,?)", tuple(r))
+            names.add(r[1])
+    except Exception as e:  # noqa: BLE001
+        print(f"[augment] risk panel failed: {e}")
+
+    # 4) more PTO requests (blocks + queue rows; dedup queue by provider+dates)
+    try:
+        have = _ids("SELECT id FROM sched_pto")
+        for b in G.extra_pto_blocks():
+            if b[0] in have:
+                continue
+            aurora.execute("INSERT INTO sched_pto VALUES (?,?,?,?,?,?)", tuple(b))
+        seen = set()
+        try:
+            seen = {(r[0], r[1]) for r in aurora.query("SELECT provider_name,dates FROM pto_queue").rows}
+        except Exception:
+            pass
+        for q in G.extra_pto_queue():
+            if (q[2], q[4]) in seen:
+                continue
+            aurora.execute("INSERT INTO pto_queue (ini,color,provider_name,type,dates,coverage_gap,status) "
+                           "VALUES (?,?,?,?,?,?,?)", tuple(q))
+            seen.add((q[2], q[4]))
+    except Exception as e:  # noqa: BLE001
+        print(f"[augment] pto failed: {e}")
