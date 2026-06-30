@@ -147,6 +147,36 @@ def route(message: str, providers, role: str = "Scheduler", memory=None, session
         return (f"Done — approved and applied {res.get('applied', 0)} reassignment(s) off "
                 f"{imp['provider']}. The decision is recorded in the audit trail.")
 
+    # 0d. Submit a proposal to the approver queue (UC6 HITL) — deterministic, no LLM.
+    # Drafts the current minute-weighted rebalance and stages it where the Approvals tab
+    # reads from, so a chat-drafted proposal actually shows up for the approver.
+    if (any(w in m for w in ["draft a proposal", "as a proposal", "submit a proposal", "submit it",
+                             "submit the proposal", "send it to the approver", "send to the approver",
+                             "send to approver", "route it to the approver", "put it in the queue",
+                             "put it in the approver queue", "queue it for approval", "create a proposal",
+                             "raise a proposal", "send the proposal", "add it to the queue", "draft it"])
+            or ("proposal" in m and any(w in m for w in ["submit", "approver", "queue", "draft", "send", "route"]))):
+        if not can_write:
+            return "Submitting a proposal to the approver queue is a Scheduler/Approver action."
+        lb = S.load_balance(aurora, providers.models)
+        if not lb.get("rebalance"):
+            return ("Nothing to submit right now — headcount and the minute-weighted load are balanced. "
+                    "When a day is over-loaded I'll draft the rebalance for the approver queue.")
+        over = next((d for d in lb["by_day"] if d["flag"] == "over-loaded"), None)
+        summary = f"Rebalance provider coverage — {lb['rebalance']}"
+        rationale = (f"Minute-weighted load: {over['day']} at {over['utilization_pct']}% vs dept avg "
+                     f"{lb['avg_utilization_pct']}% (demand from the forecast model). Cost-neutral — "
+                     "no added headcount.") if over else lb["rebalance"]
+        from ..api.actions_store import add_pending
+        pid = add_pending("schedule_change", summary, rationale=rationale,
+                          payload={"rebalance": lb["rebalance"]}, source="chat")
+        S.record_audit(aurora, "schedule_change", summary, role, f"chat:{role}",
+                       "proposed", outcome="pending", rationale=rationale)
+        return (f"Done — proposal {pid} is in the approver queue (Approvals tab).\n"
+                f"- Summary: {summary}\n- Rationale: {rationale}\n"
+                "Nothing changes until an approver approves, modifies, or rejects it — they'll confirm "
+                "the specific provider, contract terms, and any patient communication. It's in the audit log too.")
+
     def scalar(sql, d=0):
         try:
             r = aurora.query(sql).rows

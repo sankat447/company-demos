@@ -58,6 +58,10 @@ def test_no_show_risk_bands():
 
 
 def test_schedule_change_requires_approval():
+    from nychhc_copilot.api import actions_store as AS
+    before = len(AS.list_pending())
     tools = {t.name: t for t in build_tools(_providers())}
     out = tools["propose_schedule_change"].invoke({"summary": "Backfill Inpatient OB Tue PM"})
-    assert "pending_approval" in out and "PROP-" in out
+    # staged in the SHARED approver queue (not auto-applied), visible to the Approvals tab
+    assert "approver queue" in out.lower() and "prop-" in out.lower()
+    assert len(AS.list_pending()) == before + 1

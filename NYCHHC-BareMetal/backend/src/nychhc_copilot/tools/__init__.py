@@ -113,11 +113,13 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
                 f"scheduling {s['scheduling']}d / provider {s['provider']}d; bottleneck: {ct['bottleneck_label']}")
 
     def propose_schedule_change(summary: str) -> str:
-        """Propose a schedule change (backfill/swap/overbook). Does NOT apply it —
-        returns a draft routed to a human approver via n8n (approval required)."""
-        prop = providers.workflow.propose_schedule_change(summary, {"summary": summary})
-        return (f"Proposal {prop.proposal_id} created — STATUS: {prop.status} "
-                f"(routed via {prop.routed_via}). A human must approve before any write.")
+        """Propose a schedule change (backfill/swap/overbook/rebalance). Does NOT apply it —
+        stages it in the approver queue (Approvals tab) for human sign-off (UC6/BR-1)."""
+        from ..api.actions_store import add_pending
+        pid = add_pending("schedule_change", summary, source="chat")
+        return (f"Proposal {pid} is now in the approver queue (Approvals tab). "
+                "Nothing changes until an approver approves, modifies, or rejects it — "
+                "they'll confirm the specific provider, contract terms, and any patient communication.")
 
     # ── Scheduling tools — same `service` actions the UI calls (one source of truth) ──
     from ..scheduling import service as S

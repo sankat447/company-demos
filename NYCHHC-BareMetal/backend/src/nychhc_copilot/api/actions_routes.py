@@ -13,11 +13,9 @@ from pydantic import BaseModel
 
 from ..disclaimer import envelope
 from ..scheduling import service as S
+from .actions_store import add_pending, get_pending, list_pending, pop_pending
 
 router = APIRouter(prefix="/api/actions")
-
-# In-process pending store (single-replica demo). Keyed by proposal id.
-_PENDING: dict[str, dict] = {}
 
 
 def _actor(request: Request) -> tuple[str, str]:
@@ -40,14 +38,13 @@ class Proposal(BaseModel):
 @router.post("/propose")
 async def propose(request: Request, body: Proposal):
     """Stage an AI recommendation for human review. Does NOT execute (BR-1)."""
-    pid = "prop-" + __import__("uuid").uuid4().hex[:10]
-    _PENDING[pid] = body.model_dump()
+    pid = add_pending(body.action, body.summary, body.rationale, body.payload, source="rest")
     return envelope({"id": pid, "status": "pending", **body.model_dump()})
 
 
 @router.get("/pending")
 async def pending():
-    return envelope([{"id": k, **v} for k, v in _PENDING.items()])
+    return envelope(list_pending())
 
 
 @router.get("/audit")
@@ -63,7 +60,7 @@ class Decision(BaseModel):
 
 @router.post("/{pid}/decision")
 async def decide(request: Request, pid: str, body: Decision):
-    prop = _PENDING.get(pid)
+    prop = get_pending(pid)
     if not prop:
         return envelope({"error": "unknown or already-decided proposal"}, status="not_found")
     aurora = _a(request)
@@ -74,7 +71,7 @@ async def decide(request: Request, pid: str, body: Decision):
 
     # Reject → record, no execution.
     if decision == "reject":
-        _PENDING.pop(pid, None)
+        pop_pending(pid)
         a = S.record_audit(aurora, action, summary, role, user, "rejected",
                            outcome="recorded", rationale=prop.get("rationale", ""))
         return envelope({"ok": True, "executed": False, "audit": a})
@@ -83,7 +80,7 @@ async def decide(request: Request, pid: str, body: Decision):
     if action == "pto_reassign":
         res = S.apply_reassignments(aurora, payload.get("plan", []))
         outcome = "executed" if res.get("ok") else "not-completed"
-        _PENDING.pop(pid, None)
+        pop_pending(pid)
         a = S.record_audit(aurora, action, summary, role, user,
                            "modified" if decision == "modify" else "approved",
                            outcome=outcome, rationale=prop.get("rationale", ""))
@@ -98,14 +95,14 @@ async def decide(request: Request, pid: str, body: Decision):
                                outcome="blocked", rationale=conflict.get("mitigation", ""))
             return envelope({"ok": False, "blocked": True, "conflict": conflict, "audit": a})
         res = S.approve_pto(aurora, payload["pto_id"])
-        _PENDING.pop(pid, None)
+        pop_pending(pid)
         a = S.record_audit(aurora, action, summary, role, user, "approved",
                            outcome="executed",
                            rationale=("override: " + conflict.get("mitigation", "")) if body.override else "")
         return envelope({"ok": True, "executed": True, "result": res, "audit": a})
 
     # Generic action (e.g. outreach — UC7 Phase 2): record the decision.
-    _PENDING.pop(pid, None)
+    pop_pending(pid)
     a = S.record_audit(aurora, action, summary, role, user,
                        "modified" if decision == "modify" else "approved", outcome="recorded")
     return envelope({"ok": True, "executed": False, "audit": a})

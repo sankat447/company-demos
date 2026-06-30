@@ -105,6 +105,32 @@ def test_all_analytics_tables_seeded(p):
         assert p.aurora.query(f"SELECT COUNT(*) FROM {t}").rows[0][0] > 0, t
 
 
+# ── UC6 — chat-drafted proposal must appear in the approver queue ────────────
+def test_chat_proposal_lands_in_approver_queue(p):
+    from nychhc_copilot.api import actions_store as AS
+    before = len(AS.list_pending())
+    out = route("Submit it to the approver as a proposal", p, role="Scheduler") or ""
+    assert "approver queue" in out.lower()
+    after = AS.list_pending()
+    assert len(after) == before + 1
+    assert after[-1]["action"] == "schedule_change" and after[-1]["source"] == "chat"
+
+
+def test_provider_cannot_submit_proposal(p):
+    out = route("submit a proposal to the approver", p, role="Provider") or ""
+    assert "scheduler" in out.lower()
+
+
+def test_propose_tool_and_pending_endpoint_share_store():
+    # the chat propose tool and GET /api/actions/pending read/write the SAME store
+    from nychhc_copilot.api import actions_store as AS
+    pid = AS.add_pending("schedule_change", "test rebalance", source="chat")
+    with TestClient(create_app()) as c:
+        ids = [x["id"] for x in c.get("/api/actions/pending").json()["data"]]
+    assert pid in ids
+    AS.pop_pending(pid)
+
+
 # ── proactive insights endpoint ─────────────────────────────────────────────
 def test_insights_endpoint_surfaces_patterns():
     with TestClient(create_app()) as c:
