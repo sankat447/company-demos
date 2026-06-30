@@ -125,7 +125,8 @@ async def coverage_legacy(request: Request, dept_id: int, horizon_days: int = 90
 # ── VC-A — provider load balancing ───────────────────────────────────────────
 @router.get("/load-balance")
 async def load_balance(request: Request):
-    return envelope(S.load_balance(_p(request).aurora))
+    p = _p(request)
+    return envelope(S.load_balance(p.aurora, p.models))
 
 
 # ── UC3 / ASK1 — template optimization + cancellation breakdown ─────────────
@@ -157,6 +158,7 @@ async def cycle_time(request: Request):
 async def insights(request: Request):
     """The 'bot does the noticing' moments — surfaced unprompted in the UI."""
     a = _p(request).aurora
+    _models = _p(request).models
     items = []
     cb = S.cancellation_breakdown(a)
     o = cb.get("outlier")
@@ -175,7 +177,7 @@ async def insights(request: Request):
                       "detail": f"{sl} drops below minimum (earliest {g['date']}, "
                                 f"out: {', '.join(g['providers_out']) or 'PTO'}). Still approvable if staggered.",
                       "ask": "Where can't I cover service in the next 90 days?"})
-    lb = S.load_balance(a)
+    lb = S.load_balance(a, _models)
     over = next((d for d in lb["by_day"] if d["flag"] == "over-loaded"), None)
     if over and lb.get("rebalance"):
         items.append({"kind": "load", "severity": "info",

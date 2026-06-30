@@ -59,6 +59,19 @@ def test_load_balance_minute_weighted_rebalance(p):
     assert lb["rebalance"] and "Tuesday" in lb["rebalance"]
 
 
+def test_load_balance_demand_comes_from_kserve_forecast_model(p):
+    # When a model provider is passed, the demand side is the forecast model (served by
+    # KServe live; the deterministic stand-in offline). Tuesday must lead by the model's
+    # weekday demand profile.
+    lb = S.load_balance(p.aurora, p.models)
+    assert lb["demand_source"] == "model"
+    by = {d["day"]: d for d in lb["by_day"]}
+    assert by["Tuesday"]["utilization_pct"] > by["Friday"]["utilization_pct"]
+    # the model provider can answer the demand query directly
+    md = p.models.demand_forecast()
+    assert md["Tuesday"] > md["Friday"] > 0
+
+
 # ── chat flows ──────────────────────────────────────────────────────────────
 def test_router_flows(p):
     def r(q, role="Scheduler"):

@@ -61,6 +61,14 @@ SLOT_ADV_CANCEL = {
 # ASK 4: visit-type durations (provider-minutes) — headcount ≠ capacity.
 APPT_MINUTES = {"New OB": 40, "Follow-up": 20, "High Risk": 45, "GYN Consult": 30, "Walk-in": 20}
 
+# ASK 4 demand model contract (mirrors models/common.WEEKDAY_DEMAND_MIN — the target
+# the KServe `nychhc-forecast` regressor is trained on). Provider-minutes of demand by
+# weekday: Tuesday heaviest (New-OB-heavy, longer visits), Friday lightest (half-day).
+# The capacity view divides this by staffed minutes. Used directly by FakeModels and as
+# the live fallback; LiveModels gets the same shape from KServe.
+WEEKDAY_DEMAND_MIN = {"Monday": 4100, "Tuesday": 6800, "Wednesday": 5200,
+                      "Thursday": 4800, "Friday": 3000}
+
 # ASK 1 Flow 3: walk-in volume by weekday (last 12 weeks) — Tue peak, Fri ~3x lighter
 # and AM-concentrated. (mean per day, AM share).
 WALKIN_PROFILE = {

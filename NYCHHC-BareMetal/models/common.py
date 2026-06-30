@@ -19,8 +19,12 @@ import numpy as np
 #           has_contact, provider_type_ord, visit_count]
 NOSHOW_FEATURES = ["appt_type", "day_of_week", "time_of_day", "prior_noshows",
                    "has_contact", "provider_type", "visit_count"]
-# Forecast: [dept_id, day_of_week]  (retained; UC2 coverage is rule-based now)
-FORECAST_FEATURES = ["dept_id", "day_of_week"]
+# Forecast (ASK4 demand): [day_of_week] → expected clinic demand in provider-minutes.
+# Served by KServe (nychhc-forecast); the backend's capacity/load view calls it for the
+# demand side (headcount ≠ capacity). Weekday mix mirrors the transcript: Tuesday heaviest
+# (New-OB-heavy, longer visits), Friday lightest (half-day).
+FORECAST_FEATURES = ["day_of_week"]
+WEEKDAY_DEMAND_MIN = {0: 4100, 1: 6800, 2: 5200, 3: 4800, 4: 3000}  # Mon..Fri provider-minutes
 
 # Brief patterns (transcript-sourced). Keep in sync with backend seed_data.py.
 APPT_TYPES = {"New OB": 0.28, "Follow-up": 0.12, "High Risk": 0.08, "GYN Consult": 0.18, "Walk-in": 0.45}
@@ -69,22 +73,20 @@ def make_noshow_dataset(n: int = 6000, seed: int = 42):
     return np.array(rows, dtype=float), np.array(labels, dtype=int)
 
 
-def make_forecast_dataset(weeks: int = 26, seed: int = 1729):
-    """Per (dept, day_of_week) required-staff targets ~ the dept roster + small noise.
+def make_forecast_dataset(weeks: int = 60, seed: int = 1729):
+    """Per-weekday clinic demand (provider-minutes) ~ the weekday profile + small noise.
 
-    The model learns roster-level required staffing; the coverage gap in the live
-    path then comes from open shifts (projected < required), not from the model.
+    The model learns demand-by-weekday; the backend's capacity view (ASK4) POSTs a
+    weekday to KServe to get expected demand-minutes, then compares against staffed
+    minutes — so headcount-balanced days can still be capacity-imbalanced. Returns
+    (X[1 col: day_of_week], demand_minutes).
     """
     rng = _rng(seed)
     rows, targets = [], []
     for _ in range(weeks):
-        for dept, roster in DEPT_ROSTER.items():
-            for dow in range(7):
-                # Weekdays need the full roster; weekends slightly less.
-                base = roster if dow < 5 else max(1, roster - 1)
-                noise = rng.normal(0, 0.25)
-                rows.append([dept, dow])
-                targets.append(base + noise)
+        for dow, base in WEEKDAY_DEMAND_MIN.items():
+            rows.append([dow])
+            targets.append(max(0.0, base + rng.normal(0, 220)))
     return np.array(rows, dtype=float), np.array(targets, dtype=float)
 
 

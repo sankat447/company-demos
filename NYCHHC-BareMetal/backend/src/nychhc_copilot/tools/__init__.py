@@ -97,7 +97,7 @@ def build_tools(providers: Providers) -> list[StructuredTool]:
         """ASK4/VC-A: provider load by weekday in provider-MINUTES weighted by visit mix
         (headcount ≠ capacity); flags over/under-load + a rebalance recommendation."""
         from ..scheduling import service as _S
-        lb = _S.load_balance(providers.aurora)
+        lb = _S.load_balance(providers.aurora, providers.models)
         return (f"dept avg {lb['avg_utilization_pct']}% utilization\n" + "\n".join(
             f"- {d['day']}: {d['providers_per_day']} providers, {d['avg_visit_min']}-min avg visit "
             f"→ {d['utilization_pct']}% ({d['flag']})" for d in lb["by_day"]) +

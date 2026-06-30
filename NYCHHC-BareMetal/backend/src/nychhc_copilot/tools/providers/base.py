@@ -73,6 +73,10 @@ class AuroraProvider(Protocol):
 class ModelProvider(Protocol):
     def no_show_scores(self, appt_ids: list[int]) -> list[RiskScore]: ...
     def coverage_forecast(self, dept_id: int, horizon_days: int) -> list[ForecastPoint]: ...
+    # ASK4 demand model (served by KServe `nychhc-forecast`): weekday → expected
+    # clinic demand in provider-minutes. The capacity/load view divides this by
+    # staffed minutes (headcount ≠ capacity). Returns {} when the model is unreachable.
+    def demand_forecast(self) -> dict[str, float]: ...
 
 
 @runtime_checkable

@@ -49,7 +49,7 @@ deterministic router intent (grounded, advisory) + an LLM tool, computed from th
 | **1** Template / Tuesday | Cancellation split (**advance vs true no-show**); double-block only where true no-shows are high (Mon AM), tighten waitlist where advance (Tue PM); walk-in full-vs-half-day scenario + $ savings | `service.cancellation_breakdown`, `template_reco`, `walkin_volume/scenario`; `/api/data/{cancellations,walkins,template}`; Planning pane |
 | **2** Forward PTO coverage | Coverage = skill/service-mix minimums + clustering; proactive 90-day scan; **approve-ahead** with stagger / per-diem options | `coverage_plan`, `can_approve_pto`; chat + Planning |
 | **3** Consolidated dept view | Cycle time = sum of handoffs; attribute the slip to the **clerical intake** stage | `cycle_time` over `cycle_log`; `/api/data/cycle-time`; Reporting pane |
-| **4** Load & duration | **Headcount ≠ capacity** — provider-minutes weighted by visit-mix; rebalance (Mon 3 / Tue 7) | `load_balance` (minute-weighted); chat + Planning |
+| **4** Load & duration | **Headcount ≠ capacity** — demand (provider-minutes/weekday) from the **forecast model served by KServe** vs staffed minutes; rebalance (Mon 3 / Tue 7) | `load_balance` calls `models.demand_forecast()` → KServe `nychhc-forecast`; chat + Planning |
 | **5** Epic backbone (NFR) | PHI stays in Epic — analyse aggregates, **route patient-level to Epic chat**, decline PHI, read-from-Epic framing | router intents + `epic_post` audit action; system prompt |
 | **6** Value story | Reframe individual → **department-level** justification artifact | router value-narrative from real metrics + Claude; advisory |
 | **Proactive** | System-initiated "heads-up" (Tue-PM cancellations, forming coverage risk, Tuesday overload, cycle-time slip) | `/api/data/insights`; dashboard insights strip |
@@ -57,6 +57,22 @@ deterministic router intent (grounded, advisory) + an LLM tool, computed from th
 Cross-cutting: the Claude **system prompt** encodes this logic (advance≠no-show, coverage=skill-mix,
 headcount≠capacity, cycle-time=handoffs, PHI-in-Epic, reframe→department) and every recommendation is
 **advisory** with a confirm-before-acting nudge.
+
+## AI model serving (OpenShift AI / KServe)
+Every ML model in the demo is **served by KServe on OpenShift AI** — no model runs inside the
+app process. The deterministic analytics (cancellation split, cycle-time, coverage, capacity
+math) are business logic, not models. The conversational LLM is **Claude via Portkey** (external)
+because the baremetal stack is CPU-only (no GPU for a local LLM); the deterministic router stays
+primary.
+
+| Model | KServe InferenceService (`iis-ai-ai`) | Features → output | Called by |
+|-------|----------------------------------------|-------------------|-----------|
+| **No-show risk** (UC1) | `nychhc-noshow` | 7 features → P(no-show) | `LiveModels.no_show_scores` → risk panel / chat; rules fallback if unreachable (degraded banner) |
+| **Demand forecast** (ASK4) | `nychhc-forecast` | day-of-week → demand-minutes | `LiveModels.demand_forecast` → `load_balance` capacity view; history fallback if unreachable (`demand_source`) |
+
+Both ISes are pinned to the built image digest, load the joblib **MinIO-first** (baked fallback),
+and appear under **OpenShift AI → Model Serving** (`iis-ai-ai` carries `opendatahub.io/dashboard=true`).
+The single predictor image serves either model via `NYCHHC_ROLE=predictor`.
 
 ## Actors & roles (DR-01 / spec §2)
 Scheduler (persona **Selamawit**), **Approver** (HR/Operational Manager), Provider,

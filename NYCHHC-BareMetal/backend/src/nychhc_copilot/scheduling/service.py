@@ -465,10 +465,14 @@ def cycle_time(aurora) -> dict:
 
 
 # ── ASK 4 / VC-A — duration-weighted capacity (provider-minutes) ────────────
-def load_balance(aurora) -> dict:
-    """Headcount ≠ capacity. Model demand in provider-minutes (weighted by visit-type
-    duration) vs supply (providers × clinic minutes) per weekday, flag over/under-load,
-    and recommend a rebalance (e.g. Mon 3 / Tue 7)."""
+def load_balance(aurora, models=None) -> dict:
+    """Headcount ≠ capacity. Model demand in provider-minutes vs supply (providers ×
+    clinic minutes) per weekday, flag over/under-load, recommend a rebalance.
+
+    The demand side comes from the **forecast model served by KServe** (`nychhc-forecast`,
+    via ``models.demand_forecast()``) when a model provider is supplied; the supply and
+    visit-mix come from the schedule history. Falls back to history-derived demand when
+    the model is unreachable (``source`` reflects which path ran)."""
     rows = aurora.query(
         "SELECT day_of_week, appt_date, provider_id, duration_min FROM appt_history").rows
     dates: dict[str, dict] = {w: {} for w in _WD}
@@ -482,16 +486,24 @@ def load_balance(aurora) -> dict:
         all_min += (dur or 20); all_appts += 1
     MIN_PER_PROVIDER_DAY = 8 * 60  # 8-hour clinic session
     BASE_FILL = 85                  # clinic averages ~85% full (absolute anchor)
-    # Raw minute demand vs supply per weekday from the sampled history; we keep the
-    # RELATIVE differences (volume × visit-mix) and normalise the absolute level to a
-    # realistic clinic fill, since the corpus is a sample not a full schedule.
+    # Demand per weekday: prefer the KServe forecast model; else history minutes/day.
+    model_demand: dict[str, float] = {}
+    if models is not None:
+        try:
+            model_demand = models.demand_forecast() or {}
+        except Exception:
+            model_demand = {}
+    source = "model" if model_demand else "history"
+    # Raw minute demand vs supply per weekday; we keep the RELATIVE differences
+    # (forecast demand × staffing) and normalise the absolute level to a realistic
+    # clinic fill, since the history corpus is a sample not a full schedule.
     raw = {}
     for w in _WD:
         ds = dates[w]
         if not ds:
             continue
         provs = sum(len(s) for s in ds.values()) / len(ds)
-        demand_per_day = dur_sum[w][0] / len(ds)
+        demand_per_day = model_demand.get(w) if model_demand else (dur_sum[w][0] / len(ds))
         supply_per_day = provs * MIN_PER_PROVIDER_DAY
         raw[w] = {"provs": provs, "avg_dur": dur_sum[w][0] / dur_sum[w][1] if dur_sum[w][1] else 25,
                   "ratio": demand_per_day / supply_per_day if supply_per_day else 0}
@@ -517,7 +529,8 @@ def load_balance(aurora) -> dict:
                      f"{hi['day']} {round(hi['providers_per_day'])}→{round(hi['providers_per_day'])+1} "
                      f"(closes the {hi['day']} deficit, keeps {lo['day']} >90%).")
     avg = round(sum(o["utilization_pct"] for o in out) / len(out)) if out else 0
-    return {"avg_utilization_pct": avg, "by_day": out, "rebalance": rebalance}
+    return {"avg_utilization_pct": avg, "by_day": out, "rebalance": rebalance,
+            "demand_source": source}
 
 
 # ── UC6 audit log (HITL gate) ───────────────────────────────────────────────

@@ -148,6 +148,20 @@ class LiveModels(ModelProvider):
         # legacy KServe hook is retained for the data-API/MCP shims and returns none.
         return []
 
+    def demand_forecast(self) -> dict[str, float]:
+        """POST each weekday (Mon..Fri) to the forecast KServe model and return
+        {weekday → expected demand-minutes}. Empty dict on any error so the capacity
+        view falls back to history-derived demand (UC degraded)."""
+        from ...scheduling.seed_data import DOW
+
+        try:
+            preds = self._predict(self.forecast_url, [[float(i)] for i in range(5)])
+            if len(preds) < 5:
+                return {}
+            return {DOW[i]: round(float(preds[i]), 1) for i in range(5)}
+        except Exception:
+            return {}
+
 
 class LiveWorkflow(WorkflowProvider):
     def __init__(self, n8n_webhook_url: str, timeout_s: float = 10.0) -> None:

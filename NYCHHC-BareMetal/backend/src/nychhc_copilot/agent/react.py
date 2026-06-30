@@ -334,7 +334,7 @@ def route(message: str, providers, role: str = "Scheduler", memory=None, session
                              "matching demand", "matching the demand", "distribution"])
             and not any(k in m for k in ["make the case", "justify", "for the chair", "business case",
                                          "one-page", "one page", "build the case"])):
-        lb = S.load_balance(aurora)
+        lb = S.load_balance(aurora, providers.models)
         lines = [f"Provider load by weekday, weighted by visit-type minutes (dept avg "
                  f"{lb['avg_utilization_pct']}% utilization):"]
         for d in lb["by_day"]:
@@ -387,7 +387,7 @@ def route(message: str, providers, role: str = "Scheduler", memory=None, session
     # 16. Value narrative (ASK 6) — department-level justification artifact
     if any(w in m for w in ["make the case", "justify", "justification", "for the chair", "to my manager",
                             "business case", "one-page", "one page", "build the case", "reframe"]):
-        lb = S.load_balance(aurora)
+        lb = S.load_balance(aurora, providers.models)
         wk = S.walkin_scenario(aurora, "Friday")
         ct = S.cycle_time(aurora)
         over = next((d for d in lb["by_day"] if d["flag"] == "over-loaded"), None)

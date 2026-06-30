@@ -108,6 +108,11 @@ class FakeModels(ModelProvider):
         # legacy hook is retained for the MCP/data-API shims and returns no points.
         return []
 
+    def demand_forecast(self) -> dict[str, float]:
+        # Deterministic stand-in for the forecast KServe model: the weekday demand
+        # profile the regressor is trained on (so offline == live behaviour).
+        return dict(G.WEEKDAY_DEMAND_MIN)
+
 
 class FakeWorkflow(WorkflowProvider):
     """Logs proposals instead of calling n8n. Always returns pending_approval."""

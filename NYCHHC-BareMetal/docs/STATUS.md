@@ -4,7 +4,17 @@
 
 Canonical state of the demo. Update on every meaningful change.
 
-## ASK-list build — P3 (2026-06-30) — offline GREEN, redeploy in progress
+## Forecast model on KServe — P3.8 (2026-06-30) — offline GREEN, redeploy pending
+Both predictive models are now genuinely **served by KServe (OpenShift AI)** and **used**:
+no-show (`nychhc-noshow`, UC1) + **demand forecast (`nychhc-forecast`)** — retrained to
+`day_of_week → demand-minutes` (r²=0.97), called by the ASK4 capacity view via
+`models.demand_forecast()` (history fallback → `demand_source`). Deterministic analytics stay
+as code; the conversational LLM stays Claude/Portkey (CPU-only, no GPU). `make verify` GREEN
+(61 backend + 4 model). See [USE_CASES.md](USE_CASES.md) "AI model serving".
+
+## ASK-list build — P3 (2026-06-30) — LIVE on ocp419 ✅
+Redeployed (destroy→deploy) Synced/Healthy; KServe models pinned. (Forecast-model wiring
+above redeploys on top.)
 Implemented the clarified "Ask list & approach" doc (ASK 1-6 + proactive). `make verify`
 GREEN (60 backend + 4 model). See [USE_CASES.md](USE_CASES.md) ASK table.
 - **Data:** appt_history `outcome` (attended/advance_cancel/no_show — Tue-PM advance-heavy,
