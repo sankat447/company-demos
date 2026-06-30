@@ -1,0 +1,58 @@
+# Idempotent: creates the nychhc-models MinIO bucket and publishes the trained
+# joblib artifacts to it (the bytes the KServe predictors then load — MinIO-first).
+# Runs the nychhc backend image (boto3 + the artifacts baked in at /opt/app-root/models)
+# in iis-ai-ai (same ns as the image; talks to MinIO over svc DNS). The predictors
+# also have a baked fallback, so this Job racing the model sync is harmless.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nychhc-minio-init
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  backoffLimit: 8
+  template:
+    metadata: {labels: {demo: nychhc}}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: nychhc
+      containers:
+        - name: publish
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/nychhc:latest
+          imagePullPolicy: Always
+          command: ["python", "-c"]
+          args:
+            - |
+              import os, time, boto3
+              from botocore.exceptions import ClientError
+              ep  = os.environ["NYCHHC_MINIO_ENDPOINT_URL"]
+              bkt = os.environ.get("NYCHHC_S3_BUCKET", "nychhc-models")
+              # wait for MinIO, then ensure bucket + upload the baked artifacts.
+              s3 = boto3.client("s3", endpoint_url=ep,
+                  aws_access_key_id=os.environ.get("NYCHHC_S3_ACCESS_KEY", "minioadmin"),
+                  aws_secret_access_key=os.environ["NYCHHC_S3_SECRET_KEY"])
+              for _ in range(40):
+                  try:
+                      s3.list_buckets(); break
+                  except Exception as e:
+                      print("waiting for minio...", e); time.sleep(3)
+              try:
+                  s3.create_bucket(Bucket=bkt)
+              except ClientError as e:
+                  print("bucket exists or:", e)
+              for name in ("noshow", "forecast"):
+                  s3.upload_file(f"/opt/app-root/models/{name}.joblib", bkt, f"{name}/model.joblib")
+                  print(f"published {name}/model.joblib -> s3://{bkt}/")
+              print("nychhc-models bucket ready (idempotent)")
+          env:
+            - {name: HOME, value: "/tmp"}
+            - {name: NYCHHC_MINIO_ENDPOINT_URL, value: "http://minio.iis-ai-data.svc:9000"}
+            - {name: NYCHHC_S3_BUCKET, value: "nychhc-models"}
+            - name: NYCHHC_S3_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: nychhc-creds, key: S3_ACCESS_KEY}}
+            - name: NYCHHC_S3_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: nychhc-creds, key: S3_SECRET_KEY}}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}

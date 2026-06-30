@@ -1,0 +1,34 @@
+# NYCHHC frontend — in-cluster build of the static SPA + nginx BFF image. Built
+# into iis-ai-ui where the UI runs. Applied imperatively by deploy.sh:
+#   oc -n iis-ai-ui apply -f build/frontend-buildconfig.yaml
+#   oc -n iis-ai-ui start-build nychhc-frontend --from-dir=frontend --follow --wait
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: nychhc-frontend
+  namespace: iis-ai-ui
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+spec:
+  lookupPolicy: {local: true}
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: nychhc-frontend
+  namespace: iis-ai-ui
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile      # build context = frontend/
+  output:
+    to: {kind: ImageStreamTag, name: nychhc-frontend:latest}
+  resources:
+    requests: {cpu: "250m", memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2

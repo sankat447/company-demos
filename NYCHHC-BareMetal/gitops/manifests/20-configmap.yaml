@@ -1,0 +1,25 @@
+# Non-secret backend configuration (env, NYCHHC_ prefix → pydantic Settings).
+# Secrets (AURORA_DSN with password, PORTKEY_API_KEY, S3 keys) live in the
+# out-of-band `nychhc-creds` Secret and are wired as individual env vars on the
+# backend Deployment — never in this ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nychhc-config
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+data:
+  NYCHHC_MODE: "live"
+  # LLM (open-ended fallback only; the deterministic router is primary)
+  NYCHHC_PORTKEY_BASE_URL: "http://portkey.iis-ai-ai.svc:8787"
+  NYCHHC_PORTKEY_PROVIDER: "anthropic"
+  NYCHHC_PRIMARY_MODEL: "claude-sonnet-4-6"
+  NYCHHC_FALLBACK_MODEL: ""
+  NYCHHC_LLM_MAX_TOKENS: "600"
+  # data plane
+  NYCHHC_MINIO_ENDPOINT_URL: "http://minio.iis-ai-data.svc:9000"
+  NYCHHC_S3_BUCKET: "nychhc-models"
+  # CPU KServe predictors (stable ClusterIPs in front of the InferenceServices)
+  NYCHHC_NOSHOW_MODEL_URL: "http://nychhc-noshow.iis-ai-ai.svc:8080/v1/models/noshow:predict"
+  NYCHHC_FORECAST_MODEL_URL: "http://nychhc-forecast.iis-ai-ai.svc:8080/v1/models/forecast:predict"
+  NYCHHC_MODELS_FALLBACK_ENABLED: "true"

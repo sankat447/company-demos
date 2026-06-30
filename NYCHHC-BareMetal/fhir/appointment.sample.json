@@ -1,0 +1,14 @@
+{
+  "_comment": "UC8 (BR-14): the synthetic schema mirrors the Epic FHIR R4 Appointment resource, so the Epic MCP adapter (backend/src/nychhc_copilot/mcp/epic_adapter.py) works unchanged when a real Epic FHIR endpoint replaces the synthetic Postgres. FOR DEMONSTRATION — SYNTHETIC DATA.",
+  "resourceType": "Appointment",
+  "id": "a11",
+  "status": "booked",
+  "appointmentType": {"text": "Prenatal"},
+  "description": "32-wk prenatal",
+  "start": "2026-06-16T08:00:00",
+  "minutesDuration": 20,
+  "participant": [
+    {"actor": {"reference": "Patient/SYN-00015", "display": "Hannah Goldberg"}, "status": "accepted"},
+    {"actor": {"reference": "Practitioner/p1", "display": "Dr. Amara Okonkwo"}, "status": "accepted"}
+  ]
+}

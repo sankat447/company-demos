@@ -1,0 +1,45 @@
+# nychhc-forecast — Coverage/demand forecast model (DR-08) served on OpenShift AI
+# via a KServe InferenceService (RawDeployment, CPU). Same nychhc `predictor` role;
+# loads forecast/model.joblib MinIO-first with a baked fallback.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: nychhc-forecast
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    serving.kserve.io/deploymentMode: RawDeployment
+    openshift.io/display-name: "NYCHHC Coverage Forecast (sklearn)"
+spec:
+  predictor:
+    containers:
+      - name: kserve-container
+        image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/nychhc:latest
+        imagePullPolicy: Always
+        env:
+          - {name: NYCHHC_ROLE, value: predictor}
+          - {name: PORT, value: "8080"}
+          - {name: NYCHHC_MINIO_ENDPOINT_URL, value: "http://minio.iis-ai-data.svc:9000"}
+          - {name: NYCHHC_S3_BUCKET, value: "nychhc-models"}
+          - name: NYCHHC_S3_ACCESS_KEY
+            valueFrom: {secretKeyRef: {name: nychhc-creds, key: S3_ACCESS_KEY}}
+          - name: NYCHHC_S3_SECRET_KEY
+            valueFrom: {secretKeyRef: {name: nychhc-creds, key: S3_SECRET_KEY}}
+        ports:
+          - {containerPort: 8080, protocol: TCP}
+        resources:
+          requests: {cpu: 250m, memory: 512Mi}
+          limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nychhc-forecast
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+spec:
+  selector:
+    serving.kserve.io/inferenceservice: nychhc-forecast
+    component: predictor
+  ports: [{name: http, port: 8080, targetPort: 8080, protocol: TCP}]

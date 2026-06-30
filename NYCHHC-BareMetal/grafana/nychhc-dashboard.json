@@ -1,0 +1,75 @@
+{
+  "uid": "nychhc-workforce",
+  "title": "NYCHHC — Workforce & Patient-Flow",
+  "tags": ["nychhc", "demo", "synthetic"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-30d", "to": "now"},
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "type": "text",
+      "title": "",
+      "gridPos": {"h": 3, "w": 24, "x": 0, "y": 0},
+      "options": {"mode": "markdown", "content": "## NYC Health + Hospitals — Predictive Workforce & Patient-Flow\n**FOR DEMONSTRATION ONLY — NOT FOR CLINICAL USE — SYNTHETIC DATA**"}
+    },
+    {
+      "type": "piechart",
+      "title": "No-show risk tiers (today's panel)",
+      "datasource": {"type": "postgres", "uid": "nychhc-postgres"},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 3},
+      "targets": [{
+        "format": "table", "rawQuery": true,
+        "rawSql": "SELECT tier AS metric, count(*) AS value FROM workforce.risk_today GROUP BY tier ORDER BY tier;",
+        "datasource": {"type": "postgres", "uid": "nychhc-postgres"}
+      }]
+    },
+    {
+      "type": "barchart",
+      "title": "Average predicted no-show risk by provider (%)",
+      "datasource": {"type": "postgres", "uid": "nychhc-postgres"},
+      "gridPos": {"h": 8, "w": 16, "x": 8, "y": 3},
+      "targets": [{
+        "format": "table", "rawQuery": true,
+        "rawSql": "SELECT provider, round(avg(risk_pct)) AS avg_risk_pct FROM workforce.risk_today GROUP BY provider ORDER BY avg_risk_pct DESC;",
+        "datasource": {"type": "postgres", "uid": "nychhc-postgres"}
+      }]
+    },
+    {
+      "type": "barchart",
+      "title": "Historical no-show rate by provider (%)",
+      "datasource": {"type": "postgres", "uid": "nychhc-postgres"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 11},
+      "targets": [{
+        "format": "table", "rawQuery": true,
+        "rawSql": "SELECT p.name AS provider, round(100.0*avg(CASE WHEN a.outcome='no_show' THEN 1 ELSE 0 END)::numeric, 1) AS no_show_rate FROM workforce.appointments a JOIN workforce.providers p ON a.provider_id=p.provider_id GROUP BY p.name ORDER BY no_show_rate DESC;",
+        "datasource": {"type": "postgres", "uid": "nychhc-postgres"}
+      }]
+    },
+    {
+      "type": "table",
+      "title": "PTO queue (coverage impact)",
+      "datasource": {"type": "postgres", "uid": "nychhc-postgres"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 11},
+      "targets": [{
+        "format": "table", "rawQuery": true,
+        "rawSql": "SELECT provider_name AS provider, type, dates, coverage_gap, status FROM workforce.pto_queue ORDER BY coverage_gap DESC;",
+        "datasource": {"type": "postgres", "uid": "nychhc-postgres"}
+      }]
+    },
+    {
+      "type": "table",
+      "title": "Staff roster (Med-Surg 4W)",
+      "datasource": {"type": "postgres", "uid": "nychhc-postgres"},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 19},
+      "targets": [{
+        "format": "table", "rawQuery": true,
+        "rawSql": "SELECT name, role, shift, weekly_hours, status, pto_balance_pct FROM workforce.roster ORDER BY name;",
+        "datasource": {"type": "postgres", "uid": "nychhc-postgres"}
+      }]
+    }
+  ]
+}

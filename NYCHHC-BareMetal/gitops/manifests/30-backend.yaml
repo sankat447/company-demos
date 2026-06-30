@@ -1,0 +1,72 @@
+# nychhc-backend — FastAPI copilot (deterministic router + scheduling + tools) in
+# iis-ai-ai. Image resolved from the internal registry (ImageStream lookupPolicy
+# local:true → :latest pinned to the freshly-built digest at admission).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nychhc-backend
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app: nychhc-backend, app.kubernetes.io/part-of: nychhc}
+  annotations: {argocd.argoproj.io/sync-wave: "3"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: nychhc-backend}}
+  template:
+    metadata: {labels: {app: nychhc-backend, demo: nychhc}}
+    spec:
+      serviceAccountName: nychhc
+      containers:
+        - name: backend
+          image: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/nychhc:latest
+          imagePullPolicy: Always
+          env:
+            - {name: NYCHHC_ROLE, value: backend}
+            - {name: PORT, value: "8000"}
+            # secrets (out-of-band nychhc-creds) → NYCHHC_ settings
+            - name: NYCHHC_AURORA_DSN
+              valueFrom: {secretKeyRef: {name: nychhc-creds, key: AURORA_DSN}}
+            - name: NYCHHC_PORTKEY_API_KEY
+              valueFrom: {secretKeyRef: {name: nychhc-creds, key: PORTKEY_API_KEY, optional: true}}
+            - name: NYCHHC_S3_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: nychhc-creds, key: S3_ACCESS_KEY}}
+            - name: NYCHHC_S3_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: nychhc-creds, key: S3_SECRET_KEY}}
+          envFrom:
+            - configMapRef: {name: nychhc-config}
+          ports: [{containerPort: 8000}]
+          readinessProbe:
+            httpGet: {path: /health, port: 8000}
+            initialDelaySeconds: 8
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: 8000}
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nychhc-backend
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+spec:
+  selector: {app: nychhc-backend}
+  ports: [{name: http, port: 8000, targetPort: 8000}]
+---
+# Direct backend Route (smoke tests, /api/capabilities, the demoer). The UI itself
+# reaches the backend same-origin via the frontend nginx BFF, not this Route.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: nychhc-copilot
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+  annotations:
+    haproxy.router.openshift.io/timeout: "300s"   # chat SSE on CPU can be slow
+spec:
+  to: {kind: Service, name: nychhc-backend}
+  port: {targetPort: 8000}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}

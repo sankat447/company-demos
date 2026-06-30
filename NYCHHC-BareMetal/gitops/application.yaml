@@ -1,0 +1,49 @@
+# Standalone ArgoCD Application for the NYCHHC-BareMetal demo.
+# Applied by deploy.sh (oc apply). Does NOT edit the baremetal platform app-of-apps,
+# so the demo is fully independent and destroy.sh can delete just this Application
+# (the finalizer cascade-prunes all children across the iis-ai-* tiers).
+#
+# The `nychhc-creds` Secret is bootstrapped out-of-band by deploy.sh and is
+# deliberately NOT in the synced path — so selfHeal/prune never blanks it
+# (police-department / amboy lesson: git-empty secrets get wiped on sync).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nychhc-demo
+  namespace: openshift-gitops
+  labels:
+    demo: nychhc
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io   # cascade-prune children on delete
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sankat447/company-demos
+    targetRevision: sanjeev-dev                 # deploy.sh can override via GIT_REVISION
+    path: NYCHHC-BareMetal/gitops/manifests      # kustomize base
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: iis-ai-ai                         # default ns; resources set their own
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false                    # iis-ai-* tiers are platform-managed
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true            # don't clobber the pinned image digest
+  # The git manifests pin the two model images to nychhc:latest, but deploy.sh patches
+  # each predictor to the exact freshly-built DIGEST after the build (KServe scale
+  # cycles + node :latest caching can otherwise serve a stale image). Let ArgoCD
+  # ignore that field so selfHeal doesn't revert the pin back to :latest.
+  ignoreDifferences:
+    - group: serving.kserve.io
+      kind: InferenceService
+      name: nychhc-noshow
+      jsonPointers:
+        - /spec/predictor/containers/0/image
+    - group: serving.kserve.io
+      kind: InferenceService
+      name: nychhc-forecast
+      jsonPointers:
+        - /spec/predictor/containers/0/image

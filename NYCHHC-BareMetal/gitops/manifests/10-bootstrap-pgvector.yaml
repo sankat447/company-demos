@@ -1,0 +1,42 @@
+# Idempotent: applies the NYCHHC schema (+ synthetic seed) to the reused platform
+# Postgres. Re-runs are safe (CREATE ... IF NOT EXISTS / WHERE NOT EXISTS guards).
+# Schema SQL comes from the kustomize-generated ConfigMap `nychhc-schema-sql`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nychhc-pgvector-init
+  namespace: iis-ai-data
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+  annotations: {argocd.argoproj.io/sync-wave: "1"}
+spec:
+  backoffLimit: 8
+  template:
+    metadata: {labels: {demo: nychhc}}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: nychhc
+      containers:
+        - name: psql
+          image: docker.io/pgvector/pgvector:pg16
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              until pg_isready -h "$PGHOST" -p 5432 -U "$PGUSER"; do
+                echo "waiting for postgres..."; sleep 3; done
+              psql "host=$PGHOST port=5432 dbname=$PGDATABASE user=$PGUSER password=$PGPASSWORD" \
+                -v ON_ERROR_STOP=1 -f /sql/schema.sql
+              echo "nychhc schema applied (idempotent)"
+          env:
+            - {name: PGHOST, value: "iis-ai-postgres-primary.iis-ai-data.svc"}
+            - {name: PGUSER, value: "rhoai_admin"}
+            - {name: PGDATABASE, value: "rhoai_demo"}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: nychhc-creds, key: PG_PASSWORD}}
+          volumeMounts: [{name: sql, mountPath: /sql}]
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+      volumes:
+        - name: sql
+          configMap: {name: nychhc-schema-sql}

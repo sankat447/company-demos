@@ -1,0 +1,41 @@
+# NYCHHC backend — in-cluster image build (baremetal has NO ECR; use the OpenShift
+# internal registry). ONE image, tagged nychhc:latest, built into iis-ai-ai. Roles
+# (backend / predictor) are selected at runtime by NYCHHC_ROLE.
+#
+# Applied imperatively by deploy.sh (binary build):
+#   oc -n iis-ai-ai apply -f build/buildconfig.yaml
+#   oc -n iis-ai-ai start-build nychhc --from-dir=. --follow --wait
+# NOT in the ArgoCD-synced path — ArgoCD should not manage one-shot builds.
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: nychhc
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+spec:
+  lookupPolicy:
+    local: true        # so Deployments referencing nychhc:latest resolve to the digest
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: nychhc
+  namespace: iis-ai-ai
+  labels: {demo: nychhc, app.kubernetes.io/part-of: nychhc}
+spec:
+  source:
+    type: Binary           # populated by `oc start-build --from-dir=.`
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: build/Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: nychhc:latest
+  resources:
+    requests: {cpu: "1", memory: 1Gi}
+    limits: {cpu: "2", memory: 3Gi}
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2
