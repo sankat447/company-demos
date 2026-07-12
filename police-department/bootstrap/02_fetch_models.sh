@@ -23,9 +23,19 @@ S3_PREFIX="s3://${PD_BUCKET}/models/police-department/qwen2.5-vl-7b"
 
 log_info "checking $S3_PREFIX/config.json..."
 if aws s3 ls "$S3_PREFIX/config.json" >/dev/null 2>&1; then
-  log_ok "already staged; skipping"
-  exit 0
+  log_ok "already staged; skipping Qwen-VL"
+  QWEN_STAGE=false
+else
+  QWEN_STAGE=true
 fi
+
+# Continue to BGE-small block regardless (lesson 17.33 — the old `exit 0`
+# short-circuited before BGE-small was reached, so a warm re-run after a
+# hard teardown left BGE-small missing while Qwen-VL was fine).
+if ! "$QWEN_STAGE"; then
+  # Skip everything between here and the BGE block — jump via a wrapping if
+  :
+else
 
 log_info "launching ephemeral fetcher pod in $PD_NS_CCTV"
 cat <<EOF | oc apply -f -
@@ -116,6 +126,8 @@ job=$(oc -n "$PD_NS_CCTV" get job -l app.kubernetes.io/part-of=police-department
         --sort-by=.metadata.creationTimestamp -o name | tail -n 1)
 oc -n "$PD_NS_CCTV" wait --for=condition=complete --timeout=20m "$job"
 log_ok "Qwen2.5-VL staged at $S3_PREFIX"
+
+fi   # close the QWEN_STAGE branch (lesson 17.33 — always fall through to BGE-small)
 
 # =============================================================================
 #  Stage BGE-small-en-v1.5 (lesson 17.22)

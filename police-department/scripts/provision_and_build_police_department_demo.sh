@@ -347,21 +347,37 @@ else
   warn "$APP_OF_APPS not found; skipping ArgoCD bring-up"
 fi
 
+# ── Step 6.5: scale WORKERS ahead of Step 7 (fetcher pod needs headroom) ─
+# Lesson 17.33: on a fresh cluster, baseline is 1 worker/AZ (post-teardown
+# or fresh Terraform). The Step 7 fetcher requests 200m CPU + 2 GiB — small,
+# but combined with the platform workloads already on those workers (rhods,
+# argocd, notebooks, monitoring…) there's no headroom, so the fetcher pod
+# sits Pending for 20+ min until Step 8+9's worker scale-up finally
+# lands — by which time the script's `oc wait --timeout=20m` on the
+# fetcher Job has already given up. Move worker scale-up here (~4 min
+# EC2 boot happens in parallel with the ArgoCD Step 6 sync) so the
+# fetcher lands cleanly. GPU scale-up stays in Step 8+9 (which becomes
+# just "Step 9 · scale GPU + patch GPU MachineSet").
+banner "Step 6.5 · Scale worker MachineSets 1 → 2/AZ (before fetcher)"
+if ! "$DRY_RUN"; then
+  for az in 1a 1b 1c; do
+    ms="${PD_MACHINESET_PREFIX}-worker-us-east-${az}"
+    run oc -n openshift-machine-api annotate machineset "$ms" \
+         pd-cctv.iisl.com/scaled-up-by=demo-session --overwrite >/dev/null
+    run oc -n openshift-machine-api scale machineset "$ms" --replicas=2
+  done
+  ok "workers scaled — new nodes bootstrapping in the background"
+fi
+
 # ── Step 7: stage Qwen-VL model into S3 (idempotent) ──────────────────────
-banner "Step 7 · Stage Qwen-VL model in S3 (skips if already present)"
+banner "Step 7 · Stage Qwen-VL + BGE-small models in S3 (skips if present)"
 if [ -x "$REPO_ROOT/police-department/bootstrap/02_fetch_models.sh" ]; then
   HF_TOKEN="${PD_HF_TOKEN:-}" run "$REPO_ROOT/police-department/bootstrap/02_fetch_models.sh" || \
     warn "model fetch returned non-zero — predictor will fail to load if model missing"
 fi
 
-# ── Step 8 + 9: scale workers + GPU ───────────────────────────────────────
-banner "Step 8+9 · Scale MachineSets (workers 2/AZ + GPU 1)"
-for az in 1a 1b 1c; do
-  ms="${PD_MACHINESET_PREFIX}-worker-us-east-${az}"
-  run oc -n openshift-machine-api annotate machineset "$ms" \
-       pd-cctv.iisl.com/scaled-up-by=demo-session --overwrite >/dev/null
-  run oc -n openshift-machine-api scale machineset "$ms" --replicas=2
-done
+# ── Step 8 + 9: scale GPU (workers already at 2/AZ from Step 6.5) ─────────
+banner "Step 8+9 · Scale GPU MachineSet 0 → 1 + patch template"
 gpu_ms="${PD_MACHINESET_PREFIX}-gpu-demo-us-east-1a"
 
 # Lesson 17 — fresh Terraform leaves the GPU MachineSet with three quirks

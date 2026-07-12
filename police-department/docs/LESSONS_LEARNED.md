@@ -782,6 +782,31 @@ script now so the next operator hits zero of them:
     35 ms/char ≈ 28 chars/sec — fast but visibly typing; configurable
     via msg.typingMs.
 
+33. **Fetcher pod (Step 7) can't schedule on baseline workers → 20-min
+    wait_for timeout even though the Job would otherwise succeed.** After
+    a hard teardown, workers are at 1/AZ (3 total) and packed with
+    platform pods (rhods, argocd, notebook controller, monitoring). The
+    fetcher requests 200m CPU + 2 GiB — small, but no headroom. The
+    Step 8+9 worker scale-up to 2/AZ would give it room, but that runs
+    AFTER Step 7. Result: fetcher Pending 15-20 min → `oc wait
+    --timeout=20m` gives up → script emits `warn` and moves on with no
+    model in S3 → predictor never comes up. **Fix**: split worker
+    scale-up into its own **Step 6.5**, placed BEFORE Step 7. The
+    ~4-min EC2 boot happens in parallel with the ArgoCD Step 6 sync
+    (also ~4 min), so by the time Step 7 fires, at least one extra
+    worker per AZ is Ready. Step 8+9 becomes just "scale GPU + patch
+    template" and is unchanged otherwise.
+
+34. **`02_fetch_models.sh` had `exit 0` after the Qwen-VL "already
+    staged" check** — short-circuited the BGE-small block entirely.
+    On a warm re-run (Qwen-VL in S3, BGE-small missing after a hard
+    teardown wipe of BGE-small only), the script would report "already
+    staged; skipping" and exit before touching BGE-small. **Fix**:
+    replaced the `exit 0` with a `QWEN_STAGE=false/true` flag +
+    wrapping `if ... else <qwen fetch block> fi`, so control always
+    falls through to the BGE-small block. Both blocks are individually
+    idempotent via their own `aws s3 ls config.json` checks.
+
 32. **GPU node was image-pull-blocked the first time it ran the
     pipeline** — yolo-detect + faces-and-plates both use
     `docker.io/ultralytics/ultralytics:8.3.0` (~5 GB image). First
