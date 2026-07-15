@@ -4,7 +4,7 @@ Primer for future Claude Code sessions in this directory.
 
 ## What this is
 "NPI-Safe Investment & Credit Report Comparison" demo. Self-contained under
-`company-demos/amboy/`, deployed onto the **ai-demo-stack-baremetal** platform
+`company-demos/amboy-baremetal/`, deployed onto the **ai-demo-stack-baremetal** platform
 (NOT ai-demo-stack-aws). One image, four roles, one standalone ArgoCD Application.
 
 ## Hard rules

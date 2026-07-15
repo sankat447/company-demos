@@ -1,7 +1,7 @@
 # OpenShift AI dashboard launcher tile for the Amboy NPI-Safe app.
 # Lives in the dashboard's applications namespace (redhat-ods-applications), NOT in
 # the demo's kustomize base. Applied out-of-band by deploy.sh (oc apply -f):
-#   oc apply -f amboy/gitops/openshift-ai-tile.yaml
+#   oc apply -f amboy-baremetal/gitops/openshift-ai-tile.yaml
 # The OdhApplication renders a card under OpenShift AI → Applications. It is shown on
 # the "Enabled" page because enable.validationConfigMap points at a ConfigMap whose
 # validation_result is "true". "Open application" links to the amboy-web Route.

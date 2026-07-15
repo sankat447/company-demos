@@ -20,7 +20,7 @@ spec:
   source:
     repoURL: https://github.com/sankat447/company-demos
     targetRevision: sanjeev-dev                 # deploy.sh can override via GIT_REVISION
-    path: amboy/gitops/manifests                # kustomize base
+    path: amboy-baremetal/gitops/manifests                # kustomize base
   destination:
     server: https://kubernetes.default.svc
     namespace: iis-ai-ai                         # default ns; resources set their own
