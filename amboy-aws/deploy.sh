@@ -113,14 +113,24 @@ PG_PASSWORD="$(aws ssm get-parameter --name "$SSM_PREFIX/master-password" --with
 ok "Aurora: $PG_HOST (db rhoai_demo)"
 
 # ── 1. out-of-band Secret amboy-creds (NOT in git → ArgoCD never blanks it) ──
+# Raw key names (S3_ACCESS_KEY, PG_PASSWORD, …) are what the manifests'
+# secretKeyRef entries and the DSPA s3CredentialsSecret expect. The AMBOY_*
+# duplicates make `envFrom: secretRef` feed app/common/config.py DIRECTLY —
+# on baremetal workloads without explicit env fell back to config defaults
+# that happened to match the in-stack services; on AWS they must not.
 info "Phase 1 — amboy-creds Secret in ns $NS"
 oc -n "$NS" create secret generic amboy-creds \
   --from-literal=PG_PASSWORD="$PG_PASSWORD" \
-  --from-literal=AMBOY_PG_HOST="$PG_HOST" \
   --from-literal=S3_ACCESS_KEY="$S3_ACCESS_KEY" \
   --from-literal=S3_SECRET_KEY="$S3_SECRET_KEY" \
   --from-literal=VAULT_TOKEN="$VAULT_TOKEN" \
   --from-literal=PORTKEY_API_KEY="$PORTKEY_API_KEY" \
+  --from-literal=AMBOY_PG_HOST="$PG_HOST" \
+  --from-literal=AMBOY_PG_PASSWORD="$PG_PASSWORD" \
+  --from-literal=AMBOY_S3_ACCESS_KEY="$S3_ACCESS_KEY" \
+  --from-literal=AMBOY_S3_SECRET_KEY="$S3_SECRET_KEY" \
+  --from-literal=AMBOY_VAULT_TOKEN="$VAULT_TOKEN" \
+  --from-literal=AMBOY_PORTKEY_API_KEY="$PORTKEY_API_KEY" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null
 oc -n "$NS" annotate secret amboy-creds "argocd.argoproj.io/sync-options=Prune=false" --overwrite >/dev/null
 ok "amboy-creds ready (out-of-band, Prune=false)"

@@ -63,8 +63,11 @@ else:
     print("  detokenize allowed (200) with npi-reveal")
 
 # 5. /analyze -> grounded, and the draft narrative carries NO NPI
+# 600s (baremetal: 180s): with no PORTKEY_API_KEY the agent exhausts the LLM
+# retry chain (~6-7 min) before the deterministic fallback answers — a latency
+# artifact of keyless mode, not a privacy regression.
 ra = httpx.post(f"{AGENT}/analyze", json={"report_id_a": "AMB-FY2024",
-                "report_id_b": "AMB-FY2025", "year_a": 2024, "year_b": 2025}, timeout=180)
+                "report_id_b": "AMB-FY2025", "year_a": 2024, "year_b": 2025}, timeout=600)
 if ra.status_code == 200:
     body = ra.json()
     if pii_patterns.scan(body["draft_summary"]):
