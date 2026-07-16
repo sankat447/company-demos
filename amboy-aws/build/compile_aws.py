@@ -41,19 +41,23 @@ SECRET_AS_ENV = [
     ("S3_SECRET_KEY", "AMBOY_S3_SECRET_KEY"),
     ("VAULT_TOKEN", "AMBOY_VAULT_TOKEN"),
 ]
-_SENSITIVE = ("KEY", "TOKEN", "PASSWORD", "SECRET")
+# Exact allowlist of non-secret endpoint env the task pods need (the config.py
+# surface). A prefix sweep would also drag in the AMBOY_* SERVICE env vars
+# kubernetes injects for every amboy-* Service in the namespace.
+_PLAIN_ENV = [
+    "AMBOY_PG_HOST", "AMBOY_PG_PORT", "AMBOY_PG_DB", "AMBOY_PG_USER",
+    "AMBOY_S3_ENDPOINT", "AMBOY_S3_BUCKET_RAW", "AMBOY_S3_BUCKET_DEID",
+    "AMBOY_PORTKEY_BASE_URL", "AMBOY_VAULT_ADDR", "AMBOY_KEYCLOAK_URL",
+    "AMBOY_MLFLOW_URL", "AMBOY_PII_MODEL_URL",
+    "AMBOY_PRESIDIO_ANALYZER_URL", "AMBOY_PRESIDIO_ANONYMIZER_URL",
+    "AMBOY_METRICS_ENGINE_URL", "AMBOY_DEID_GATEWAY_URL",
+    "AMBOY_COMPARE_AGENT_URL", "DSP_HOST", "RHOAI_DASHBOARD",
+]
 
 
 def _aws_env():
-    """Non-secret AMBOY_* endpoint env inherited from this Job's environment."""
-    out = []
-    for k in sorted(os.environ):
-        if not k.startswith("AMBOY_") or k == "AMBOY_IMAGE" or k == "AMBOY_ROLE":
-            continue
-        if any(s in k for s in _SENSITIVE):
-            continue  # secrets go via secretAsEnv, never plaintext into the IR
-        out.append({"name": k, "value": os.environ[k]})
-    return out
+    """Non-secret endpoint env inherited from this Job's environment."""
+    return [{"name": k, "value": os.environ[k]} for k in _PLAIN_ENV if k in os.environ]
 
 
 def replumb(path):
