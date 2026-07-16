@@ -1,0 +1,95 @@
+{
+  "name": "Amboy — Ingest & Human Sign-off",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "amboy-ingest", "responseMode": "lastNode" },
+      "id": "trigger",
+      "name": "Webhook: start ingest",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://amboy-deid-gateway.amboy.svc:8080/ingest",
+        "sendBody": true, "specifyBody": "json",
+        "jsonBody": "={\"bucket\":\"amboy-raw\",\"raw_key\":\"report_2024.json\",\"actor\":\"n8n\"}"
+      },
+      "id": "ingest24",
+      "name": "Ingest FY2024 (de-identify)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [480, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://amboy-deid-gateway.amboy.svc:8080/ingest",
+        "sendBody": true, "specifyBody": "json",
+        "jsonBody": "={\"bucket\":\"amboy-raw\",\"raw_key\":\"report_2025.json\",\"actor\":\"n8n\"}"
+      },
+      "id": "ingest25",
+      "name": "Ingest FY2025 (de-identify)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://amboy-compare-agent.amboy.svc:8080/analyze",
+        "sendBody": true, "specifyBody": "json",
+        "jsonBody": "={\"report_id_a\":\"AMB-FY2024\",\"report_id_b\":\"AMB-FY2025\",\"year_a\":2024,\"year_b\":2025,\"shock_bps\":200}"
+      },
+      "id": "analyze",
+      "name": "Compare (grounded, narrate-only)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [960, 200]
+    },
+    {
+      "parameters": {
+        "conditions": { "boolean": [ { "value1": "={{$json[\"grounding\"][\"grounded\"]}}", "value2": true } ] }
+      },
+      "id": "grounded",
+      "name": "IF grounded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "values": { "string": [ { "name": "status", "value": "DRAFT — awaiting human sign-off" } ] }
+      },
+      "id": "signoff",
+      "name": "Human sign-off gate",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1440, 120],
+      "notes": "Replace with an approval node (email/Slack/Wait) to require a person to approve before any recommendation is released."
+    },
+    {
+      "parameters": {
+        "values": { "string": [ { "name": "status", "value": "BLOCKED — ungrounded figures; not released" } ] }
+      },
+      "id": "blocked",
+      "name": "Block ungrounded output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1440, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: start ingest": { "main": [[ { "node": "Ingest FY2024 (de-identify)", "type": "main", "index": 0 } ]] },
+    "Ingest FY2024 (de-identify)": { "main": [[ { "node": "Ingest FY2025 (de-identify)", "type": "main", "index": 0 } ]] },
+    "Ingest FY2025 (de-identify)": { "main": [[ { "node": "Compare (grounded, narrate-only)", "type": "main", "index": 0 } ]] },
+    "Compare (grounded, narrate-only)": { "main": [[ { "node": "IF grounded?", "type": "main", "index": 0 } ]] },
+    "IF grounded?": { "main": [
+      [ { "node": "Human sign-off gate", "type": "main", "index": 0 } ],
+      [ { "node": "Block ungrounded output", "type": "main", "index": 0 } ]
+    ] }
+  }
+}

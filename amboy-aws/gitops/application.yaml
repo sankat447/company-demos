@@ -1,0 +1,47 @@
+# Standalone ArgoCD Application for the Amboy NPI-Safe demo on the AWS stack.
+# Applied by deploy.sh (oc apply). Does NOT edit the ai-demo-stack-aws app-of-apps,
+# so the demo is fully independent and destroy.sh can delete just this Application
+# (the finalizer cascade-prunes all children, including the demo-owned `amboy` ns).
+#
+# The `amboy-creds` Secret is bootstrapped out-of-band by deploy.sh and is
+# deliberately NOT in the synced path — so selfHeal/prune never blanks it
+# (police-department / NYCHHC lesson: git-empty secrets get wiped on sync).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: amboy-demo
+  namespace: openshift-gitops
+  labels:
+    demo: amboy
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io   # cascade-prune children on delete
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sankat447/company-demos
+    targetRevision: sanjeev-dev                 # deploy.sh can override via GIT_REVISION
+    path: amboy-aws/gitops/manifests            # kustomize overlay over ../amboy-baremetal
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: amboy
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false                    # the `amboy` Namespace is IN the manifests
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true            # don't clobber ignored fields on sync
+                                                 # (model image digest + dynamic display-name)
+  # The git manifest pins the model image to amboy:latest, but deploy.sh patches the
+  # predictor to the exact freshly-built DIGEST after the build (KServe scale cycles +
+  # node :latest caching can otherwise serve a stale image). Let ArgoCD ignore that
+  # field so selfHeal doesn't revert the pin back to :latest.
+  ignoreDifferences:
+    - group: serving.kserve.io
+      kind: InferenceService
+      name: amboy-pii-model
+      jsonPointers:
+        - /spec/predictor/containers/0/image
+        # provision step rewrites the dashboard display-name to the served head version
+        - /metadata/annotations/openshift.io~1display-name

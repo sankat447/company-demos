@@ -1,0 +1,44 @@
+# Amboy on AWS — in-cluster image build. The AWS stack's internal registry is
+# Managed (S3-backed) and the sibling police-department demo builds the same way,
+# so the baremetal BuildConfig pattern ports verbatim; ECR is NOT needed. Source
+# for the build is ../amboy-baremetal (single source of truth — no app fork):
+#   oc -n amboy apply -f build/buildconfig-aws.yaml
+#   oc -n amboy start-build amboy --from-dir=../amboy-baremetal --follow --wait
+# Everything lives in the ONE demo ns `amboy`, so no cross-ns puller RoleBinding.
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: amboy
+  namespace: amboy
+  labels:
+    demo: amboy
+    app.kubernetes.io/part-of: amboy
+spec:
+  lookupPolicy:
+    local: true
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: amboy
+  namespace: amboy
+  labels:
+    demo: amboy
+    app.kubernetes.io/part-of: amboy
+spec:
+  source:
+    type: Binary           # populated by `oc start-build --from-dir=../amboy-baremetal`
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: build/Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: amboy:latest
+  resources:
+    requests: {cpu: "1", memory: 2Gi}
+    limits: {cpu: "4", memory: 6Gi}   # torch + sentence-transformers build is heavy
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2

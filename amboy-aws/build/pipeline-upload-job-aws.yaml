@@ -1,0 +1,40 @@
+# One-off (AWS): compile the (unmodified) baremetal NPI-tagger KFP pipeline,
+# re-plumb its task-pod env for AWS (see build/compile_aws.py, mounted via the
+# amboy-compile-aws ConfigMap that deploy.sh creates), and upload it to the
+# OpenShift AI Pipeline Server (+ ensure the amboy-npi-tagger Experiment).
+# Runs as SA `amboy` (passes the DSP oauth-proxy via route-get RBAC).
+# deploy.sh replaces __AMBOY_IMAGE__ with the freshly-built digest so pipeline
+# task pods never run a stale cached :latest.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: amboy-pipeline-upload
+  namespace: amboy
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata: {labels: {demo: amboy}}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: amboy
+      containers:
+        - name: upload
+          image: image-registry.openshift-image-registry.svc:5000/amboy/amboy:latest
+          imagePullPolicy: Always
+          command: ["python", "/work/compile_aws.py"]
+          env:
+            # image the pipeline task pods run on (digest-pinned by deploy.sh)
+            - {name: AMBOY_IMAGE, value: "__AMBOY_IMAGE__"}
+          envFrom:
+            - configMapRef: {name: amboy-aws-env}
+            - secretRef: {name: amboy-creds}
+          volumeMounts:
+            - {name: compile-aws, mountPath: /work}
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "1", memory: 2Gi}
+      volumes:
+        - name: compile-aws
+          configMap: {name: amboy-compile-aws}

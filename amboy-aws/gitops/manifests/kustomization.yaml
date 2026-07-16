@@ -1,0 +1,189 @@
+# =============================================================================
+# Amboy NPI-Safe demo — AWS overlay. ArgoCD syncs THIS dir.
+#
+# DRY port: the app manifests are single-sourced from ../../amboy-baremetal
+# (read-only; see prep/kustomization.yaml) and re-plumbed for the ai-demo AWS
+# stack here:
+#   - all four baremetal iis-ai-* tiers flatten into ONE demo-owned ns `amboy`
+#   - object storage  : in-stack MinIO  -> AWS S3 (ai-demo-amboy-{raw,deid,pipelines})
+#   - database        : in-stack PG     -> Aurora PostgreSQL + pgvector (host via
+#                       amboy-creds AMBOY_PG_HOST, stamped from SSM by deploy.sh)
+#   - Vault/Keycloak/MLflow/Portkey     -> the AWS stack's shared services
+#   - image           : internal registry path iis-ai-*/... -> amboy/...
+# Endpoint overrides ride an envFrom(amboy-aws-env ConfigMap + amboy-creds Secret)
+# added to every app workload — app code reads them via app/common/config.py.
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: amboy
+
+labels:
+  - pairs: {demo: amboy, app.kubernetes.io/part-of: amboy}
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - prep
+
+# The internal-registry image paths embed the build namespace — rewrite to `amboy`.
+images:
+  - name: image-registry.openshift-image-registry.svc:5000/iis-ai-ai/amboy
+    newName: image-registry.openshift-image-registry.svc:5000/amboy/amboy
+  - name: image-registry.openshift-image-registry.svc:5000/iis-ai-ui/amboy-web
+    newName: image-registry.openshift-image-registry.svc:5000/amboy/amboy-web
+
+configMapGenerator:
+  # AWS endpoint overrides for app/common/config.py (secrets stay in amboy-creds;
+  # the Aurora HOST also lives in amboy-creds because it is discovered from SSM
+  # at deploy time — everything static-and-public lives here, in git).
+  - name: amboy-aws-env
+    literals:
+      - AMBOY_S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
+      - AMBOY_S3_BUCKET_RAW=ai-demo-amboy-raw
+      - AMBOY_S3_BUCKET_DEID=ai-demo-amboy-deid
+      - AMBOY_PORTKEY_BASE_URL=http://portkey.ai-demo.svc:8787/v1
+      - AMBOY_VAULT_ADDR=http://vault.vault.svc:8200
+      - AMBOY_KEYCLOAK_URL=http://keycloak.rhoai-sso.svc:8080
+      - AMBOY_MLFLOW_URL=http://mlflow.rhoai-mlflow.svc:5000
+      - AMBOY_PII_MODEL_URL=http://amboy-pii-model.amboy.svc:8080
+      - AMBOY_PRESIDIO_ANALYZER_URL=http://amboy-presidio-analyzer.amboy.svc:3000
+      - AMBOY_PRESIDIO_ANONYMIZER_URL=http://amboy-presidio-anonymizer.amboy.svc:3000
+      - AMBOY_METRICS_ENGINE_URL=http://amboy-metrics-engine.amboy.svc:8080
+      - AMBOY_DEID_GATEWAY_URL=http://amboy-deid-gateway.amboy.svc:8080
+      - AMBOY_COMPARE_AGENT_URL=http://amboy-compare-agent.amboy.svc:8080
+      - DSP_HOST=https://ds-pipeline-amboy-dsp.amboy.svc:8443
+      - RHOAI_DASHBOARD=https://rhods-dashboard-redhat-ods-applications.apps.ai-demo.iisdemolab.click
+  # The web BFF bakes its nginx upstreams (iis-ai-ai DNS) into the image at build
+  # time; mount an AWS conf over it instead of forking the image (see 61-web patch).
+  - name: amboy-web-nginx
+    files:
+      - default.conf=web-nginx/default.conf
+  # The n8n governance workflow asset embeds service URLs — replace with the
+  # amboy-ns variant (generated from the baremetal asset; sed iis-ai-ai -> amboy).
+  - name: amboy-n8n-workflow
+    namespace: iis-ai-ui   # must match the base generator's pre-flatten ID
+    behavior: replace
+    files:
+      - workflow.json=assets/n8n-workflow-aws.json
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+patches:
+  # ── the namespace transformer does not rewrite subjects it cannot see:
+  # pipeline-runner-amboy-dsp is created later by the DSP operator (in ns amboy).
+  - target: {group: rbac.authorization.k8s.io, kind: RoleBinding, name: amboy-isvc-scaler}
+    patch: |-
+      - op: replace
+        path: /subjects/1/namespace
+        value: amboy
+
+  # ── AWS endpoint env (configmap) + Aurora host / creds (secret) on every app
+  # workload. Explicit `env` entries in the base always win over envFrom, so the
+  # role/creds wiring is untouched.
+  - target: {group: apps, kind: Deployment, name: amboy-deid-gateway}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef: {name: amboy-aws-env}
+          - secretRef: {name: amboy-creds}
+  - target: {group: apps, kind: Deployment, name: amboy-metrics-engine}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef: {name: amboy-aws-env}
+          - secretRef: {name: amboy-creds}
+  - target: {group: apps, kind: Deployment, name: amboy-compare-agent}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef: {name: amboy-aws-env}
+          - secretRef: {name: amboy-creds}
+  - target: {group: apps, kind: Deployment, name: amboy-ui}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef: {name: amboy-aws-env}
+          - secretRef: {name: amboy-creds}
+  - target: {group: serving.kserve.io, kind: InferenceService, name: amboy-pii-model}
+    patch: |-
+      - op: add
+        path: /spec/predictor/containers/0/envFrom
+        value:
+          - configMapRef: {name: amboy-aws-env}
+          - secretRef: {name: amboy-creds}
+
+  # ── bootstrap jobs: point at Aurora / S3 / the AWS stack's Vault ─────────────
+  # PGHOST comes from amboy-creds (deploy.sh stamps it from SSM /ai-demo/aurora/*).
+  - target: {group: batch, kind: Job, name: amboy-pgvector-init}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0
+        value:
+          name: PGHOST
+          valueFrom: {secretKeyRef: {name: amboy-creds, key: AMBOY_PG_HOST}}
+  # S3 variant of the bucket-init job (idempotent; deploy.sh also pre-creates the
+  # buckets with SSE + public-access-block via the aws CLI). mc speaks AWS S3.
+  - target: {group: batch, kind: Job, name: amboy-minio-init}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/2
+        value: {name: S3_ENDPOINT, value: "https://s3.us-east-1.amazonaws.com"}
+      - op: replace
+        path: /spec/template/spec/containers/0/args
+        value:
+          - |
+            set -e
+            until mc alias set amboy "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"; do
+              echo "waiting for s3 credentials to be valid..."; sleep 3; done
+            mc mb --ignore-existing amboy/ai-demo-amboy-raw
+            mc mb --ignore-existing amboy/ai-demo-amboy-deid
+            mc mb --ignore-existing amboy/ai-demo-amboy-pipelines
+            mc encrypt set sse-s3 amboy/ai-demo-amboy-raw  || echo "WARN: could not set SSE on raw (IAM?)"
+            mc encrypt set sse-s3 amboy/ai-demo-amboy-deid || echo "WARN: could not set SSE on deid (IAM?)"
+            mc anonymous set none amboy/ai-demo-amboy-raw  || true
+            mc anonymous set none amboy/ai-demo-amboy-deid || true
+            echo "amboy S3 buckets ready (idempotent)"
+  - target: {group: batch, kind: Job, name: amboy-vault-transit-init}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0
+        value: {name: VAULT_ADDR, value: "http://vault.vault.svc:8200"}
+
+  # ── Data Science Pipelines artifact store -> AWS S3 ──────────────────────────
+  - target: {group: datasciencepipelinesapplications.opendatahub.io, kind: DataSciencePipelinesApplication, name: amboy-dsp}
+    patch: |-
+      - op: replace
+        path: /spec/objectStorage/externalStorage/host
+        value: s3.us-east-1.amazonaws.com
+      - op: replace
+        path: /spec/objectStorage/externalStorage/scheme
+        value: https
+      - op: replace
+        path: /spec/objectStorage/externalStorage/secure
+        value: true
+      - op: replace
+        path: /spec/objectStorage/externalStorage/bucket
+        value: ai-demo-amboy-pipelines
+      - op: remove
+        path: /spec/objectStorage/externalStorage/port
+
+  # ── web BFF: mount the AWS nginx conf over the baked one ────────────────────
+  - target: {group: apps, kind: Deployment, name: amboy-web}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: nginx-conf
+            configMap: {name: amboy-web-nginx}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: nginx-conf
+            mountPath: /etc/nginx/conf.d/default.conf
+            subPath: default.conf

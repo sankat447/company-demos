@@ -1,0 +1,13 @@
+# Demo-owned namespace (AWS-stack convention: demos create their own prefixed
+# namespaces, like police-department's pd-*). Labeled a Data Science Project so
+# the KServe PII model + Data Science Pipeline show in the OpenShift AI dashboard.
+# Deleted by destroy.sh (it is OURS — shared platform namespaces are never touched).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: amboy
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    openshift.io/display-name: "Amboy NPI-Safe (AWS)"

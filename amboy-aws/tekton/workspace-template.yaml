@@ -1,0 +1,9 @@
+# volumeClaimTemplate fragment for `tkn pipeline start amboy-build-deploy -w
+# name=src,volumeClaimTemplateFile=tekton/workspace-template.yaml` (NOT applied
+# directly). AWS: RWX comes from EFS (efs-sc) instead of baremetal's cephfs.
+spec:
+  storageClassName: efs-sc
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 2Gi

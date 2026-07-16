@@ -1,0 +1,28 @@
+# One-off (AWS): publish the baked base PII model (Piiranha) into the S3 deid
+# bucket so it is served from S3 (feature parity: "base model in object storage").
+# Idempotent. Applied by deploy.sh:  oc -n amboy apply -f build/seed-base-job-aws.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: amboy-seed-base
+  namespace: amboy
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata: {labels: {demo: amboy}}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: amboy
+      containers:
+        - name: seed-base
+          image: image-registry.openshift-image-registry.svc:5000/amboy/amboy:latest
+          env:
+            - {name: AMBOY_ROLE, value: "seed_base"}
+          envFrom:
+            - configMapRef: {name: amboy-aws-env}
+            - secretRef: {name: amboy-creds}
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "1", memory: 2Gi}

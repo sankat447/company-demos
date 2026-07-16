@@ -1,0 +1,54 @@
+# ServiceAccount + RBAC for the Amboy OpenShift Pipelines (Tekton) on AWS.
+# On baremetal this was TWO Roles named amboy-pipeline (iis-ai-ai + iis-ai-ui,
+# different rules) — a blind namespace merge would let one overwrite the other,
+# so this is the hand-merged UNION for the single `amboy` namespace. The other
+# five tekton manifests port cleanly and are sed-transformed from
+# ../amboy-baremetal/tekton by deploy.sh (single source of truth).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: amboy-pipeline
+  namespace: amboy
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: amboy-pipeline
+  namespace: amboy
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+rules:
+  - apiGroups: ["build.openshift.io"]
+    resources: ["buildconfigs/instantiatebinary"]
+    verbs: ["create"]
+  - apiGroups: ["build.openshift.io"]
+    resources: ["builds", "buildconfigs", "builds/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale", "replicasets"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["image.openshift.io"]
+    resources: ["imagestreams", "imagestreamtags"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: amboy-pipeline
+  namespace: amboy
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: amboy-pipeline}
+subjects:
+  - {kind: ServiceAccount, name: amboy-pipeline, namespace: amboy}

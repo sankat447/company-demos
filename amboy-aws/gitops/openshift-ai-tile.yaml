@@ -1,0 +1,59 @@
+# OpenShift AI dashboard launcher tile for the Amboy NPI-Safe app.
+# Lives in the dashboard's applications namespace (redhat-ods-applications), NOT in
+# the demo's kustomize base. Applied out-of-band by deploy.sh (oc apply -f):
+#   oc apply -f amboy-baremetal/gitops/openshift-ai-tile.yaml
+# The OdhApplication renders a card under OpenShift AI → Applications. It is shown on
+# the "Enabled" page because enable.validationConfigMap points at a ConfigMap whose
+# validation_result is "true". "Open application" links to the amboy-web Route.
+# Cleanly removable by the `demo: amboy` label. This is a launcher only — the model,
+# training pipeline, and serving live under Data Science Projects / Models / Pipelines.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amboy-npi-safe-enabled
+  namespace: redhat-ods-applications
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+data:
+  validation_result: "true"
+---
+apiVersion: dashboard.opendatahub.io/v1
+kind: OdhApplication
+metadata:
+  name: amboy-npi-safe
+  namespace: redhat-ods-applications
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+  annotations:
+    opendatahub.io/categories: "Model serving,Model training,Data privacy"
+spec:
+  displayName: "Amboy NPI-Safe Report Comparison"
+  provider: "IIS · Amboy Bank"
+  description: >-
+    NPI-safe investment & credit report comparison. A locally-hosted PII/NPI detector
+    (Piiranha on KServe) flags sensitive data, a human-in-the-loop review de-identifies
+    it before the LLM/vector trust boundary, and an interactive console teaches the
+    detector new entity types (e.g. account numbers) on CPU.
+  category: Self-managed
+  support: third party
+  docsLink: "https://amboy-web-amboy.apps.ai-demo.iisdemolab.click"
+  getStartedLink: "https://amboy-web-amboy.apps.ai-demo.iisdemolab.click/model-training"
+  getStartedMarkDown: |-
+    # Amboy NPI-Safe Report Comparison
+    Click **Open application** to launch the Amboy web UI.
+    ## What you can do
+    1. **Sensitive Document Intake** — upload a report; the PII/NPI model highlights
+       entities; accept/reject each; a de-identified copy is stored.
+    2. **Compare and Vectorize Documents** — pick two artifacts, extract comparable
+       fields, index them.
+    3. **AI Insights from Documents** — grounded comparison + chat (NPI never crosses
+       the trust boundary).
+    4. **Model Training** — teach the detector new NPI types and re-provision it on
+       OpenShift AI (KServe).
+  route: amboy-web
+  routeNamespace: iis-ai-ui
+  enable:
+    validationConfigMap: amboy-npi-safe-enabled
+  img: |-
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+      <path d="M32 9 L53 45 H11 Z" fill="#1E2761"/>
+      <path d="M12 50 q7 -6 14 0 t14 0 t14 0" stroke="#0E7C86" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+    </svg>

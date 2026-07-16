@@ -1,0 +1,29 @@
+# One-off seed Job (AWS): generates the two synthetic reports and uploads them to
+# the S3 raw bucket (ai-demo-amboy-raw) using the built amboy image (AMBOY_ROLE=seed).
+# Applied OUT OF BAND by deploy.sh (not ArgoCD) after the image build. Idempotent.
+# AWS endpoints/buckets ride envFrom (amboy-aws-env ConfigMap + amboy-creds Secret).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: amboy-seed
+  namespace: amboy
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata: {labels: {demo: amboy}}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: amboy
+      containers:
+        - name: seed
+          image: image-registry.openshift-image-registry.svc:5000/amboy/amboy:latest
+          env:
+            - {name: AMBOY_ROLE, value: "seed"}
+          envFrom:
+            - configMapRef: {name: amboy-aws-env}
+            - secretRef: {name: amboy-creds}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}

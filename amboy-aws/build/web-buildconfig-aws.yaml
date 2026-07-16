@@ -1,0 +1,36 @@
+# In-cluster build of the React web UI image (internal registry), ns `amboy`.
+# Source = ../amboy-baremetal/web (single source of truth). Applied by deploy.sh:
+#   oc -n amboy apply -f build/web-buildconfig-aws.yaml
+#   oc -n amboy start-build amboy-web --from-dir=../amboy-baremetal/web --follow --wait
+# The baked nginx conf targets iis-ai-ai; the AWS overlay mounts an amboy-ns conf
+# over it (gitops/manifests/web-nginx/), so the image itself needs no changes.
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: amboy-web
+  namespace: amboy
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  lookupPolicy: {local: true}
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: amboy-web
+  namespace: amboy
+  labels: {demo: amboy, app.kubernetes.io/part-of: amboy}
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to: {kind: ImageStreamTag, name: amboy-web:latest}
+  resources:
+    requests: {cpu: "500m", memory: 1Gi}
+    limits: {cpu: "2", memory: 3Gi}
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2
