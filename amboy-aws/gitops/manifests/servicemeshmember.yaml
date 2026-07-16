@@ -1,0 +1,18 @@
+# Join the demo-owned `amboy` ns to the platform Service Mesh. Portkey lives in
+# `ai-demo`, a mesh-member namespace whose NetworkPolicies block traffic from
+# non-member namespaces — without this the agent cannot even CONNECT to the LLM
+# gateway (everything else amboy consumes — vault, keycloak, mlflow, Aurora —
+# is outside the mesh). Demo-owned resource, same pattern as pd-cctv/pd-personas.
+# NOTE: mesh membership gates the OpenShift router too — route-exposed pods need
+# the maistra.io/expose-route label (patched onto amboy-web/amboy-ui).
+apiVersion: maistra.io/v1
+kind: ServiceMeshMember
+metadata:
+  name: default
+  namespace: amboy
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  controlPlaneRef:
+    name: data-science-smcp
+    namespace: istio-system

@@ -24,6 +24,7 @@ labels:
 
 resources:
   - namespace.yaml
+  - servicemeshmember.yaml
   - prep
 
 # The internal-registry image paths embed the build namespace — rewrite to `amboy`.
@@ -194,7 +195,8 @@ patches:
       - op: remove
         path: /spec/objectStorage/externalStorage/port
 
-  # ── web BFF: mount the AWS nginx conf over the baked one ────────────────────
+  # ── web BFF: mount the AWS nginx conf over the baked one; expose-route label
+  # (ns amboy is a mesh member — the router is blocked from unlabeled pods) ────
   - target: {group: apps, kind: Deployment, name: amboy-web}
     patch: |-
       - op: add
@@ -208,3 +210,11 @@ patches:
           - name: nginx-conf
             mountPath: /etc/nginx/conf.d/default.conf
             subPath: default.conf
+      - op: add
+        path: /spec/template/metadata/labels/maistra.io~1expose-route
+        value: "true"
+  - target: {group: apps, kind: Deployment, name: amboy-ui}
+    patch: |-
+      - op: add
+        path: /spec/template/metadata/labels/maistra.io~1expose-route
+        value: "true"
