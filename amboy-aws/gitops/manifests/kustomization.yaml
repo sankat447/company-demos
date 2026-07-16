@@ -118,6 +118,22 @@ patches:
           - configMapRef: {name: amboy-aws-env}
           - secretRef: {name: amboy-creds}
 
+  # ── presidio: current mcr :latest (gunicorn 25.1) needs a writable HOME under
+  # OpenShift's arbitrary UID or the worker never boots (readiness never passes,
+  # which stalls the later sync waves). Same class of fix as the mc init job.
+  - target: {group: apps, kind: Deployment, name: amboy-presidio-analyzer}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - {name: HOME, value: /tmp}
+  - target: {group: apps, kind: Deployment, name: amboy-presidio-anonymizer}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - {name: HOME, value: /tmp}
+
   # ── bootstrap jobs: point at Aurora / S3 / the AWS stack's Vault ─────────────
   # PGHOST comes from amboy-creds (deploy.sh stamps it from SSM /ai-demo/aurora/*).
   - target: {group: batch, kind: Job, name: amboy-pgvector-init}
