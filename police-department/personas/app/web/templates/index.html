@@ -110,8 +110,20 @@
     border: 1px solid transparent;
     align-items: center;
     margin-bottom: 4px;
+    position: relative;   /* anchor .clip-del inside the tile */
   }
   .clip:hover { background: var(--panel-2); }
+  .clip-del {
+    position: absolute; top: 6px; right: 6px;
+    width: 24px; height: 24px; padding: 0;
+    background: transparent; border: 1px solid transparent;
+    color: var(--muted); border-radius: 4px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 120ms ease, color 120ms ease, background 120ms ease, border-color 120ms ease;
+  }
+  .clip:hover .clip-del { opacity: 0.85; }
+  .clip-del:hover { color: var(--err); opacity: 1; background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); }
+  .clip-del:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
   .clip.selected { border-color: var(--accent); background: rgba(56, 189, 248, 0.06); }
   .clip .thumb {
     width: 64px; height: 36px; border-radius: 4px; overflow: hidden;
@@ -386,6 +398,7 @@ async function loadClips() {
   if (!d.clips.length) {
     wrap.innerHTML = '<div class="empty">No clips ingested yet.</div>'; return;
   }
+  const SENTINEL = "00000000-0000-0000-0000-000000000001";
   for (const c of d.clips) {
     const el = document.createElement("div");
     el.className = "clip" + (c.clip_id === activeClip ? " selected" : "");
@@ -393,14 +406,82 @@ async function loadClips() {
       ? `<img src="${c.thumb_url}" alt="" loading="lazy" onerror="this.outerHTML='<span class=\\'placeholder\\'>&#127909;</span>'">`
       : `<span class="placeholder">&#127909;</span>`;
     const ts = (c.uploaded_at || "").slice(5, 16).replace("T", " ");
+    // Delete button is hidden for the sentinel (protected by API too).
+    const deleteBtn = c.clip_id === SENTINEL ? "" :
+      `<button class="clip-del" title="Delete clip + all indexed data (irreversible)"
+               aria-label="Delete clip ${c.clip_id_short}">` +
+      `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+      `<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>` +
+      `<line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>` +
+      `</svg></button>`;
     el.innerHTML =
       `<div class="thumb">${thumbInner}</div>` +
       `<div class="meta">` +
         `<code>${c.clip_id_short}</code><span class="ts">${ts}</span>` +
         `<div class="preview">${escapeHtml(c.prose_preview || "(no narration yet)")}</div>` +
-      `</div>`;
+      `</div>` +
+      deleteBtn;
+    // Clicking the tile selects the clip; the delete button stops propagation.
     el.onclick = () => selectClip(c.clip_id);
+    const delBtn = el.querySelector(".clip-del");
+    if (delBtn) {
+      delBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        deleteClipFromUI(c);
+      });
+    }
     wrap.appendChild(el);
+  }
+}
+
+async function deleteClipFromUI(c) {
+  const preview = (c.prose_preview || "").slice(0, 90).replace(/\s+/g, " ");
+  const ok = confirm(
+    `Delete clip ${c.clip_id_short} irreversibly?\n\n` +
+    `This will remove:\n` +
+    `  • The video from S3\n` +
+    `  • The processed bundle (frames, embeddings)\n` +
+    `  • All Aurora rows: narration, faces, plates, events, entities,\n` +
+    `    relationships, custody log, operator corrections\n\n` +
+    `Preview: “${preview}${c.prose_preview && c.prose_preview.length > 90 ? "…" : ""}”\n\n` +
+    `Type OK on the next prompt to confirm.`
+  );
+  if (!ok) return;
+  const typed = prompt(`Confirm: type "delete ${c.clip_id_short}" to proceed`);
+  if (typed !== `delete ${c.clip_id_short}`) {
+    toast("Delete cancelled — confirmation string didn't match.");
+    return;
+  }
+  try {
+    const r = await fetch(`/api/clip/${c.clip_id}`, { method: "DELETE" });
+    if (!r.ok) {
+      const err = await r.text();
+      toast(`Delete failed (${r.status}): ${err.slice(0, 140)}`);
+      return;
+    }
+    const d = await r.json();
+    const rows = d.aurora || {};
+    const s3 = d.s3 || {};
+    const rowSum = Object.values(rows).reduce((a, b) => a + (typeof b === "number" ? b : 0), 0);
+    const s3Sum = (s3.clip_file || 0) + (s3.processed_bundle || 0);
+    toast(
+      `✓ Deleted clip ${c.clip_id_short} — ${rowSum} Aurora rows + ${s3Sum} S3 objects`,
+      true
+    );
+    // If the deleted clip was the active one, clear the chat + right-panel state.
+    if (activeClip === c.clip_id) {
+      activeClip = null;
+      $("#active-clip").textContent = "— pick a clip —";
+      $("#q").disabled = true; $("#send").disabled = true;
+      $("#clear-chat").style.display = "none";
+      $("#chat-log").innerHTML =
+        '<div class="empty">Upload an mp4 or pick a recent clip on the left, then ask any question.</div>';
+      const player = $("#player"); if (player) player.classList.add("hidden");
+    }
+    await loadClips();
+  } catch (e) {
+    toast(`Delete failed: ${e}`);
   }
 }
 

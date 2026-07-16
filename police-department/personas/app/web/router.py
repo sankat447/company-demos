@@ -25,7 +25,7 @@ from fastapi.responses import HTMLResponse, Response
 from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 
-from app.tools import chat_history, clip_context, clip_url, corrections, mode, pipeline_status, thumbnail, upload as s3_upload, vlm_mode
+from app.tools import chat_history, clip_context, clip_delete, clip_url, corrections, mode, pipeline_status, thumbnail, upload as s3_upload, vlm_mode
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -239,6 +239,22 @@ def undo_correction(clip_id: str) -> dict:
     if not row:
         raise HTTPException(404, "no corrections on file for this clip")
     return {"deleted": row}
+
+
+@router.delete("/api/clip/{clip_id}")
+def delete_clip(clip_id: str) -> dict:
+    """Irreversibly delete a clip + every downstream artefact (S3, Aurora,
+    chat history). Sentinel is protected. Returns a summary of what was
+    purged so the UI can render a truthful toast."""
+    try:
+        return clip_delete.delete_clip(clip_id)
+    except clip_delete.ClipNotFound as e:
+        raise HTTPException(404, str(e))
+    except clip_delete.ProtectedClip as e:
+        raise HTTPException(403, str(e))
+    except Exception as e:
+        log.exception("delete_clip failed for %s", clip_id)
+        raise HTTPException(500, f"delete failed: {e}")
 
 
 @router.delete("/api/chat/history/{clip_id}")
