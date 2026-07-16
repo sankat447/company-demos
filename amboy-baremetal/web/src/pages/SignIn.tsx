@@ -21,6 +21,15 @@ export function SignIn() {
         <div className="bg-navy text-white px-5 py-5 rounded-t-card">
           <Logo variant="dark" size={36} />
           <div className="text-[12px] text-white/70 mt-2">NPI-Safe Report Comparison &amp; Chat</div>
+          {/* Demo objective — what this app proves */}
+          <p className="text-[12px] leading-relaxed text-white/85 mt-3 border-t border-white/15 pt-3">
+            Upload two financial reports and let AI compare, analyze, and answer
+            questions about them — while every piece of customer NPI is
+            de-identified <span className="font-bold text-gold">before</span> it
+            reaches the LLM, the vector store, or the logs. Reversible tokens,
+            role-gated re-identification, an append-only audit trail, and an AI
+            that narrates only verified numbers.
+          </p>
         </div>
         <div className="p-5 space-y-4">
           {DEV_MODE ? (

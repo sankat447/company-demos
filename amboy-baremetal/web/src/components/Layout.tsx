@@ -58,7 +58,7 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="min-h-full flex flex-col">
       <header className="bg-navy text-white">
         <div className="mx-auto max-w-[1280px] px-4 h-14 flex items-center gap-4">
-          <Link to="/" aria-label="Amboy Bank home"><Logo variant="dark" size={30} /></Link>
+          <Link to="/" aria-label="Demo Bank home"><Logo variant="dark" size={30} /></Link>
           <span className="hidden md:inline text-[12px] text-white/60 border-l border-white/20 pl-4">
             NPI-Safe Report Comparison
           </span>
@@ -78,7 +78,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <main className="mx-auto max-w-[1280px] px-4 py-6 flex-1 w-full">{children}</main>
       <footer className="border-t border-line bg-surface">
         <div className="mx-auto max-w-[1280px] px-4 py-4 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[12px] text-slate">Amboy Bank · NPI-safe analytics</span>
+          <span className="text-[12px] text-slate">Demo Bank · NPI-safe analytics</span>
           <IISAttribution />
         </div>
       </footer>

@@ -85,7 +85,7 @@ export function UploadArtifact() {
         <div className="space-y-3 max-w-2xl">
           <label className="block">
             <span className="text-[13px] text-ink font-bold">Artifact name</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Amboy FY2024 report"
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. FY2024 annual report"
               className="mt-1 w-full rounded-card border border-line bg-paper px-3 py-2 text-[14px]" />
           </label>
           <label onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
