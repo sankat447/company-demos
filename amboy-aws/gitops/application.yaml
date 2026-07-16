@@ -45,3 +45,5 @@ spec:
         - /spec/predictor/containers/0/image
         # provision step rewrites the dashboard display-name to the served head version
         - /metadata/annotations/openshift.io~1display-name
+        # KServe's webhook injects this default; not in git — don't flag OutOfSync
+        - /spec/predictor/automountServiceAccountToken

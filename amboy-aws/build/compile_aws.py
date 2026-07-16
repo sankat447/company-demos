@@ -57,8 +57,14 @@ def _aws_env():
 
 
 def replumb(path):
+    """KFP compiled files are (up to) TWO YAML documents: the PipelineSpec and,
+    when kubernetes platform features are used, a separate PlatformSpec doc.
+    Embedding `platforms` INTO the PipelineSpec makes the upload fail with
+    'unknown template format: pipeline spec is invalid' -- keep them separate."""
     with open(path) as f:
-        ir = yaml.safe_load(f)
+        docs = [d for d in yaml.safe_load_all(f) if d]
+    ir = docs[0]
+    platform = next((d for d in docs[1:] if "platforms" in d), {"platforms": {}})
     envs = _aws_env()
     executors = ir.get("deploymentSpec", {}).get("executors", {})
     k8s_execs = {}
@@ -72,10 +78,12 @@ def replumb(path):
             "secretName": "amboy-creds",
             "keyToEnv": [{"secretKey": sk, "envVar": ev} for sk, ev in SECRET_AS_ENV],
         }]}
-    ir.setdefault("platforms", {}).setdefault("kubernetes", {}).setdefault(
-        "deploymentSpec", {})["executors"] = k8s_execs
+    kube = platform.setdefault("platforms", {}).setdefault("kubernetes", {})
+    existing = kube.setdefault("deploymentSpec", {}).setdefault("executors", {})
+    for name, cfg in k8s_execs.items():
+        existing.setdefault(name, {}).update(cfg)
     with open(path, "w") as f:
-        yaml.safe_dump(ir, f, sort_keys=False)
+        yaml.safe_dump_all([ir, platform], f, sort_keys=False)
     print(f"replumbed {len(k8s_execs)} executors for AWS "
           f"({len(envs)} env vars + amboy-creds secretAsEnv)")
 

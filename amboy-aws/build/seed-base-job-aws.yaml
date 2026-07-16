@@ -20,6 +20,14 @@ spec:
           image: image-registry.openshift-image-registry.svc:5000/amboy/amboy:latest
           env:
             - {name: AMBOY_ROLE, value: "seed_base"}
+            # explicit AMBOY_* mappings — envFrom injects the secret's RAW key
+            # names (S3_ACCESS_KEY), which config.py does not read
+            - name: AMBOY_S3_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_ACCESS_KEY}}
+            - name: AMBOY_S3_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: S3_SECRET_KEY}}
+            - name: AMBOY_PG_PASSWORD
+              valueFrom: {secretKeyRef: {name: amboy-creds, key: PG_PASSWORD}}
           envFrom:
             - configMapRef: {name: amboy-aws-env}
             - secretRef: {name: amboy-creds}
