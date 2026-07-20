@@ -80,23 +80,9 @@ spec:
       RES_CM="$(cat /etc/pd-vlm-mode/resolution 2>/dev/null || echo 1280)"
       JPEG_CM="$(cat /etc/pd-vlm-mode/jpeg_quality 2>/dev/null || echo 2)"
 
-      if [ -n "$F_OVERRIDE" ]; then
-        FRAMES="$F_OVERRIDE"
-      else
-        FRAMES="$F_CM"
-      fi
-      # local mode caps at 4 (vLLM --limit-mm-per-prompt={"image":4}).
-      if [ "$MODE" = "local" ] && [ "$FRAMES" -gt 4 ] 2>/dev/null; then
-        FRAMES=4
-      fi
-      # claude-multimodal: stay well under the API's 100-image cap.
-      if [ "$MODE" = "claude-multimodal" ] && [ "$FRAMES" -gt 30 ] 2>/dev/null; then
-        FRAMES=30
-      fi
-
       # Clear stale keyframes — the shared workspace is RWX EFS and persists
-      # across PipelineRuns. If a previous run extracted N=8 and we now
-      # extract N=4, the old frame_005..008.jpg would remain and the caption
+      # across PipelineRuns. If a previous run extracted N=60 and we now
+      # extract N=24, the old frame_025..060.jpg would remain and the caption
       # step's glob picks up too many.
       rm -rf frames
       mkdir -p frames
@@ -104,20 +90,50 @@ spec:
       duration=$(ffprobe -v error -show_entries format=duration \
                   -of default=noprint_wrappers=1:nokey=1 clip.mp4 | awk '{printf "%d", $1}')
       [ "$duration" -lt 1 ] && duration=1
-      step=$(( duration / FRAMES ))
-      [ "$step" -lt 1 ] && step=1
 
-      echo "[extract-keyframes] mode=$MODE frames=$FRAMES res=${RES_CM} jpeg_q=${JPEG_CM} dur=${duration}s step=${step}s"
+      # ── Forensic sampling density (lesson 17.36) ──────────────────────────
+      # The old fixed 16-frame sampling could not see transient events. A
+      # ~10-second assault window inside a 90-second clip is completely
+      # invisible to a model that only sees a frame every 6 seconds.
+      #
+      # New policy for claude-multimodal: target 1 frame every 2.5s, with a
+      # floor of 24 frames (short-clip minimum coverage) and a cap of 60
+      # (well under Sonnet's ~100-image-per-request ceiling; keeps a single
+      # request under ~100k input tokens). For local Qwen-VL: keep the
+      # vLLM-imposed 4-frame limit as before.
+      if [ -n "$F_OVERRIDE" ]; then
+        # Explicit param override wins over everything
+        FRAMES="$F_OVERRIDE"
+        step=$(awk -v d=$duration -v n=$FRAMES 'BEGIN{s=d/n; if(s<0.1)s=0.1; printf "%.3f", s}')
+        echo "[extract-keyframes] mode=$MODE · explicit override: FRAMES=${FRAMES} · step=${step}s"
+      elif [ "$MODE" = "claude-multimodal" ]; then
+        # Dynamic — 1 frame per ~2.5s, floor 24, ceiling 60
+        FRAMES=$(awk -v d=$duration 'BEGIN{n=int(d/2.5+0.5); if(n<24)n=24; if(n>60)n=60; print n}')
+        step=$(awk -v d=$duration -v n=$FRAMES 'BEGIN{s=d/n; if(s<0.1)s=0.1; printf "%.3f", s}')
+        echo "[extract-keyframes] mode=claude-multimodal · forensic dynamic: dur=${duration}s → ${FRAMES} frames · step=${step}s (~1 frame per ${step}s)"
+      else
+        # local mode — Qwen-VL has --limit-mm-per-prompt=4
+        FRAMES="$F_CM"
+        [ "$FRAMES" -gt 4 ] 2>/dev/null && FRAMES=4
+        step=$(( duration / FRAMES ))
+        [ "$step" -lt 1 ] && step=1
+        echo "[extract-keyframes] mode=local · frames=${FRAMES} (vLLM cap) · dur=${duration}s · step=${step}s"
+      fi
+      echo "[extract-keyframes] res=${RES_CM} jpeg_q=${JPEG_CM}"
+
       ffmpeg -hide_banner -loglevel error -i clip.mp4 \
              -vf "fps=1/${step},scale=${RES_CM}:-1" \
              -frames:v "$FRAMES" \
              -q:v "$JPEG_CM" \
              frames/frame_%03d.jpg
-      ls frames/
-      # Stash the resolved mode + frame count for the next step (env vars
-      # don't survive across Tekton steps, but workspace files do).
+      ls frames/ | wc -l | xargs -I{} echo "[extract-keyframes] extracted {} frame files"
+      # Stash the resolved mode + frame count + clip duration + step for the
+      # caption step (env vars don't survive across Tekton steps; workspace
+      # files do).
       printf '%s\n' "$MODE" > .vlm-mode
       printf '%s\n' "$FRAMES" > .vlm-frames
+      printf '%s\n' "$duration" > .clip-duration-sec
+      printf '%s\n' "$step" > .clip-frame-step-sec
 
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
@@ -142,23 +158,94 @@ spec:
       readOnly: true
     script: |
       #!/usr/bin/env python3
-      import base64, json, os, sys, glob, urllib.request, urllib.error, ssl
+      import base64, json, os, sys, glob, subprocess, urllib.request, urllib.error, ssl
 
       clip_id = "$(params.clip-id)"
       workspace = "$(workspaces.shared.path)"
       frames_dir = f"{workspace}/{clip_id}/frames"
       out_path  = f"{workspace}/{clip_id}/caption.json"
       mode_path = f"{workspace}/{clip_id}/.vlm-mode"
+      dur_path  = f"{workspace}/{clip_id}/.clip-duration-sec"
+      step_path = f"{workspace}/{clip_id}/.clip-frame-step-sec"
       try:
           mode = open(mode_path).read().strip()
       except FileNotFoundError:
           mode = "local"
+      try:
+          duration_sec = int(open(dur_path).read().strip())
+      except (FileNotFoundError, ValueError):
+          duration_sec = 0
+      try:
+          frame_step_sec = float(open(step_path).read().strip())
+      except (FileNotFoundError, ValueError):
+          frame_step_sec = 0.0
 
+      # ── Install Pillow at runtime (UBI9 python-311 has no PIL preinstalled) ─
+      # We use it to compute pixel-derived TRUSTED SIGNALS that the VLM cannot
+      # hallucinate: mean luminance for day/night classification, inter-frame
+      # motion score for hotspot detection. ~1s install; ~3MB wheel.
+      try:
+          from PIL import Image, ImageChops  # noqa
+      except ImportError:
+          subprocess.check_call(
+              [sys.executable, "-m", "pip", "install", "--quiet",
+               "--disable-pip-version-check", "Pillow"],
+          )
+          from PIL import Image, ImageChops
+
+      frame_paths = sorted(glob.glob(f"{frames_dir}/*.jpg"))
       images_b64 = []
-      for fp in sorted(glob.glob(f"{frames_dir}/*.jpg")):
+      for fp in frame_paths:
           with open(fp, "rb") as f:
               images_b64.append(base64.b64encode(f.read()).decode("ascii"))
-      print(f"[caption] mode={mode} frames={len(images_b64)}")
+      print(f"[caption] mode={mode} frames={len(images_b64)} duration={duration_sec}s step={frame_step_sec}s")
+
+      # ── TRUSTED SIGNALS pre-pass (lesson 17.36) ─────────────────────────────
+      # Compute what pixels actually say, so the VLM can't invent contradictory
+      # metadata like "daylight" over a night clip.
+      per_frame_luminance = []
+      motion_scores = []
+      prev_img = None
+      for fp in frame_paths:
+          img = Image.open(fp).convert("L")            # grayscale, 0–255
+          w, h = img.size
+          mean_lum = sum(img.getdata()) / (w * h)
+          per_frame_luminance.append(round(mean_lum, 1))
+          # Downscale for fast motion score
+          small = img.resize((160, 90))
+          if prev_img is not None:
+              diff = ImageChops.difference(small, prev_img)
+              motion_scores.append(round(sum(diff.getdata()) / (160 * 90), 2))
+          prev_img = small
+
+      avg_lum = sum(per_frame_luminance) / len(per_frame_luminance) if per_frame_luminance else 0
+      # Thresholds tuned on typical CCTV: <60 is clearly night (canopy lighting or
+      # dim streetlight); >130 is clearly day; in between = ambiguous / dusk.
+      if avg_lum < 60:
+          lighting_class = "NIGHT"
+      elif avg_lum > 130:
+          lighting_class = "DAY"
+      else:
+          lighting_class = "AMBIGUOUS"
+
+      # Top motion hotspots — the frames where visual change is most concentrated.
+      # These are where transient events (running, falling, weapon-drawing) live.
+      hotspot_ranked = sorted(enumerate(motion_scores), key=lambda x: -x[1])[:5]
+      hotspot_frames = sorted(idx + 2 for idx, _ in hotspot_ranked)   # +2: motion is diff between frame N-1 and N
+      hotspot_times  = sorted(round((idx - 1) * frame_step_sec, 1) for idx, _ in hotspot_ranked) if frame_step_sec else []
+
+      trusted_signals = {
+          "clip_duration_sec": duration_sec,
+          "frame_count": len(frame_paths),
+          "frame_step_sec": frame_step_sec,
+          "mean_luminance_0_255": round(avg_lum, 1),
+          "lighting_class": lighting_class,
+          "per_frame_luminance": per_frame_luminance,
+          "top_motion_hotspot_frames_1indexed": hotspot_frames,
+          "top_motion_hotspot_timestamps_sec": hotspot_times,
+      }
+      print(f"[caption] TRUSTED SIGNALS lighting={lighting_class} avg_lum={avg_lum:.1f} "
+            f"hotspots={hotspot_frames}")
 
       _ctx = ssl.create_default_context()
       _ctx.check_hostname = False
@@ -174,6 +261,39 @@ spec:
           "post-incident report for a homicide/robbery detective. The user is "
           "supplying you with chronologically ordered keyframes (frame_001 = clip "
           "start, each subsequent frame is evenly spaced through the clip duration).\n\n"
+
+          "════════════════════════════════════════════════════════════════════\n"
+          "TRUSTED SIGNALS PROTOCOL (highest-priority rule — read first):\n"
+          "The FIRST section of the USER message is `## TRUSTED SIGNALS` — a JSON "
+          "block containing metadata computed DIRECTLY FROM THE PIXEL DATA by a "
+          "separate pre-pass (not by any model). It includes clip duration, frame "
+          "count, mean luminance on a 0–255 scale, a lighting classification "
+          "(`NIGHT` / `AMBIGUOUS` / `DAY`), per-frame luminance array, and the "
+          "top-5 motion-hotspot frame indices + timestamps (frames where visual "
+          "change between adjacent samples is highest — these are the frames MOST "
+          "LIKELY to contain transient events such as running, falling, "
+          "weapon-drawing, or scuffles). Treat this block as GROUND TRUTH:\n\n"
+          "  - If the TRUSTED SIGNALS say `lighting_class: NIGHT`, your narration "
+          "    MUST describe the scene as night. Do NOT use words like 'daylight', "
+          "    'daytime', 'sunny afternoon', 'midday'. Say 'night', 'after dark', "
+          "    'canopy-lit', 'illuminated by station lights', etc. Luminance is "
+          "    computed from actual pixel values — it is not open to interpretation.\n"
+          "  - The motion-hotspot frames are where INCIDENTS most likely happen. "
+          "    LOOK AT THESE FRAMES CAREFULLY. If subjects are running, prone, "
+          "    arm-extended, falling, gathering around a downed person, or moving "
+          "    with unusual urgency in those frames, that is the incident window. "
+          "    Do not write 'no incident occurred' if a motion hotspot exists AND "
+          "    the visual evidence at that frame shows dynamic body postures.\n"
+          "  - `clip_duration_sec` is authoritative for your Timeline coverage. If "
+          "    your Timeline stops before duration_sec, you have MISSED the tail "
+          "    of the clip — go back and analyze the last frames.\n\n"
+          "If ANY claim in your prose contradicts the TRUSTED SIGNALS, you MUST "
+          "either (a) revise your claim to match the signals, or (b) add an "
+          "explicit `## Sanity Note` section at the top of the prose explaining "
+          "why you believe the signals are wrong (this is unusual and should be "
+          "rare — pixel-derived signals are more reliable than model interpretation).\n"
+          "════════════════════════════════════════════════════════════════════\n\n"
+
           "Think like a detective. You are not writing a caption — you are writing "
           "the FIRST-PASS INVESTIGATIVE READ that the case officer will use to open "
           "a lead file, request adjacent camera feeds, and brief the shift.\n\n"
@@ -363,16 +483,30 @@ spec:
       # The events array drives the Aurora pd_cctv.events table; the
       # entities array drives pd_cctv.entities; both feed downstream chat
       # context. claims[] is consumed by the persona service only.
+      #
+      # USER_TEXT now leads with a `## TRUSTED SIGNALS` JSON block that the
+      # SYSTEM PROMPT has trained the model to treat as ground truth. This is
+      # the defense against the day/night-hallucination class of failure —
+      # the model cannot invent lighting that contradicts computed luminance.
       USER_TEXT = (
+          "## TRUSTED SIGNALS (pixel-derived — DO NOT contradict)\n"
+          f"```json\n{json.dumps(trusted_signals, indent=2)}\n```\n\n"
           f"Clip {clip_id}. {len(images_b64)} keyframes follow in chronological order. "
-          "Produce the JSON-only narration as instructed."
+          f"Frame N is sampled at approximately (N-1) × {trusted_signals['frame_step_sec']}s "
+          f"into the clip. Clip runs from 0s to ~{trusted_signals['clip_duration_sec']}s — "
+          f"your Timeline section MUST cover the full duration.\n\n"
+          "The motion-hotspot frames above are where transient events are most "
+          "likely (running, falling, weapon-drawing, altercations). Look at those "
+          "frames with extra scrutiny — do NOT summarize them as 'routine' unless "
+          "you can defend that from the visual evidence.\n\n"
+          "Produce the JSON-only forensic narration as instructed by the SYSTEM prompt."
       )
 
       def _do_local_qwen():
           # OpenAI-compat chat-completion against in-cluster Qwen-VL.
           payload = {
               "model": os.environ["VLM_MODEL"],
-              "max_tokens": 2048,
+              "max_tokens": 4096,
               "temperature": 0.2,
               "messages": [
                   {"role": "system", "content": SYSTEM_PROMPT},
@@ -411,7 +545,12 @@ spec:
               })
           payload = {
               "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
-              "max_tokens": 4096,
+              # Bumped from 4096 → 16000 (lesson 17.36): the enhanced 8-section
+              # forensic prose + a Forensic Conclusion + Investigative Angles
+              # cannot fit under 4k tokens for a dense clip. Claude Sonnet 4.5
+              # supports up to 64k output tokens; 16k gives room for a full
+              # report while keeping cost predictable.
+              "max_tokens": 16000,
               "temperature": 0.2,
               "system": SYSTEM_PROMPT,
               "messages": [{"role": "user", "content": content}],
@@ -451,9 +590,85 @@ spec:
           print(f"[caption] HTTP {e.code}: {body}", file=sys.stderr)
           raise
 
+      # ── Post-response hallucination guard (lesson 17.36) ───────────────────
+      # The model was told the TRUSTED SIGNALS are ground truth. Verify: if
+      # lighting_class = NIGHT and the narration still contains day-terms,
+      # something's off. Either (a) the model contradicted the signals — we
+      # inject a SANITY WARNING that will appear in the persona UI + at the
+      # top of any Detective reply, and set a metadata flag routing the clip
+      # to human review; or (b) the model correctly used night-terms and the
+      # check is a no-op.
+      import re as _re
+      def _extract_prose(res):
+          try:
+              text = res["choices"][0]["message"]["content"]
+              # Try structured JSON first
+              m = _re.search(r"\{[\s\S]*\}", text)
+              if m:
+                  parsed = json.loads(m.group(0))
+                  return parsed, text
+          except Exception:
+              pass
+          return None, text if isinstance(text, str) else ""
+
+      parsed, raw_text = _extract_prose(result)
+      prose = ""
+      if isinstance(parsed, dict):
+          prose = (parsed.get("prose") or "").lower()
+      elif isinstance(raw_text, str):
+          prose = raw_text.lower()
+
+      day_terms   = ["daylight", "daytime", "midday", "sunny afternoon", "broad daylight", "sunny day"]
+      night_terms = ["night", "after dark", "canopy light", "canopy-lit", "streetlight",
+                     "illuminated by", "dark scene", "evening", "dusk"]
+      claims_day   = any(t in prose for t in day_terms)
+      claims_night = any(t in prose for t in night_terms)
+
+      sanity_flags = []
+      if lighting_class == "NIGHT" and claims_day and not claims_night:
+          sanity_flags.append(
+              f"Model claimed daytime lighting while pixel-derived luminance "
+              f"({avg_lum:.1f}/255) indicates NIGHT — probable narrative hallucination."
+          )
+      if lighting_class == "DAY" and claims_night and not claims_day:
+          sanity_flags.append(
+              f"Model claimed night lighting while pixel-derived luminance "
+              f"({avg_lum:.1f}/255) indicates DAY — check narrative."
+          )
+      # Timeline-coverage check: does the model's Timeline reach at least 80%
+      # of clip duration? Look for the maximum `<n>s` reference in the prose.
+      if duration_sec > 10:
+          timestamps = [float(m.group(1)) for m in _re.finditer(r"(\d+(?:\.\d+)?)\s*s\b", prose)]
+          max_ts = max(timestamps) if timestamps else 0
+          if max_ts < 0.8 * duration_sec:
+              sanity_flags.append(
+                  f"Timeline max timestamp is {max_ts:.1f}s but clip runs to "
+                  f"{duration_sec}s — model may have missed the tail "
+                  f"(where transient events often live)."
+              )
+
+      if sanity_flags and isinstance(parsed, dict):
+          warning_md = (
+              "> ⚠ **SANITY WARNING — human review recommended**  \n"
+              + "\n".join(f"> • {f}" for f in sanity_flags)
+              + "\n\n"
+          )
+          parsed["prose"] = warning_md + (parsed.get("prose") or "")
+          parsed["_sanity_flags"] = sanity_flags
+          parsed["_trusted_signals"] = trusted_signals
+          # Re-wrap the corrected JSON back into the OpenAI shape so
+          # structure-and-write picks up the annotated prose.
+          result["choices"][0]["message"]["content"] = json.dumps(parsed)
+          print(f"[caption] SANITY FLAGS raised: {sanity_flags}", file=sys.stderr)
+      elif isinstance(parsed, dict):
+          # No flags — still attach the trusted signals so persona can reference
+          parsed["_trusted_signals"] = trusted_signals
+          result["choices"][0]["message"]["content"] = json.dumps(parsed)
+
       with open(out_path, "w") as f:
           json.dump(result, f)
-      print(f"[caption] wrote {out_path} ({os.path.getsize(out_path)} bytes)")
+      print(f"[caption] wrote {out_path} ({os.path.getsize(out_path)} bytes) "
+            f"lighting={lighting_class} flags={len(sanity_flags)}")
     computeResources:
       requests:
         cpu: "100m"

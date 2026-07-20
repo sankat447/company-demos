@@ -280,9 +280,9 @@
         <p>or click to choose a file</p>
         <span class="hint">Up to 300 MB &middot; pushed to S3 &middot; perception pipeline auto-triggers</span>
       </label>
-      <label class="deep-toggle" title="Sends 16 high-resolution keyframes to Anthropic Claude at ingest time only. Frames never re-leave the cluster on chat.">
-        <input type="checkbox" id="deep-analysis">
-        <span>Deep analysis for this clip <em>(claude multimodal — overrides default, ~$0.15)</em></span>
+      <label class="deep-toggle" title="Sends 16 high-resolution keyframes to Anthropic Claude at ingest time only. Frames never re-leave the cluster on chat. Recommended ON for forensic depth (Modus Operandi, Weapons, Body Language, Forensic Conclusion).">
+        <input type="checkbox" id="deep-analysis" checked>
+        <span>Deep analysis for this clip <em>(claude multimodal — recommended, ~$0.15)</em></span>
       </label>
       <div id="upload-info" class="upload-info"></div>
     </div>
@@ -371,9 +371,11 @@ async function loadVlmMode() {
   try {
     const r = await fetch("/api/vlm-mode"); const d = await r.json();
     $("#vlm-mode").value = d.mode;
-    // Sync the deep-analysis checkbox: if default is already claude-multimodal,
-    // pre-tick it so users don't have to click both.
-    $("#deep-analysis").checked = (d.mode === "claude-multimodal");
+    // The checkbox now defaults to CHECKED at page load (HTML `checked` attr)
+    // — Deep Analysis is the recommended forensic mode. We deliberately no
+    // longer un-tick it based on cluster mode; the checkbox is a per-upload
+    // override the operator explicitly opts OUT of if they want the cheaper
+    // local pipeline for a specific clip.
   } catch (e) { /* tolerate startup race */ }
 }
 $("#vlm-mode").addEventListener("change", async (e) => {
@@ -384,7 +386,9 @@ $("#vlm-mode").addEventListener("change", async (e) => {
   if (r.ok) {
     const d = await r.json();
     toast(`Ingest VLM mode set to ${d.mode}. New uploads use this default.`, true);
-    $("#deep-analysis").checked = (d.mode === "claude-multimodal");
+    // Do NOT auto-uncheck Deep Analysis when the operator switches the
+    // cluster-wide dropdown — the two settings are independent. The checkbox
+    // stays as the operator last set it (or ticked, if untouched).
   } else {
     const e2 = await r.json().catch(() => ({}));
     toast(`VLM mode change failed: ${e2.detail || r.status}`);
