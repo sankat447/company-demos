@@ -101,37 +101,84 @@ spec:
       # (well under Sonnet's ~100-image-per-request ceiling; keeps a single
       # request under ~100k input tokens). For local Qwen-VL: keep the
       # vLLM-imposed 4-frame limit as before.
+      # ── Chunked-window sampling (lesson 17.37) ────────────────────────────
+      # The previous forensic-dynamic sampling (uniform density, floor 24 cap
+      # 60) still produced flat streams — Claude gets N unlabelled images and
+      # treats them as a single averaged picture. An incident spanning 5-7
+      # frames at frames #24-30 gets averaged into the rest.
+      #
+      # New: split the clip into K time windows and label each frame with its
+      # window index in the filename. Caption step will inject per-window
+      # boundaries into the Claude message so the model MUST analyze each
+      # window separately (no more flat-averaging away transient events).
+      # Guarantees per-window density even for long clips.
+      #
+      #   K windows        = clamp(round(duration/25), 3, 6)
+      #   frames_per_win   = clamp(floor(60/K), 10, 20)  ← total ≤ 60
+      #   res              = 1600w   (was 1280; better far-field detail —
+      #                                cost per image goes from ~1600 to
+      #                                ~2600 input tokens, ~2× per-frame)
+      #   quality          = q:v 1   (ffmpeg mjpeg's highest; was q:v 2)
+      RES_FORENSIC=1600
+      JPEG_FORENSIC=1
+
       if [ -n "$F_OVERRIDE" ]; then
-        # Explicit param override wins over everything
+        # Explicit override → single-window uniform (backward compat)
         FRAMES="$F_OVERRIDE"
         step=$(awk -v d=$duration -v n=$FRAMES 'BEGIN{s=d/n; if(s<0.1)s=0.1; printf "%.3f", s}')
-        echo "[extract-keyframes] mode=$MODE · explicit override: FRAMES=${FRAMES} · step=${step}s"
+        echo "[extract-keyframes] mode=$MODE · explicit override: FRAMES=${FRAMES} · step=${step}s · single window"
+        ffmpeg -hide_banner -loglevel error -i clip.mp4 \
+               -vf "fps=1/${step},scale=${RES_CM}:-1" \
+               -frames:v "$FRAMES" \
+               -q:v "$JPEG_CM" \
+               frames/window1_%03d.jpg
+        printf '1\n' > .num-windows
+        printf '%s\n' "$duration" > .window-durations
       elif [ "$MODE" = "claude-multimodal" ]; then
-        # Dynamic — 1 frame per ~2.5s, floor 24, ceiling 60
-        FRAMES=$(awk -v d=$duration 'BEGIN{n=int(d/2.5+0.5); if(n<24)n=24; if(n>60)n=60; print n}')
-        step=$(awk -v d=$duration -v n=$FRAMES 'BEGIN{s=d/n; if(s<0.1)s=0.1; printf "%.3f", s}')
-        echo "[extract-keyframes] mode=claude-multimodal · forensic dynamic: dur=${duration}s → ${FRAMES} frames · step=${step}s (~1 frame per ${step}s)"
+        # Chunked-window forensic sampling
+        K=$(awk -v d=$duration 'BEGIN{k=int(d/25+0.5); if(k<3)k=3; if(k>6)k=6; print k}')
+        FPW=$(awk -v k=$K 'BEGIN{n=int(60/k); if(n<10)n=10; if(n>20)n=20; print n}')
+        WIN_DUR=$(awk -v d=$duration -v k=$K 'BEGIN{printf "%.3f", d/k}')
+        STEP=$(awk -v w=$WIN_DUR -v n=$FPW 'BEGIN{s=w/n; if(s<0.1)s=0.1; printf "%.3f", s}')
+        FRAMES=$(( K * FPW ))
+        echo "[extract-keyframes] mode=claude-multimodal · chunked-window forensic:"
+        echo "  dur=${duration}s → K=${K} windows · window_duration=${WIN_DUR}s · frames_per_window=${FPW} · total=${FRAMES} · step_within=${STEP}s"
+        echo "  res=${RES_FORENSIC} jpeg_q=${JPEG_FORENSIC} (bumped from ${RES_CM}/${JPEG_CM} for far-field detail)"
+
+        for i in $(seq 1 $K); do
+          START=$(awk -v i=$i -v w=$WIN_DUR 'BEGIN{printf "%.3f", (i-1)*w}')
+          # ffmpeg's -ss BEFORE -i is fast (keyframe seek). Extract FPW frames
+          # from within [START, START+WIN_DUR].
+          ffmpeg -hide_banner -loglevel error \
+                 -ss "$START" -t "$WIN_DUR" -i clip.mp4 \
+                 -vf "fps=1/${STEP},scale=${RES_FORENSIC}:-1" \
+                 -frames:v "$FPW" \
+                 -q:v "$JPEG_FORENSIC" \
+                 "frames/window${i}_%03d.jpg"
+        done
+        printf '%s\n' "$K" > .num-windows
+        printf '%s\n' "$WIN_DUR" > .window-durations
       else
-        # local mode — Qwen-VL has --limit-mm-per-prompt=4
+        # local mode — Qwen-VL has --limit-mm-per-prompt=4; single-window
         FRAMES="$F_CM"
         [ "$FRAMES" -gt 4 ] 2>/dev/null && FRAMES=4
         step=$(( duration / FRAMES ))
         [ "$step" -lt 1 ] && step=1
         echo "[extract-keyframes] mode=local · frames=${FRAMES} (vLLM cap) · dur=${duration}s · step=${step}s"
+        ffmpeg -hide_banner -loglevel error -i clip.mp4 \
+               -vf "fps=1/${step},scale=${RES_CM}:-1" \
+               -frames:v "$FRAMES" \
+               -q:v "$JPEG_CM" \
+               frames/window1_%03d.jpg
+        printf '1\n' > .num-windows
+        printf '%s\n' "$duration" > .window-durations
       fi
-      echo "[extract-keyframes] res=${RES_CM} jpeg_q=${JPEG_CM}"
 
-      ffmpeg -hide_banner -loglevel error -i clip.mp4 \
-             -vf "fps=1/${step},scale=${RES_CM}:-1" \
-             -frames:v "$FRAMES" \
-             -q:v "$JPEG_CM" \
-             frames/frame_%03d.jpg
-      ls frames/ | wc -l | xargs -I{} echo "[extract-keyframes] extracted {} frame files"
-      # Stash the resolved mode + frame count + clip duration + step for the
-      # caption step (env vars don't survive across Tekton steps; workspace
-      # files do).
+      TOTAL=$(ls frames/ 2>/dev/null | wc -l | tr -d ' ')
+      echo "[extract-keyframes] extracted ${TOTAL} frame files across $(cat .num-windows) window(s)"
+      # Stash the resolved mode + frame count + clip duration for the caption step
       printf '%s\n' "$MODE" > .vlm-mode
-      printf '%s\n' "$FRAMES" > .vlm-frames
+      printf '%s\n' "$TOTAL" > .vlm-frames
       printf '%s\n' "$duration" > .clip-duration-sec
       printf '%s\n' "$step" > .clip-frame-step-sec
 
@@ -193,12 +240,52 @@ spec:
           )
           from PIL import Image, ImageChops
 
-      frame_paths = sorted(glob.glob(f"{frames_dir}/*.jpg"))
-      images_b64 = []
+      # Read the window count from extract-keyframes step
+      try:
+          num_windows = int(open(f"{workspace}/{clip_id}/.num-windows").read().strip())
+      except (FileNotFoundError, ValueError):
+          num_windows = 1
+      try:
+          window_duration_sec = float(open(f"{workspace}/{clip_id}/.window-durations").read().strip())
+      except (FileNotFoundError, ValueError):
+          window_duration_sec = float(duration_sec) if num_windows == 1 else float(duration_sec) / max(num_windows, 1)
+
+      # Group frames by their window (filename convention: windowN_MMM.jpg)
+      # Order: window1_001, window1_002, …, window2_001, …
+      import re as _re_fname
+      frame_paths = sorted(glob.glob(f"{frames_dir}/window*_*.jpg"))
+      # Fallback for backward-compat (old fname convention frame_MMM.jpg)
+      if not frame_paths:
+          frame_paths = sorted(glob.glob(f"{frames_dir}/*.jpg"))
+      windowed_frames = {}  # {window_index: [(within_win_idx, filepath), ...]}
       for fp in frame_paths:
-          with open(fp, "rb") as f:
-              images_b64.append(base64.b64encode(f.read()).decode("ascii"))
-      print(f"[caption] mode={mode} frames={len(images_b64)} duration={duration_sec}s step={frame_step_sec}s")
+          name = os.path.basename(fp)
+          m = _re_fname.match(r"window(\d+)_(\d+)\.jpg", name)
+          if m:
+              w_idx, w_pos = int(m.group(1)), int(m.group(2))
+          else:
+              w_idx, w_pos = 1, len(windowed_frames.get(1, [])) + 1
+          windowed_frames.setdefault(w_idx, []).append((w_pos, fp))
+      for w in windowed_frames:
+          windowed_frames[w].sort()
+
+      # Build flat ordered list + parallel per-frame metadata
+      frame_meta = []
+      images_b64 = []
+      for w_idx in sorted(windowed_frames.keys()):
+          fpw = len(windowed_frames[w_idx])
+          win_start_sec = (w_idx - 1) * window_duration_sec
+          step_in_win = window_duration_sec / fpw if fpw else 0
+          for pos, (w_pos, fp) in enumerate(windowed_frames[w_idx]):
+              t_sec = round(win_start_sec + (w_pos - 1) * step_in_win, 2)
+              with open(fp, "rb") as f:
+                  images_b64.append(base64.b64encode(f.read()).decode("ascii"))
+              frame_meta.append({"window": w_idx, "within_window_idx": w_pos,
+                                 "clip_time_sec": t_sec, "path": fp})
+      frame_paths = [m["path"] for m in frame_meta]
+
+      print(f"[caption] mode={mode} frames={len(images_b64)} in {num_windows} window(s) · "
+            f"duration={duration_sec}s window_dur={window_duration_sec:.1f}s")
 
       # ── TRUSTED SIGNALS pre-pass (lesson 17.36) ─────────────────────────────
       # Compute what pixels actually say, so the VLM can't invent contradictory
@@ -234,15 +321,26 @@ spec:
       hotspot_frames = sorted(idx + 2 for idx, _ in hotspot_ranked)   # +2: motion is diff between frame N-1 and N
       hotspot_times  = sorted(round((idx - 1) * frame_step_sec, 1) for idx, _ in hotspot_ranked) if frame_step_sec else []
 
+      # Per-window summary — Claude uses these to know each window's time span
+      windows_meta = []
+      for w_idx in sorted(windowed_frames.keys()):
+          fpw = len(windowed_frames[w_idx])
+          w_start = round((w_idx - 1) * window_duration_sec, 2)
+          w_end   = round(w_idx * window_duration_sec, 2) if w_idx < num_windows else duration_sec
+          windows_meta.append({"window": w_idx, "start_sec": w_start,
+                               "end_sec": w_end, "frame_count": fpw})
+
       trusted_signals = {
           "clip_duration_sec": duration_sec,
           "frame_count": len(frame_paths),
-          "frame_step_sec": frame_step_sec,
+          "num_windows": num_windows,
+          "window_duration_sec": round(window_duration_sec, 2),
           "mean_luminance_0_255": round(avg_lum, 1),
           "lighting_class": lighting_class,
           "per_frame_luminance": per_frame_luminance,
           "top_motion_hotspot_frames_1indexed": hotspot_frames,
           "top_motion_hotspot_timestamps_sec": hotspot_times,
+          "windows": windows_meta,
       }
       print(f"[caption] TRUSTED SIGNALS lighting={lighting_class} avg_lum={avg_lum:.1f} "
             f"hotspots={hotspot_frames}")
@@ -286,7 +384,33 @@ spec:
           "    the visual evidence at that frame shows dynamic body postures.\n"
           "  - `clip_duration_sec` is authoritative for your Timeline coverage. If "
           "    your Timeline stops before duration_sec, you have MISSED the tail "
-          "    of the clip — go back and analyze the last frames.\n\n"
+          "    of the clip — go back and analyze the last frames.\n"
+          "  - `num_windows` + `windows[]` describe how the frames are grouped. "
+          "    The frames arrive AS SEPARATE WINDOWS with text boundary markers "
+          "    between them. YOU MUST TREAT EACH WINDOW AS ITS OWN SCENE and "
+          "    describe what happens WITHIN THAT WINDOW before synthesizing the "
+          "    master narrative. A per-window analysis is what prevents transient "
+          "    events from being averaged away across the whole clip.\n\n"
+
+          "WINDOW ANALYSIS PROTOCOL:\n"
+          "For each window, before writing your master JSON, silently walk through "
+          "these five questions:\n"
+          "  1. Lighting/setting (must match lighting_class from TRUSTED SIGNALS)\n"
+          "  2. Person positions + body postures — where is each subject, what is "
+          "     their stance (standing / crouched / prone / running / mid-stride)\n"
+          "  3. Is anyone RUNNING (not walking), HIDING (behind cover / prone / "
+          "     ducked into doorway or bushes), JUMPING (over car / fence), "
+          "     FALLING, POINTING (arm extended horizontally toward another "
+          "     subject — classic firing/aiming posture), FIGHTING, SCRAMBLING "
+          "     low across the ground, or otherwise in a NON-AMBULATORY posture?\n"
+          "  4. Are there NEW OBJECTS on the ground (bodies, weapons, dropped "
+          "     items, debris) that were not present in the previous window?\n"
+          "  5. What CHANGED between this window and the previous window?\n"
+          "If any answer to 3/4/5 is a YES-with-frame-evidence, that IS the "
+          "incident window. It MUST surface in the master Timeline, Modus "
+          "Operandi, Behavioral Patterns, and Forensic Conclusion sections. "
+          "You are FORBIDDEN from writing 'no incident occurred' or 'routine "
+          "traffic' if any window shows any of these signatures.\n\n"
           "If ANY claim in your prose contradicts the TRUSTED SIGNALS, you MUST "
           "either (a) revise your claim to match the signals, or (b) add an "
           "explicit `## Sanity Note` section at the top of the prose explaining "
@@ -491,14 +615,27 @@ spec:
       USER_TEXT = (
           "## TRUSTED SIGNALS (pixel-derived — DO NOT contradict)\n"
           f"```json\n{json.dumps(trusted_signals, indent=2)}\n```\n\n"
-          f"Clip {clip_id}. {len(images_b64)} keyframes follow in chronological order. "
-          f"Frame N is sampled at approximately (N-1) × {trusted_signals['frame_step_sec']}s "
-          f"into the clip. Clip runs from 0s to ~{trusted_signals['clip_duration_sec']}s — "
-          f"your Timeline section MUST cover the full duration.\n\n"
-          "The motion-hotspot frames above are where transient events are most "
-          "likely (running, falling, weapon-drawing, altercations). Look at those "
-          "frames with extra scrutiny — do NOT summarize them as 'routine' unless "
-          "you can defend that from the visual evidence.\n\n"
+          f"Clip {clip_id} · duration {trusted_signals['clip_duration_sec']}s · "
+          f"split into {num_windows} time-windows.\n\n"
+          "The images below are **grouped by window**. Between each window you "
+          "will see a text label like `── Window N (start–end sec) ──` marking "
+          "the boundary. Each window contains a chunk of frames evenly sampled "
+          "across that time slice. Do NOT flatten these into one averaged "
+          "picture — analyze EACH WINDOW SEPARATELY as its own scene, then "
+          "synthesize the full-clip narrative from your per-window observations.\n\n"
+          "For each window, before you write anything else, silently ask:\n"
+          "  1. What is the lighting / setting? (must match TRUSTED SIGNALS lighting_class)\n"
+          "  2. Who is present? Where are they positioned? What are their body postures?\n"
+          "  3. Is anyone RUNNING, HIDING, JUMPING, PRONE, FALLING, CROUCHING, POINTING, FIGHTING,\n"
+          "     or otherwise in a non-ambulatory posture? If yes: what and when.\n"
+          "  4. Are there objects on the ground (weapons, bodies, debris) that weren't there before?\n"
+          "  5. What CHANGED between this window and the previous one?\n"
+          "If your answer to any of 3/4/5 is 'yes' → the incident lives in that window and MUST "
+          "surface as a top-priority event in your Timeline + Modus Operandi + Forensic Conclusion. "
+          "You are NOT permitted to conclude 'no incident occurred' or 'routine traffic' if ANY window "
+          "shows a person on the ground, an arm extended in a firing/pointing posture, running that "
+          "isn't jogging, or someone scrambling low. That's the exact failure class we're guarding "
+          "against.\n\n"
           "Produce the JSON-only forensic narration as instructed by the SYSTEM prompt."
       )
 
@@ -535,14 +672,40 @@ spec:
           if not api_key:
               raise RuntimeError("claude-multimodal mode requires "
                                  "ANTHROPIC_API_KEY (Secret pd-anthropic-key)")
+          # Interleave per-window text labels between the image groups so the
+          # model MUST analyze each window as its own scene (lesson 17.37).
           content = [{"type": "text", "text": USER_TEXT}]
-          for b in images_b64:
+          current_win = None
+          for meta, b in zip(frame_meta, images_b64):
+              if meta["window"] != current_win:
+                  # Emit a boundary marker before starting a new window
+                  w = meta["window"]
+                  w_meta = next((wm for wm in windows_meta if wm["window"] == w), None)
+                  if w_meta:
+                      label = (f"\n\n── **Window {w} of {num_windows}** · "
+                               f"clip time {w_meta['start_sec']:.1f}s to "
+                               f"{w_meta['end_sec']:.1f}s · "
+                               f"{w_meta['frame_count']} frames follow ──\n")
+                  else:
+                      label = f"\n\n── Window {w} of {num_windows} ──\n"
+                  content.append({"type": "text", "text": label})
+                  current_win = meta["window"]
               content.append({
                   "type": "image",
                   "source": {"type": "base64",
                              "media_type": "image/jpeg",
                              "data": b},
               })
+          # Final instruction after the last image so Claude re-reads the ask
+          content.append({
+              "type": "text",
+              "text": ("\n\n── End of windows ──\n\n"
+                       "Now produce the JSON-only forensic narration. Remember: "
+                       "analyze each window separately, then synthesize the master "
+                       "narrative. If ANY window shows a person prone/fallen, arm "
+                       "extended in firing posture, running-not-jogging, or scrambling "
+                       "low, that IS the incident — surface it prominently.")
+          })
           payload = {
               "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
               # Bumped from 4096 → 16000 (lesson 17.36): the enhanced 8-section
