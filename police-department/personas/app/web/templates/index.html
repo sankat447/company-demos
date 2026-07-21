@@ -1093,47 +1093,103 @@ async function sendMessage() {
   log.appendChild(thinking);
   log.scrollTop = log.scrollHeight;
 
+  // Prepare the persona reply bubble up-front — we'll stream tokens into it
+  const reply = document.createElement("div");
+  reply.className = "msg";
+  const replyBody = document.createElement("div");
+  replyBody.className = "body streaming";
+  replyBody.style.whiteSpace = "pre-wrap";     // preserve markdown line breaks during stream
+  reply.innerHTML = `<div class="who ${persona}">${persona}</div>`;
+  reply.appendChild(replyBody);
+  const claimsHolder = document.createElement("div");
+  claimsHolder.className = "claims";
+  reply.appendChild(claimsHolder);
+  thinking.remove();
+  log.appendChild(reply);
+  log.scrollTop = log.scrollHeight;
+
   try {
-    const r = await fetch(`/chat/${persona}`, {
+    const r = await fetch(`/chat/${persona}/stream`, {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({q: q, clip_id: activeClip, k: 6}),
     });
-    if (!r.ok) {
-      const e = await r.text();
-      thinking.querySelector(".body").textContent = `error: ${r.status} ${e.slice(0, 200)}`;
+    if (!r.ok || !r.body) {
+      const e = await r.text().catch(() => "");
+      replyBody.textContent = `error: ${r.status} ${e.slice(0, 200)}`;
       return;
     }
-    const d = await r.json();
-    thinking.remove();
-    // Append the persona response to local history (also persisted by API)
-    const reply = document.createElement("div");
-    reply.className = "msg";
-    let claimsHtml = "";
-    if (d.claims && d.claims.length) {
-      claimsHtml = '<div class="claims"><strong>Claims:</strong><ul>';
-      for (const c of d.claims) {
+    // ── Parse SSE stream ────────────────────────────────────────────
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buf = "", streamText = "", finalData = null;
+    // Detect if the model is emitting JSON (starts with `{`) — if so, we'll
+    // suppress the raw JSON glyphs during streaming and render prose only at
+    // done. For prose-first responses, we show tokens live.
+    const startsAsJson = () => streamText.trimStart().startsWith("{");
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      // SSE events separated by blank lines
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let evt = "message", data = "";
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event: ")) evt = line.slice(7).trim();
+          else if (line.startsWith("data: ")) data += line.slice(6);
+        }
+        if (!data) continue;
+        let parsed = null;
+        try { parsed = JSON.parse(data); } catch (_) { /* ignore malformed */ }
+        if (!parsed) continue;
+        if (evt === "token" && typeof parsed.delta === "string") {
+          streamText += parsed.delta;
+          if (!startsAsJson()) {
+            // Prose response — render live
+            replyBody.textContent = streamText;
+            log.scrollTop = log.scrollHeight;
+          } else {
+            // JSON response — show a compact typing indicator instead of raw JSON
+            replyBody.textContent = "…drafting (" + streamText.length + " chars)";
+          }
+        } else if (evt === "done") {
+          finalData = parsed;
+        } else if (evt === "error") {
+          replyBody.textContent = `error: ${parsed.message || "unknown"}`;
+          return;
+        }
+      }
+    }
+    // ── Render final parsed response ────────────────────────────────
+    replyBody.classList.remove("streaming");
+    replyBody.style.whiteSpace = "";
+    const prose = (finalData && finalData.prose) || streamText;
+    const claims = (finalData && finalData.claims) || [];
+    const dlBtn = `<button class="dl-btn" title="Download as plain text">${DL_ICON}</button>`;
+    replyBody.innerHTML = `${dlBtn}${renderRichText(prose)}`;
+    if (claims.length) {
+      let claimsHtml = '<strong>Claims:</strong><ul>';
+      for (const c of claims) {
         claimsHtml += `<li>${escapeHtml(c.text)} <code>${(c.frame_refs || []).join(" ")}</code></li>`;
       }
-      claimsHtml += "</ul></div>";
+      claimsHtml += "</ul>";
+      claimsHolder.innerHTML = claimsHtml;
+    } else {
+      claimsHolder.remove();
     }
-    const dlBtn = `<button class="dl-btn" title="Download as plain text">${DL_ICON}</button>`;
-    reply.innerHTML = `<div class="who ${persona}">${persona}</div>` +
-                      `<div class="body">${dlBtn}${renderRichText(d.prose)}</div>${claimsHtml}`;
-    // Bind programmatically — same reason as in renderChatLog.
     {
-      const btn = reply.querySelector(".dl-btn");
+      const btn = replyBody.querySelector(".dl-btn");
       if (btn) btn.addEventListener("click",
-        () => downloadResponse(persona, activeClip || "", d.prose || "", d.claims || []));
+        () => downloadResponse(persona, activeClip || "", prose, claims));
     }
-    log.appendChild(reply);
     log.scrollTop = log.scrollHeight;
 
-    // Persist to server-side history (best effort)
-    fetch(`/api/chat/history/${activeClip}`, {  // GET refreshes from server
-      method: "GET",
-    }).catch(() => {});
+    // Refresh server-side history (best effort — server already appended)
+    fetch(`/api/chat/history/${activeClip}`).catch(() => {});
   } catch (err) {
-    thinking.querySelector(".body").textContent = `error: ${err}`;
+    replyBody.textContent = `error: ${err}`;
   } finally {
     $("#send").disabled = false; $("#q").focus();
   }

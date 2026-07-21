@@ -199,3 +199,74 @@ def call_llm_as_persona(persona: str, req: ChatRequest) -> PersonaResponse:
         log.warning("real LLM call failed (mode=%s, model=%s, provider=%s): %s — falling back to mock",
                     m, model, provider, e)
         return _mock_call(persona, req)
+
+
+def stream_llm_as_persona(persona: str, req: ChatRequest):
+    """Streaming counterpart to call_llm_as_persona.
+
+    Yields ("token", "<delta>") events during generation, then a single
+    ("response", PersonaResponse) event when the stream completes. For
+    modes that don't support streaming (mock, local-Llama-via-Portkey),
+    falls back to a one-shot call: yields ONE big token event with the
+    full text, then the response.
+    """
+    from app.tools import anthropic_llm
+    m = mode.current()
+    log.info("persona=%s mode=%s (streaming) clip_id=%s", persona, m, req.clip_id)
+
+    # For non-claude modes, degrade gracefully to one-shot then emit a single token event
+    if m != "claude":
+        response = call_llm_as_persona(persona, req)
+        if response.prose:
+            yield ("token", response.prose)
+        yield ("response", response)
+        return
+
+    # Build the same system + user text as the non-streaming path
+    hits, expansion = hybrid_retrieve(req)
+    clip_ctx = clip_context.load(req.clip_id) if req.clip_id else None
+    system = load_prompt(persona)
+    user = (
+        f"OPERATOR QUESTION:\n{req.q}\n\n"
+        f"CONTEXT:\n{render_context(hits, expansion, clip_ctx)}\n\n"
+        "Respond as JSON: {prose, claims:[{text,confidence,frame_refs}]}"
+    )
+
+    try:
+        full_text = ""
+        for evt_type, payload in anthropic_llm.chat_stream(
+                system, user, temperature=0.2,
+                model=_MODELS.get("claude")):
+            if evt_type == "token":
+                full_text += payload
+                yield ("token", payload)
+            elif evt_type == "done":
+                full_text = payload["full_text"]
+        # Parse the full JSON out of the streamed text
+        try:
+            first, last = full_text.find("{"), full_text.rfind("}")
+            parsed = json.loads(full_text[first:last + 1]) if first >= 0 else {"prose": full_text}
+        except Exception:
+            parsed = {"prose": full_text, "claims": []}
+        claims = [Claim(**c) for c in parsed.get("claims", []) if isinstance(c, dict)]
+        provenance = Provenance(
+            clip_ids=list({h["clip_id"] for h in hits}),
+            narration_ids=[h["narration_id"] for h in hits],
+        )
+        evidence_clip = req.clip_id or (hits[0]["clip_id"] if hits else None)
+        response = PersonaResponse(
+            persona=persona,
+            prose=(parsed.get("prose") or "").strip()
+                  or "(model returned no prose; see raw)",
+            claims=claims,
+            provenance=provenance,
+            evidence_clip_id=evidence_clip,
+            raw=parsed,
+        )
+        yield ("response", response)
+    except Exception as e:
+        log.warning("streaming LLM call failed (mode=%s): %s — falling back to mock", m, e)
+        response = _mock_call(persona, req)
+        if response.prose:
+            yield ("token", response.prose)
+        yield ("response", response)
