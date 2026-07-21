@@ -180,7 +180,12 @@ spec:
       printf '%s\n' "$MODE" > .vlm-mode
       printf '%s\n' "$TOTAL" > .vlm-frames
       printf '%s\n' "$duration" > .clip-duration-sec
-      printf '%s\n' "$step" > .clip-frame-step-sec
+      # `step` is set only in the single-window branches; the chunked-window
+      # branch uses `STEP` (per-window step). Fall back so `set -eu` doesn't
+      # abort. The caption step no longer relies on this file — it computes
+      # per-frame timestamps from num_windows × window_duration_sec instead —
+      # so writing an approximate value here is only for backward-compat logs.
+      printf '%s\n' "${step:-${STEP:-0}}" > .clip-frame-step-sec
 
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
