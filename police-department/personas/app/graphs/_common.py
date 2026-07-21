@@ -242,12 +242,28 @@ def stream_llm_as_persona(persona: str, req: ChatRequest):
                 yield ("token", payload)
             elif evt_type == "done":
                 full_text = payload["full_text"]
-        # Parse the full JSON out of the streamed text
+        # Parse the full JSON out of the streamed text. The model often
+        # wraps the response in a ```json fence — strip that first, then
+        # fall back to slicing between the outermost braces.
+        txt = full_text.strip()
+        if txt.startswith("```"):
+            nl = txt.find("\n")
+            if nl != -1:
+                txt = txt[nl + 1:]
+            if txt.rstrip().endswith("```"):
+                txt = txt.rstrip()[:-3]
+            txt = txt.strip()
         try:
-            first, last = full_text.find("{"), full_text.rfind("}")
-            parsed = json.loads(full_text[first:last + 1]) if first >= 0 else {"prose": full_text}
+            parsed = json.loads(txt)
         except Exception:
-            parsed = {"prose": full_text, "claims": []}
+            first, last = txt.find("{"), txt.rfind("}")
+            if first != -1 and last > first:
+                try:
+                    parsed = json.loads(txt[first:last + 1])
+                except Exception:
+                    parsed = {"prose": full_text, "claims": []}
+            else:
+                parsed = {"prose": full_text, "claims": []}
         claims = [Claim(**c) for c in parsed.get("claims", []) if isinstance(c, dict)]
         provenance = Provenance(
             clip_ids=list({h["clip_id"] for h in hits}),
