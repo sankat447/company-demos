@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,35 @@ _MODELS = {
 
 def load_prompt(persona: str) -> str:
     return (_PROMPTS_DIR / f"{persona}.md").read_text(encoding="utf-8")
+
+
+# The 5 persona system prompts each end with a hardcoded "Output format
+# (JSON ...)" section that pins the model to a `{prose, claims}` JSON
+# shape. The non-streaming /chat endpoint parses that JSON. The streaming
+# endpoint needs Markdown — a JSON wrapper defeats streaming because the
+# frontend can't render partial JSON as text, and inner JSON blocks leak
+# into the visible prose. This helper rewrites the system prompt in-flight
+# so the streaming path gets Markdown without editing the disk prompts.
+_JSON_BLOCK_RE = re.compile(
+    r"(\*\*)?Output format[^\n]*\n```(?:json)?\n[\s\S]*?```",
+    re.MULTILINE,
+)
+_MARKDOWN_OVERRIDE = (
+    "**Output format: pure Markdown prose.** Use `##` headings, bullets, "
+    "**bold**, and Markdown tables where they help. Do NOT wrap the "
+    "response in a JSON object. Do NOT put a ```json code fence around "
+    "the whole response. Do NOT include a 'claims' array or any other "
+    "structured JSON payload — the streaming chat client renders your "
+    "response as Markdown directly, so any JSON you output will appear "
+    "to the operator as raw JSON text and is a bug."
+)
+
+
+def to_markdown_system(system: str) -> str:
+    if _JSON_BLOCK_RE.search(system):
+        return _JSON_BLOCK_RE.sub(_MARKDOWN_OVERRIDE, system, count=1)
+    # No JSON block found — append the Markdown directive at the end.
+    return system.rstrip() + "\n\n" + _MARKDOWN_OVERRIDE + "\n"
 
 
 def hybrid_retrieve(req: ChatRequest) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
@@ -230,12 +260,15 @@ def stream_llm_as_persona(persona: str, req: ChatRequest):
     # Claims are inferred post-hoc from the prose (or left empty).
     hits, expansion = hybrid_retrieve(req)
     clip_ctx = clip_context.load(req.clip_id) if req.clip_id else None
-    system = load_prompt(persona)
+    # Rewrite the system prompt so the "Output format (JSON ...)" block is
+    # replaced with a Markdown directive — the disk prompts stay JSON-only
+    # so the non-streaming /chat endpoint keeps working.
+    system = to_markdown_system(load_prompt(persona))
     user = (
         f"OPERATOR QUESTION:\n{req.q}\n\n"
         f"CONTEXT:\n{render_context(hits, expansion, clip_ctx)}\n\n"
-        "Respond in clean Markdown. Use headings, bold, and bullets where "
-        "helpful. Do NOT wrap the response in a JSON object or a code fence."
+        "Respond in clean Markdown as instructed by the system prompt's "
+        "Output format section. Do NOT emit JSON."
     )
 
     try:
