@@ -222,14 +222,20 @@ def stream_llm_as_persona(persona: str, req: ChatRequest):
         yield ("response", response)
         return
 
-    # Build the same system + user text as the non-streaming path
+    # Build the same system + user text as the non-streaming path — but for
+    # streaming, ask for Markdown prose directly (NOT JSON-wrapped). JSON
+    # wrapping defeats streaming: the frontend has to hide tokens until the
+    # closing brace arrives, so the user waits 60-90s staring at "drafting".
+    # With Markdown, tokens are user-visible from the second they arrive.
+    # Claims are inferred post-hoc from the prose (or left empty).
     hits, expansion = hybrid_retrieve(req)
     clip_ctx = clip_context.load(req.clip_id) if req.clip_id else None
     system = load_prompt(persona)
     user = (
         f"OPERATOR QUESTION:\n{req.q}\n\n"
         f"CONTEXT:\n{render_context(hits, expansion, clip_ctx)}\n\n"
-        "Respond as JSON: {prose, claims:[{text,confidence,frame_refs}]}"
+        "Respond in clean Markdown. Use headings, bold, and bullets where "
+        "helpful. Do NOT wrap the response in a JSON object or a code fence."
     )
 
     try:
@@ -242,27 +248,24 @@ def stream_llm_as_persona(persona: str, req: ChatRequest):
                 yield ("token", payload)
             elif evt_type == "done":
                 full_text = payload["full_text"]
-        # Parse the full JSON out of the streamed text. The model often
-        # wraps the response in a ```json fence — strip that first, then
-        # fall back to slicing between the outermost braces.
+        # Model may still slip in a ```json / ``` fence — strip if so and
+        # try to parse; otherwise treat the full text as Markdown prose.
         txt = full_text.strip()
+        parsed = None
         if txt.startswith("```"):
             nl = txt.find("\n")
             if nl != -1:
-                txt = txt[nl + 1:]
-            if txt.rstrip().endswith("```"):
-                txt = txt.rstrip()[:-3]
-            txt = txt.strip()
-        try:
-            parsed = json.loads(txt)
-        except Exception:
-            first, last = txt.find("{"), txt.rfind("}")
-            if first != -1 and last > first:
+                inner = txt[nl + 1:]
+                if inner.rstrip().endswith("```"):
+                    inner = inner.rstrip()[:-3].strip()
                 try:
-                    parsed = json.loads(txt[first:last + 1])
+                    parsed = json.loads(inner)
                 except Exception:
-                    parsed = {"prose": full_text, "claims": []}
-            else:
+                    parsed = {"prose": inner, "claims": []}
+        if parsed is None:
+            try:
+                parsed = json.loads(txt)
+            except Exception:
                 parsed = {"prose": full_text, "claims": []}
         claims = [Claim(**c) for c in parsed.get("claims", []) if isinstance(c, dict)]
         provenance = Provenance(
