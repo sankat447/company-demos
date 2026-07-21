@@ -231,14 +231,31 @@ spec:
       try:
           import ultralytics  # noqa
       except ImportError:
-          print("[object-detect] installing ultralytics + torch (this takes ~30-60s the first time)...", flush=True)
+          # ultralytics pulls in `opencv-python`, which needs libGL.so.1 —
+          # not present in ubi9/python-311. Force `opencv-python-headless`
+          # first so pip's dep resolver treats the requirement as satisfied
+          # by the headless variant. Then install ultralytics without deps
+          # for cv2, then top up the rest of its deps.
+          print("[object-detect] installing ultralytics + torch (headless cv2) — takes ~60-90s the first time...", flush=True)
           try:
               subprocess.check_call(
                   [sys.executable, "-m", "pip", "install", "--quiet",
                    "--disable-pip-version-check",
                    "--extra-index-url", "https://download.pytorch.org/whl/cpu",
-                   "ultralytics"],
+                   "opencv-python-headless", "ultralytics"],
                   timeout=600,
+              )
+              # If pip still ended up installing opencv-python (needing
+              # libGL), replace it with the headless build.
+              subprocess.call(
+                  [sys.executable, "-m", "pip", "uninstall", "-y",
+                   "--disable-pip-version-check", "opencv-python"],
+              )
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--quiet",
+                   "--disable-pip-version-check",
+                   "--force-reinstall", "opencv-python-headless"],
+                  timeout=180,
               )
           except subprocess.CalledProcessError as e:
               _bail(f"ultralytics install failed: {e}")
