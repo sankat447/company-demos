@@ -187,6 +187,148 @@ spec:
       # so writing an approximate value here is only for backward-compat logs.
       printf '%s\n' "${step:-${STEP:-0}}" > .clip-frame-step-sec
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # object-detect (YOLOv8n people-count pre-pass)
+  # Emits `.object-signals.json` with per-frame + per-window + clip-level
+  # person counts. The caption step reads this and injects it into TRUSTED
+  # SIGNALS so Claude gets a HARD ground-truth people count it cannot
+  # hallucinate away. Fixes the "missed 3 people" gap where the VLM
+  # narrative describes fewer subjects than actually appear on-screen.
+  #
+  # Model: Ultralytics YOLOv8n (COCO-pretrained, class 0 = person).
+  # Runtime: ~150ms/frame on CPU → ~10-15s for 60 frames. Weights (~6MB)
+  # auto-download to /workspace/.ultralytics-cache on first run and are
+  # cached on shared EFS across subsequent PipelineRuns.
+  # License: AGPL-3.0 — acceptable for on-cluster demo; redistribution
+  # would require Ultralytics enterprise license.
+  # This step is defensive — if it fails, caption still runs and emits
+  # its narration without hardcoded people-count signals.
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: object-detect
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, glob, json, re, subprocess, traceback
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      frames_dir = f"{workspace}/{clip_id}/frames"
+      out_path   = f"{workspace}/{clip_id}/.object-signals.json"
+      cache_dir  = f"{workspace}/.ultralytics-cache"
+      weights_path = f"{cache_dir}/yolov8n.pt"
+
+      # Best-effort: on any exception we write an empty signal file so the
+      # caption step degrades to its old behavior instead of failing.
+      def _bail(reason):
+          try:
+              with open(out_path, "w") as f:
+                  json.dump({"available": False, "reason": reason}, f)
+          except Exception:
+              pass
+          print(f"[object-detect] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      try:
+          import ultralytics  # noqa
+      except ImportError:
+          print("[object-detect] installing ultralytics + torch (this takes ~30-60s the first time)...", flush=True)
+          try:
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--quiet",
+                   "--disable-pip-version-check",
+                   "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+                   "ultralytics"],
+                  timeout=600,
+              )
+          except subprocess.CalledProcessError as e:
+              _bail(f"ultralytics install failed: {e}")
+          except subprocess.TimeoutExpired:
+              _bail("ultralytics install timed out (>10min)")
+
+      try:
+          os.makedirs(cache_dir, exist_ok=True)
+          # Point ultralytics at the shared cache dir so weights persist
+          # across PipelineRuns on EFS.
+          os.environ["YOLO_CONFIG_DIR"] = cache_dir
+          from ultralytics import YOLO
+          # If the weights aren't cached yet, this triggers a one-time
+          # ~6MB download from ultralytics.com to `cache_dir`.
+          model = YOLO(weights_path if os.path.exists(weights_path) else "yolov8n.pt")
+      except Exception as e:
+          _bail(f"model load failed: {type(e).__name__}: {e}")
+
+      frame_paths = sorted(glob.glob(f"{frames_dir}/window*_*.jpg"))
+      if not frame_paths:
+          frame_paths = sorted(glob.glob(f"{frames_dir}/*.jpg"))
+      if not frame_paths:
+          _bail("no frames found on workspace")
+
+      # Group by window using the windowN_MMM.jpg filename convention
+      by_window = {}
+      for fp in frame_paths:
+          m = re.match(r"window(\d+)_(\d+)\.jpg", os.path.basename(fp))
+          w = int(m.group(1)) if m else 1
+          by_window.setdefault(w, []).append(fp)
+
+      # Confidence 0.4 keeps false positives low on distant CCTV; class 0 is
+      # `person` in COCO. Small imgsz keeps CPU time down.
+      CONF = 0.4
+      IMGSZ = 640
+
+      per_frame = []          # [{path, window, person_count}]
+      per_window_max = {}     # {window_idx: max count}
+      per_window_first_sec = {}
+      per_window_last_sec  = {}
+      max_count = 0
+
+      try:
+          # Ultralytics accepts a list of paths; runs batched.
+          results = model(frame_paths, conf=CONF, classes=[0],
+                          imgsz=IMGSZ, verbose=False)
+      except Exception as e:
+          traceback.print_exc()
+          _bail(f"inference failed: {type(e).__name__}: {e}")
+
+      for fp, res in zip(frame_paths, results):
+          n = 0
+          try:
+              n = int(res.boxes.shape[0]) if res.boxes is not None else 0
+          except Exception:
+              n = 0
+          m = re.match(r"window(\d+)_(\d+)\.jpg", os.path.basename(fp))
+          w = int(m.group(1)) if m else 1
+          per_frame.append({"path": os.path.basename(fp), "window": w,
+                            "person_count": n})
+          per_window_max[w] = max(per_window_max.get(w, 0), n)
+          max_count = max(max_count, n)
+
+      # A best-estimate "unique subjects in the clip" is the max simultaneous
+      # count. Real tracking (bytetrack) could give a better number, but max
+      # per-frame is already correct up to occlusion + is a hard upper-bound
+      # for what Claude should say if it under-counts.
+      unique_subjects_estimate = max_count
+
+      # Median-per-frame is useful too — it tells Claude the typical
+      # "steady state" people count.
+      counts_sorted = sorted(f["person_count"] for f in per_frame)
+      median_count = counts_sorted[len(counts_sorted) // 2] if counts_sorted else 0
+
+      signals = {
+          "available": True,
+          "detector": "yolov8n",
+          "class_filter": "person",
+          "confidence_threshold": CONF,
+          "frame_count_scanned": len(per_frame),
+          "max_simultaneous_people": max_count,
+          "median_people_per_frame": int(median_count),
+          "unique_subjects_lower_bound": unique_subjects_estimate,
+          "per_window_max_people": {str(k): v for k, v in per_window_max.items()},
+      }
+      with open(out_path, "w") as f:
+          json.dump(signals, f, indent=2)
+      print(f"[object-detect] frames={len(per_frame)} max={max_count} "
+            f"median={median_count} per_window_max={per_window_max}", flush=True)
+
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
@@ -335,6 +477,39 @@ spec:
           windows_meta.append({"window": w_idx, "start_sec": w_start,
                                "end_sec": w_end, "frame_count": fpw})
 
+      # ── People-count signals from the object-detect step (YOLOv8n) ───────
+      # Optional — the step is defensive and may skip on any error. When
+      # present, this gives Claude a HARD ground-truth count that it cannot
+      # under-report. Fixes the "missed 3 people" gap.
+      object_signals = None
+      obj_path = f"{workspace}/{clip_id}/.object-signals.json"
+      try:
+          with open(obj_path) as f:
+              _obj = json.load(f)
+          if _obj.get("available"):
+              object_signals = {
+                  "detector": _obj.get("detector"),
+                  "max_simultaneous_people": _obj.get("max_simultaneous_people", 0),
+                  "median_people_per_frame": _obj.get("median_people_per_frame", 0),
+                  "unique_subjects_lower_bound": _obj.get("unique_subjects_lower_bound", 0),
+                  "per_window_max_people": _obj.get("per_window_max_people", {}),
+                  "note": ("These are HARD counts from a dedicated person detector "
+                           "running on every extracted frame. Your Suspects table "
+                           "MUST list at least `unique_subjects_lower_bound` "
+                           "distinguishable people. If your prose says 'two "
+                           "individuals' but this signal says 5, YOU HAVE "
+                           "UNDER-COUNTED — go back and enumerate every person "
+                           "visible across every window."),
+              }
+              print(f"[caption] object-signals: max_simultaneous={object_signals['max_simultaneous_people']} "
+                    f"per_window={object_signals['per_window_max_people']}")
+          else:
+              print(f"[caption] object-signals unavailable: {_obj.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] object-signals file not found (object-detect step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] object-signals read failed: {e}")
+
       trusted_signals = {
           "clip_duration_sec": duration_sec,
           "frame_count": len(frame_paths),
@@ -346,6 +521,7 @@ spec:
           "top_motion_hotspot_frames_1indexed": hotspot_frames,
           "top_motion_hotspot_timestamps_sec": hotspot_times,
           "windows": windows_meta,
+          "object_detector_signals": object_signals,
       }
       print(f"[caption] TRUSTED SIGNALS lighting={lighting_class} avg_lum={avg_lum:.1f} "
             f"hotspots={hotspot_frames}")
@@ -395,7 +571,18 @@ spec:
           "    between them. YOU MUST TREAT EACH WINDOW AS ITS OWN SCENE and "
           "    describe what happens WITHIN THAT WINDOW before synthesizing the "
           "    master narrative. A per-window analysis is what prevents transient "
-          "    events from being averaged away across the whole clip.\n\n"
+          "    events from being averaged away across the whole clip.\n"
+          "  - `object_detector_signals` (may be null if the detector was "
+          "    unavailable). When present, `max_simultaneous_people` is a HARD "
+          "    count from a dedicated YOLO person-detector run on every "
+          "    extracted frame. Your `Suspects / People` table MUST enumerate "
+          "    AT LEAST this many distinguishable subjects. If you can only "
+          "    describe 2 people but this signal says 5, YOU HAVE MISSED "
+          "    subjects — go back and look at each window (paying attention "
+          "    to `per_window_max_people`) and enumerate the ones you missed, "
+          "    even if you can only describe them as 'a fourth subject, "
+          "    partially visible near the right edge'. It is far worse to "
+          "    under-count than to describe an extra subject in general terms.\n\n"
 
           "WINDOW ANALYSIS PROTOCOL:\n"
           "For each window, before writing your master JSON, silently walk through "
