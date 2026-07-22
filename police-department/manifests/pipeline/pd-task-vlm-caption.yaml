@@ -456,6 +456,337 @@ spec:
                 f"({t['num_detections']} dets, mean_conf={t['mean_confidence']:.2f})",
                 flush=True)
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # pose-estimate (YOLOv8n-pose keypoints + posture classification per track)
+  # PHASE 2 of the CV-stack upgrade. Consumes .tracks.json + dense_frames
+  # from object-detect. For each dense frame, runs YOLOv8n-pose to extract
+  # 17 COCO keypoints per person; matches each pose to a ByteTrack track_id
+  # by IoU with the tracker's per-frame bbox; classifies posture from
+  # keypoint geometry (standing / walking / running / crouched / prone /
+  # arm-extended / falling); aggregates per-track posture segments +
+  # posture-change events.
+  #
+  # Output:
+  #   .poses.json — per-track_id posture segments + downsampled keypoints
+  #     for Phase 3+ (weapon association needs wrist positions; action
+  #     recognition uses full keypoint sequences; muzzle-flash keys off
+  #     hand keypoints of arm-extended tracks).
+  #
+  # Model: yolov8n-pose (~6MB, ~200ms/frame CPU at 640px). Cached on EFS.
+  # Runtime: 725 frames × 200ms ≈ 145s inference; 4-5min total step time.
+  # Defensive: on any failure, .poses.json is written with available=false
+  # and downstream steps degrade gracefully.
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: pose-estimate
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json, glob, math, subprocess, traceback
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      clip_dir = f"{workspace}/{clip_id}"
+      dense_dir = f"{clip_dir}/dense_frames"
+      tracks_path = f"{clip_dir}/.tracks.json"
+      poses_path = f"{clip_dir}/.poses.json"
+      cache_dir = f"{workspace}/.ultralytics-cache"
+      pose_weights = f"{cache_dir}/yolov8n-pose.pt"
+
+      def _bail(reason):
+          try:
+              with open(poses_path, "w") as f:
+                  json.dump({"available": False, "reason": reason}, f)
+          except Exception:
+              pass
+          print(f"[pose-estimate] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      # Preconditions
+      if not os.path.exists(tracks_path):
+          _bail(".tracks.json not found — Phase 1 (object-detect) must run first")
+      if not os.path.isdir(dense_dir) or not os.listdir(dense_dir):
+          _bail("dense_frames/ empty — object-detect didn't save frames")
+      try:
+          with open(tracks_path) as f:
+              tracks_data = json.load(f)
+          if not tracks_data.get("available"):
+              _bail(f"tracks unavailable: {tracks_data.get('reason','unknown')}")
+      except Exception as e:
+          _bail(f"tracks.json read failed: {e}")
+
+      # ultralytics + headless-cv2 install (idempotent — object-detect
+      # will have already done this on first run of the pipeline)
+      try:
+          import ultralytics  # noqa
+      except ImportError:
+          print("[pose-estimate] installing ultralytics + torch (headless cv2)...", flush=True)
+          try:
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--quiet",
+                   "--disable-pip-version-check",
+                   "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+                   "opencv-python-headless", "ultralytics"],
+                  timeout=600,
+              )
+              subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y",
+                               "--disable-pip-version-check", "opencv-python"])
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--quiet",
+                   "--disable-pip-version-check",
+                   "--force-reinstall", "opencv-python-headless"],
+                  timeout=180,
+              )
+          except subprocess.CalledProcessError as e:
+              _bail(f"install failed: {e}")
+
+      try:
+          os.environ["YOLO_CONFIG_DIR"] = cache_dir
+          from ultralytics import YOLO
+          # ~6MB download on first run; cached to EFS after.
+          model = YOLO(pose_weights if os.path.exists(pose_weights) else "yolov8n-pose.pt")
+      except Exception as e:
+          _bail(f"model load failed: {type(e).__name__}: {e}")
+
+      tracks = tracks_data.get("tracks", {})
+      # Build a frame_idx -> [(track_id, bbox), ...] index so we can match
+      # each pose detection to the correct ByteTrack id by IoU.
+      frame_to_track_bboxes = {}
+      for tid, t in tracks.items():
+          for det in t.get("detections", []):
+              frame_to_track_bboxes.setdefault(det["frame_idx"], []).append(
+                  (int(tid), det["bbox"])
+              )
+
+      # ── Posture classification from 17 COCO keypoints ────────────────────
+      # COCO order: 0=nose 1=Leye 2=Reye 3=Lear 4=Rear 5=Lshoulder 6=Rshoulder
+      #  7=Lelbow 8=Relbow 9=Lwrist 10=Rwrist 11=Lhip 12=Rhip 13=Lknee
+      # 14=Rknee 15=Lankle 16=Rankle. Each is (x, y, visibility 0..1).
+      def _mid(a, b):
+          return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+      def _dist(a, b):
+          return math.hypot(a[0] - b[0], a[1] - b[1])
+      def _visible(kp, thr=0.3):
+          return kp[2] >= thr
+
+      def classify_posture(kps, bbox):
+          # bbox: [x1, y1, x2, y2]
+          bw = max(1.0, bbox[2] - bbox[0])
+          bh = max(1.0, bbox[3] - bbox[1])
+          aspect = bw / bh  # >1 means wider than tall → prone-ish
+          nose = kps[0]; ls, rs = kps[5], kps[6]
+          lh, rh = kps[11], kps[12]; lk, rk = kps[13], kps[14]
+          la, ra = kps[15], kps[16]; lw, rw = kps[9], kps[10]
+          le, re = kps[7], kps[8]
+
+          # Prone: bbox wider than tall AND torso near-horizontal.
+          # Torso vector from shoulder-mid to hip-mid; angle from vertical.
+          if _visible(ls) and _visible(rs) and _visible(lh) and _visible(rh):
+              sh = _mid(ls, rs); hp = _mid(lh, rh)
+              dy, dx = hp[1] - sh[1], hp[0] - sh[0]
+              torso_from_vertical_deg = math.degrees(math.atan2(abs(dx), max(abs(dy), 0.001)))
+              if aspect > 1.4 and torso_from_vertical_deg > 45:
+                  return "prone", {"torso_angle_deg": round(torso_from_vertical_deg, 1),
+                                   "bbox_aspect": round(aspect, 2)}
+              if torso_from_vertical_deg > 60:
+                  return "falling", {"torso_angle_deg": round(torso_from_vertical_deg, 1)}
+
+          # Arm-extended: either arm nearly straight (shoulder-elbow-wrist
+          # angle > 150°) AND wrist distant from torso midline.
+          def arm_extended(s, e, w, torso_mid_x):
+              if not (_visible(s) and _visible(e) and _visible(w)):
+                  return False
+              v1 = (s[0] - e[0], s[1] - e[1])
+              v2 = (w[0] - e[0], w[1] - e[1])
+              n1 = math.hypot(*v1); n2 = math.hypot(*v2)
+              if n1 < 5 or n2 < 5:
+                  return False
+              cosang = (v1[0]*v2[0] + v1[1]*v2[1]) / (n1 * n2)
+              cosang = max(-1.0, min(1.0, cosang))
+              ang = math.degrees(math.acos(cosang))
+              wrist_lateral = abs(w[0] - torso_mid_x) > 0.35 * bw
+              return ang > 150 and wrist_lateral
+          if _visible(ls) and _visible(rs):
+              tmid_x = (ls[0] + rs[0]) / 2
+              if arm_extended(ls, le, lw, tmid_x) or arm_extended(rs, re, rw, tmid_x):
+                  return "arm-extended", {"note": "possible aim/point/reach"}
+
+          # Crouched: knees higher on frame than hips (image y increases
+          # downward, so knee.y < hip.y means knee is above hip).
+          if _visible(lk) and _visible(rk) and _visible(lh) and _visible(rh):
+              if lk[1] < lh[1] and rk[1] < rh[1]:
+                  return "crouched", {}
+
+          # Running gait: ankles spread wider than shoulder width; both
+          # feet clearly below hips (upright posture); one knee bent much
+          # more than the other (mid-stride).
+          if _visible(la) and _visible(ra) and _visible(ls) and _visible(rs):
+              ankle_spread = _dist(la, ra)
+              shoulder_spread = _dist(ls, rs)
+              if ankle_spread > 1.6 * shoulder_spread:
+                  return "running", {"ankle_over_shoulder_ratio":
+                                     round(ankle_spread / max(shoulder_spread, 1), 2)}
+
+          return "standing", {}
+
+      # ── Run pose on every dense frame (in filename-sorted order) ─────────
+      frame_paths = sorted(glob.glob(f"{dense_dir}/f_*.jpg"))
+      if not frame_paths:
+          _bail("no dense frames to process")
+
+      def frame_idx_from_path(p):
+          # dense_frames/f_000042.jpg → 42
+          try:
+              return int(os.path.basename(p)[2:8])
+          except Exception:
+              return -1
+
+      # Batched inference for CPU efficiency.
+      BATCH = 16
+      per_track_postures = {tid: [] for tid in tracks.keys()}
+      processed_frames = 0
+      matched_poses = 0
+      unmatched_poses = 0
+
+      def iou(a, b):
+          ax1, ay1, ax2, ay2 = a; bx1, by1, bx2, by2 = b
+          ix1 = max(ax1, bx1); iy1 = max(ay1, by1)
+          ix2 = min(ax2, bx2); iy2 = min(ay2, by2)
+          iw = max(0, ix2 - ix1); ih = max(0, iy2 - iy1)
+          inter = iw * ih
+          ua = (ax2 - ax1) * (ay2 - ay1)
+          ub = (bx2 - bx1) * (by2 - by1)
+          union = ua + ub - inter
+          return inter / union if union > 0 else 0.0
+
+      try:
+          for i in range(0, len(frame_paths), BATCH):
+              batch = frame_paths[i:i+BATCH]
+              results = model(batch, conf=0.3, imgsz=640, verbose=False)
+              for fp, res in zip(batch, results):
+                  fidx = frame_idx_from_path(fp)
+                  processed_frames += 1
+                  if res.keypoints is None or res.boxes is None:
+                      continue
+                  # res.boxes.xyxy: list of [x1, y1, x2, y2] for each detection
+                  # res.keypoints.data: (num_dets, 17, 3) tensor of [x, y, conf]
+                  try:
+                      boxes = res.boxes.xyxy.cpu().tolist()
+                      kps_all = res.keypoints.data.cpu().tolist()
+                  except Exception:
+                      continue
+                  # Match each pose detection to a track by best IoU.
+                  # Note: pose is on the 640-wide dense frame; the ByteTrack
+                  # bboxes came from the SAME 640-wide input (imgsz=640,
+                  # dense_frames saved at 640). So coordinates align.
+                  candidates = frame_to_track_bboxes.get(fidx, [])
+                  for box, kps in zip(boxes, kps_all):
+                      best_tid, best_iou = None, 0.0
+                      for tid, tbbox in candidates:
+                          ov = iou(box, tbbox)
+                          if ov > best_iou:
+                              best_tid, best_iou = tid, ov
+                      if best_tid is None or best_iou < 0.3:
+                          unmatched_poses += 1
+                          continue
+                      matched_poses += 1
+                      posture, meta = classify_posture(kps, box)
+                      # Store the KEYPOINTS-plus-posture. Downstream phases
+                      # (weapon, action, muzzle-flash) need the actual
+                      # keypoints for hand tracking / motion features.
+                      per_track_postures[str(best_tid)].append({
+                          "frame_idx": fidx,
+                          "sec": round(fidx * tracks_data["vid_stride"]
+                                        / tracks_data["video_src_fps"], 3),
+                          "posture": posture,
+                          "posture_meta": meta,
+                          # keep only [x,y] to halve payload — visibility
+                          # is embedded in the presence/absence of keypoint
+                          "kps": [[round(k[0], 1), round(k[1], 1),
+                                    round(k[2], 3)] for k in kps],
+                          "bbox": [round(x, 1) for x in box],
+                      })
+      except Exception as e:
+          traceback.print_exc()
+          _bail(f"pose inference failed: {type(e).__name__}: {e}")
+
+      # ── Aggregate posture segments + change events per track ─────────────
+      per_track_summary = {}
+      for tid, postures in per_track_postures.items():
+          if not postures:
+              continue
+          postures.sort(key=lambda p: p["frame_idx"])
+          # Segment: contiguous frames with same posture (allow 1-frame gap
+          # to smooth noise).
+          segments = []
+          cur = None
+          for p in postures:
+              if cur is None:
+                  cur = {"posture": p["posture"], "start_sec": p["sec"],
+                         "end_sec": p["sec"], "frame_count": 1}
+                  continue
+              if p["posture"] == cur["posture"]:
+                  cur["end_sec"] = p["sec"]
+                  cur["frame_count"] += 1
+              else:
+                  segments.append(cur)
+                  cur = {"posture": p["posture"], "start_sec": p["sec"],
+                         "end_sec": p["sec"], "frame_count": 1}
+          if cur:
+              segments.append(cur)
+          # Drop segments <2 frames (transient / noisy)
+          segments = [s for s in segments if s["frame_count"] >= 2]
+          # Posture-change events = transition between different postures
+          changes = []
+          for a, b in zip(segments, segments[1:]):
+              changes.append({
+                  "sec": round(b["start_sec"], 2),
+                  "from": a["posture"],
+                  "to":   b["posture"],
+              })
+          # Aggregate counts per posture
+          counts = {}
+          for s in segments:
+              counts[s["posture"]] = counts.get(s["posture"], 0) + s["frame_count"]
+          # Downsample keypoints to every 4th frame to keep payload small
+          # while still enabling downstream weapon/action reasoning.
+          kps_downsampled = postures[::4]
+          per_track_summary[tid] = {
+              "track_id": int(tid),
+              "pose_frame_count": len(postures),
+              "posture_counts": counts,
+              "segments": segments,
+              "changes": changes,
+              "keypoints_downsampled": kps_downsampled,
+          }
+
+      poses_out = {
+          "available": True,
+          "model": "yolov8n-pose",
+          "iou_match_threshold": 0.3,
+          "processed_frames": processed_frames,
+          "matched_poses": matched_poses,
+          "unmatched_poses": unmatched_poses,
+          "num_tracks_with_poses": len(per_track_summary),
+          "tracks": per_track_summary,
+      }
+      with open(poses_path, "w") as f:
+          json.dump(poses_out, f)
+      # Also print a size hint so we can watch payload growth
+      size_kb = os.path.getsize(poses_path) / 1024
+      print(f"[pose-estimate] frames_processed={processed_frames} matched={matched_poses} "
+            f"unmatched={unmatched_poses} tracks_with_poses={len(per_track_summary)} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      for tid, s in sorted(per_track_summary.items(), key=lambda x: int(x[0])):
+          # Compact posture summary per track
+          counts_str = ", ".join(f"{p}:{n}" for p, n in
+                                  sorted(s["posture_counts"].items(),
+                                         key=lambda kv: -kv[1]))
+          changes_str = " → ".join(f"{c['from']}→{c['to']}@{c['sec']}s"
+                                    for c in s["changes"][:6])
+          print(f"  track {tid}: [{counts_str}]" +
+                (f"  changes: {changes_str}" if changes_str else ""),
+                flush=True)
+
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
@@ -682,6 +1013,58 @@ spec:
       except Exception as e:
           print(f"[caption] object-signals read failed: {e}")
 
+      # ── Pose signals from pose-estimate step (Phase 2) ───────────────────
+      # Per-track posture segments + posture-change events. Lets Claude
+      # write things like "Subject #4 transitions to prone at 12.3s" that
+      # the VLM alone cannot reliably assert from unlabeled keyframes.
+      pose_signals = None
+      poses_path = f"{workspace}/{clip_id}/.poses.json"
+      try:
+          with open(poses_path) as f:
+              _pose = json.load(f)
+          if _pose.get("available"):
+              # Trim payload for the prompt: drop raw keypoints, keep
+              # per-track posture counts + change events.
+              track_pose_summary = {}
+              for tid, s in _pose.get("tracks", {}).items():
+                  track_pose_summary[tid] = {
+                      "track_id": s["track_id"],
+                      "posture_counts": s["posture_counts"],
+                      "segments": s["segments"],
+                      "changes": s["changes"],
+                  }
+              pose_signals = {
+                  "model": _pose.get("model"),
+                  "num_tracks_with_poses": _pose.get("num_tracks_with_poses"),
+                  "match_rate": (round(_pose.get("matched_poses", 0) /
+                                        max(_pose.get("matched_poses", 0)
+                                             + _pose.get("unmatched_poses", 0), 1), 3)),
+                  "tracks": track_pose_summary,
+                  "note": ("Per-subject posture data from a YOLOv8-pose "
+                           "estimator matched to ByteTrack IDs by IoU. "
+                           "`segments` is the contiguous posture-time "
+                           "of each track; `changes` are the transition "
+                           "events (e.g. standing→prone at 12.3s = "
+                           "person hit the ground). If any track has a "
+                           "posture-change to `prone`, `arm-extended`, "
+                           "or `falling`, that IS the incident — surface "
+                           "it prominently in Modus Operandi, Timeline, "
+                           "and Forensic Conclusion. `standing`/`walking`/"
+                           "`running` are ambulatory; `prone`/`crouched`/"
+                           "`arm-extended` warrant scrutiny."),
+              }
+              print(f"[caption] pose-signals: tracks_with_poses={pose_signals['num_tracks_with_poses']} "
+                    f"match_rate={pose_signals['match_rate']}")
+              for tid, s in sorted(track_pose_summary.items(), key=lambda x: int(x[0])):
+                  print(f"  track {tid}: postures={s['posture_counts']} "
+                        f"changes={len(s['changes'])}")
+          else:
+              print(f"[caption] pose-signals unavailable: {_pose.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] .poses.json not found (pose-estimate step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] pose-signals read failed: {e}")
+
       trusted_signals = {
           "clip_duration_sec": duration_sec,
           "frame_count": len(frame_paths),
@@ -694,6 +1077,7 @@ spec:
           "top_motion_hotspot_timestamps_sec": hotspot_times,
           "windows": windows_meta,
           "object_detector_signals": object_signals,
+          "pose_signals": pose_signals,
       }
       print(f"[caption] TRUSTED SIGNALS lighting={lighting_class} avg_lum={avg_lum:.1f} "
             f"hotspots={hotspot_frames}")
@@ -765,7 +1149,27 @@ spec:
           "    tracker is the ceiling. NEVER assert fewer — if you only "
           "    describe 2 people but the tracker saw 5, YOU HAVE MISSED "
           "    subjects; go back through the windows and enumerate them, "
-          "    even as 'Subject #4, partially visible near the right edge'.\n\n"
+          "    even as 'Subject #4, partially visible near the right edge'.\n"
+          "  - `pose_signals` (may be null if pose-estimator unavailable). "
+          "    When present, each `tracks[<id>].segments` is the contiguous "
+          "    posture-time-series for that subject, and `changes` lists "
+          "    posture-transition events with timestamps. Possible posture "
+          "    labels are: `standing` / `walking` / `running` (all "
+          "    ambulatory / benign), `crouched` / `arm-extended` / `prone` "
+          "    / `falling` (WARRANT SCRUTINY). Read this ground truth "
+          "    BEFORE writing your Behavioral Patterns and Modus Operandi "
+          "    sections — do not describe someone as 'standing calmly' if "
+          "    their pose track says `prone`; do not say 'no aggressive "
+          "    postures observed' if a track has an `arm-extended` "
+          "    segment. When a subject transitions FROM `standing`/"
+          "    `walking` TO `prone` or `falling`, THAT IS a fall / knock-"
+          "    down event — call it out explicitly on the Timeline with "
+          "    the transition timestamp. When a subject enters `arm-"
+          "    extended`, note it as a possible aim/point/reach gesture. "
+          "    NEVER contradict the pose data — the classifier is running "
+          "    on ~8 fps of the full video, not on the 60 sampled "
+          "    keyframes you see, so it can catch transient events "
+          "    invisible to you.\n\n"
 
           "WINDOW ANALYSIS PROTOCOL:\n"
           "For each window, before writing your master JSON, silently walk through "
