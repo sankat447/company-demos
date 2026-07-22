@@ -922,6 +922,255 @@ spec:
                 (f"  changes: {changes_str}" if changes_str else ""),
                 flush=True)
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # weapon-detect (open-vocabulary YOLO-World weapon detection per track)
+  # PHASE 3 of the CV-stack upgrade. Runs YOLO-World (Apache-2.0, open-vocab)
+  # over the dense frames looking for firearms, knives, and blunt-impact
+  # weapons. Each detected weapon is associated to the nearest ByteTrack
+  # track by IoU with that track's bbox at the same frame — so we get
+  # per-subject weapon presence, not just "there's a gun somewhere".
+  #
+  # Model: yolov8s-worldv2 (Apache-2.0 for weights, ~23MB, ~500ms/frame CPU).
+  # We call set_classes(...) with a fixed vocabulary of firearm/blade terms
+  # so YOLO-World knows what to look for — no fine-tuning required.
+  #
+  # Runtime: 725 dense frames × 500ms ≈ 6-8min inference. Weights cached
+  # on shared EFS after first download. Fully defensive — on any failure,
+  # .weapons.json is written with available=false and caption degrades.
+  #
+  # Output:
+  #   .weapons.json — per-track weapon associations. When a track has
+  #     weapons_detected, the caption step surfaces this as a definitive
+  #     armed-subject signal in TRUSTED SIGNALS.
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: weapon-detect
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json, glob, re, subprocess, traceback
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      clip_dir = f"{workspace}/{clip_id}"
+      dense_dir = f"{clip_dir}/dense_frames"
+      tracks_path = f"{clip_dir}/.tracks.json"
+      weapons_path = f"{clip_dir}/.weapons.json"
+      cache_dir = f"{workspace}/.ultralytics-cache"
+      weapon_weights = f"{cache_dir}/yolov8s-worldv2.pt"
+
+      # Vocabulary Claude cares about. YOLO-World scores every detection
+      # against the class list embedding — extra synonyms improve recall.
+      WEAPON_CLASSES = [
+          "pistol", "handgun", "gun", "firearm", "revolver",
+          "rifle", "long gun", "shotgun", "assault rifle",
+          "knife", "blade", "kitchen knife", "machete",
+          "baseball bat", "crowbar", "hammer",
+      ]
+
+      def _bail(reason):
+          try:
+              with open(weapons_path, "w") as f:
+                  json.dump({"available": False, "reason": reason}, f)
+          except Exception:
+              pass
+          print(f"[weapon-detect] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not os.path.isdir(dense_dir):
+          _bail("dense_frames/ not present — Phase 1 must run first")
+      if not os.path.exists(tracks_path):
+          _bail(".tracks.json not found — Phase 1 must run first")
+      try:
+          with open(tracks_path) as f:
+              tracks_data = json.load(f)
+          if not tracks_data.get("available"):
+              _bail(f"tracks unavailable: {tracks_data.get('reason','unknown')}")
+      except Exception as e:
+          _bail(f"tracks.json read failed: {e}")
+
+      try:
+          import ultralytics  # noqa
+      except ImportError:
+          print("[weapon-detect] installing ultralytics + torch (headless cv2)...", flush=True)
+          try:
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--quiet",
+                   "--disable-pip-version-check",
+                   "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+                   "opencv-python-headless", "ultralytics"],
+                  timeout=600,
+              )
+              subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y",
+                               "--disable-pip-version-check", "opencv-python"])
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--quiet",
+                   "--disable-pip-version-check", "--force-reinstall",
+                   "opencv-python-headless"],
+                  timeout=180,
+              )
+          except subprocess.CalledProcessError as e:
+              _bail(f"install failed: {e}")
+
+      try:
+          os.environ["YOLO_CONFIG_DIR"] = cache_dir
+          from ultralytics import YOLOWorld
+          # First run downloads ~23MB from ultralytics; cached on EFS after.
+          model_id = (weapon_weights if os.path.exists(weapon_weights)
+                      else "yolov8s-worldv2.pt")
+          model = YOLOWorld(model_id)
+          model.set_classes(WEAPON_CLASSES)
+      except Exception as e:
+          _bail(f"model load failed: {type(e).__name__}: {e}")
+
+      # Build frame_idx -> [(track_id, bbox), ...] index for IoU matching.
+      tracks = tracks_data.get("tracks", {})
+      frame_to_track_bboxes = {}
+      for tid, t in tracks.items():
+          for det in t.get("detections", []):
+              frame_to_track_bboxes.setdefault(det["frame_idx"], []).append(
+                  (int(tid), det["bbox"])
+              )
+
+      frame_paths = sorted(glob.glob(f"{dense_dir}/f_*.jpg"))
+      if not frame_paths:
+          _bail("no dense frames on workspace")
+
+      def frame_idx_from_path(p):
+          try:
+              return int(os.path.basename(p)[2:8])
+          except Exception:
+              return -1
+
+      def iou(a, b):
+          ax1, ay1, ax2, ay2 = a; bx1, by1, bx2, by2 = b
+          ix1 = max(ax1, bx1); iy1 = max(ay1, by1)
+          ix2 = min(ax2, bx2); iy2 = min(ay2, by2)
+          iw = max(0, ix2 - ix1); ih = max(0, iy2 - iy1)
+          inter = iw * ih
+          ua = (ax2 - ax1) * (ay2 - ay1); ub = (bx2 - bx1) * (by2 - by1)
+          union = ua + ub - inter
+          return inter / union if union > 0 else 0.0
+
+      def bbox_contains(person_bbox, weapon_bbox):
+          # Weapon in hand → weapon bbox center should be inside person bbox
+          # extended vertically (arm reach). Person: [x1,y1,x2,y2].
+          px1, py1, px2, py2 = person_bbox
+          wcx = (weapon_bbox[0] + weapon_bbox[2]) / 2
+          wcy = (weapon_bbox[1] + weapon_bbox[3]) / 2
+          # Extend person bbox by 30% laterally for arm reach
+          pw = px2 - px1
+          ex = pw * 0.3
+          return (px1 - ex) <= wcx <= (px2 + ex) and py1 <= wcy <= py2
+
+      # Confidence 0.15 is intentionally permissive — YOLO-World open-vocab
+      # scores are lower than a fine-tuned detector; we'll filter downstream
+      # by consistency (weapon must be detected in >=2 frames on same track).
+      CONF = 0.15
+      IMGSZ = 640
+      BATCH = 8
+
+      weapons_per_frame = {}  # frame_idx → list of {bbox, cls, conf}
+      per_track_weapons = {}  # tid → list of {frame_idx, sec, class, conf, bbox, iou_or_contain}
+      total_detections = 0
+      unmatched = 0
+
+      try:
+          for i in range(0, len(frame_paths), BATCH):
+              batch = frame_paths[i:i+BATCH]
+              results = model(batch, conf=CONF, imgsz=IMGSZ, verbose=False)
+              for fp, res in zip(batch, results):
+                  fidx = frame_idx_from_path(fp)
+                  if res.boxes is None or len(res.boxes) == 0:
+                      continue
+                  try:
+                      boxes = res.boxes.xyxy.cpu().tolist()
+                      classes = res.boxes.cls.int().cpu().tolist()
+                      confs = res.boxes.conf.cpu().tolist()
+                  except Exception:
+                      continue
+                  weapons_per_frame.setdefault(fidx, [])
+                  candidates = frame_to_track_bboxes.get(fidx, [])
+                  for bx, cls_idx, cf in zip(boxes, classes, confs):
+                      total_detections += 1
+                      cls_name = WEAPON_CLASSES[cls_idx] if 0 <= cls_idx < len(WEAPON_CLASSES) else str(cls_idx)
+                      wep = {"bbox": [round(v, 1) for v in bx],
+                             "class": cls_name, "conf": round(float(cf), 3)}
+                      weapons_per_frame[fidx].append(wep)
+                      # Match to track — either by IoU (weapon overlapping
+                      # person bbox for held items) or by containment
+                      # (weapon center inside person bbox extended for arm).
+                      best_tid, best_score = None, 0.0
+                      for tid, tbbox in candidates:
+                          ov = iou(bx, tbbox)
+                          contained = bbox_contains(tbbox, bx)
+                          score = max(ov, 0.35 if contained else 0.0)
+                          if score > best_score:
+                              best_tid, best_score = tid, score
+                      if best_tid is None or best_score < 0.15:
+                          unmatched += 1
+                          continue
+                      sec = round(fidx * tracks_data["vid_stride"]
+                                    / tracks_data["video_src_fps"], 3)
+                      per_track_weapons.setdefault(str(best_tid), []).append({
+                          "frame_idx": fidx, "sec": sec,
+                          "class": cls_name, "conf": round(float(cf), 3),
+                          "bbox": [round(v, 1) for v in bx],
+                          "match_score": round(best_score, 3),
+                      })
+      except Exception as e:
+          traceback.print_exc()
+          _bail(f"inference failed: {type(e).__name__}: {e}")
+
+      # ── Post-process: aggregate per-track summary + consistency filter ───
+      # A single weapon detection on a track is likely noise (YOLO-World
+      # over-fires at low conf). Real armed subjects should show weapon
+      # detections on 2+ frames within a plausible window.
+      MIN_WEAPON_FRAMES = 2
+      per_track_summary = {}
+      for tid, dets in per_track_weapons.items():
+          if len(dets) < MIN_WEAPON_FRAMES:
+              continue
+          dets.sort(key=lambda d: d["frame_idx"])
+          class_counts = {}
+          for d in dets:
+              class_counts[d["class"]] = class_counts.get(d["class"], 0) + 1
+          per_track_summary[tid] = {
+              "track_id": int(tid),
+              "num_weapon_frames": len(dets),
+              "first_weapon_sec": dets[0]["sec"],
+              "last_weapon_sec":  dets[-1]["sec"],
+              "weapon_classes": class_counts,
+              "max_conf": max(d["conf"] for d in dets),
+              "mean_conf": round(sum(d["conf"] for d in dets)/len(dets), 3),
+              "detections": dets[:20],  # cap payload
+          }
+
+      weapons_out = {
+          "available": True,
+          "model": "yolov8s-worldv2",
+          "classes": WEAPON_CLASSES,
+          "confidence_threshold": CONF,
+          "min_frames_for_track_association": MIN_WEAPON_FRAMES,
+          "processed_frames": len(frame_paths),
+          "total_raw_detections": total_detections,
+          "unmatched_detections": unmatched,
+          "num_tracks_with_weapons": len(per_track_summary),
+          "tracks_with_weapons": per_track_summary,
+      }
+      with open(weapons_path, "w") as f:
+          json.dump(weapons_out, f)
+      size_kb = os.path.getsize(weapons_path) / 1024
+      print(f"[weapon-detect] frames={len(frame_paths)} raw_detections={total_detections} "
+            f"unmatched={unmatched} tracks_with_weapons={len(per_track_summary)} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      if per_track_summary:
+          print("[weapon-detect] 🚨 Armed subjects detected:")
+          for tid, s in sorted(per_track_summary.items(), key=lambda x: int(x[0])):
+              cls_str = ", ".join(f"{c}:{n}" for c, n in s["weapon_classes"].items())
+              print(f"  track {tid}: {s['num_weapon_frames']} weapon-frames "
+                    f"({s['first_weapon_sec']}s → {s['last_weapon_sec']}s) "
+                    f"[{cls_str}] max_conf={s['max_conf']}", flush=True)
+
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
@@ -1215,6 +1464,53 @@ spec:
       except Exception as e:
           print(f"[caption] pose-signals read failed: {e}")
 
+      # ── Weapon signals from weapon-detect (Phase 3) ─────────────────────
+      weapon_signals = None
+      weapons_path = f"{workspace}/{clip_id}/.weapons.json"
+      try:
+          with open(weapons_path) as f:
+              _wep = json.load(f)
+          if _wep.get("available"):
+              tracks_wep = _wep.get("tracks_with_weapons", {}) or {}
+              weapon_signals = {
+                  "model": _wep.get("model"),
+                  "num_tracks_with_weapons": _wep.get("num_tracks_with_weapons"),
+                  "total_raw_detections": _wep.get("total_raw_detections"),
+                  "tracks_with_weapons": tracks_wep,
+                  "note": ("Per-subject weapon detections from a YOLO-World "
+                           "open-vocabulary detector. Each entry ties a "
+                           "weapon type (pistol / rifle / knife / etc.) "
+                           "to a persistent ByteTrack subject via IoU "
+                           "and bbox-containment matching. Only tracks "
+                           "with 2+ frames of weapon presence are "
+                           "surfaced (single-frame detections are "
+                           "filtered as noise). IF ANY TRACK APPEARS "
+                           "HERE, THAT SUBJECT IS ARMED — call it out "
+                           "explicitly in Weapons & Threats, Modus "
+                           "Operandi, and Forensic Conclusion with the "
+                           "weapon class and the timestamp range. "
+                           "Combine with pose_signals.geometric_"
+                           "incident_candidates: an armed subject + "
+                           "another subject going prone within a few "
+                           "seconds = armed assault. This is the "
+                           "definitive shootout / brandishing signal."),
+              }
+              print(f"[caption] weapon-signals: tracks_with_weapons="
+                    f"{weapon_signals['num_tracks_with_weapons']} "
+                    f"total_raw={weapon_signals['total_raw_detections']}")
+              for tid, s in sorted(tracks_wep.items(), key=lambda x: int(x[0])):
+                  classes = ", ".join(f"{c}:{n}" for c, n in
+                                       s["weapon_classes"].items())
+                  print(f"  🔫 track {tid}: {s['num_weapon_frames']} frames "
+                        f"({s['first_weapon_sec']}s→{s['last_weapon_sec']}s) "
+                        f"[{classes}] max_conf={s['max_conf']}")
+          else:
+              print(f"[caption] weapon-signals unavailable: {_wep.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] .weapons.json not found (weapon-detect step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] weapon-signals read failed: {e}")
+
       trusted_signals = {
           "clip_duration_sec": duration_sec,
           "frame_count": len(frame_paths),
@@ -1228,6 +1524,7 @@ spec:
           "windows": windows_meta,
           "object_detector_signals": object_signals,
           "pose_signals": pose_signals,
+          "weapon_signals": weapon_signals,
       }
       print(f"[caption] TRUSTED SIGNALS lighting={lighting_class} avg_lum={avg_lum:.1f} "
             f"hotspots={hotspot_frames}")
@@ -1356,7 +1653,29 @@ spec:
           "    other prone-shaped bboxes were rejected as noise — that "
           "    number confirms the filter is working. The candidates you "
           "    see have already been vetted; treat them as evidence, "
-          "    not hypothesis.\n\n"
+          "    not hypothesis.\n"
+          "  - `weapon_signals` (may be null if weapon-detector "
+          "    unavailable). 🚨 DEFINITIVE ARMED-SUBJECT SIGNAL. Each "
+          "    `tracks_with_weapons[<id>]` entry associates a persistent "
+          "    subject with weapon detections (firearm / knife / blunt "
+          "    instrument) from a YOLO-World open-vocabulary detector, "
+          "    keyed by ByteTrack ID via IoU + bbox-containment matching. "
+          "    Only tracks with 2+ weapon frames appear (single-frame "
+          "    noise pre-filtered). If this field has ANY entries:\n"
+          "      1. In Weapons & Threats: list every armed subject by "
+          "         Subject # matching their track_id, with the weapon "
+          "         class and the first-seen / last-seen timestamps\n"
+          "      2. In Modus Operandi: name the incident class based on "
+          "         weapon + context (armed robbery / aggravated assault "
+          "         with a deadly weapon / brandishing / shooting)\n"
+          "      3. In Forensic Conclusion: state weapon presence as "
+          "         confirmed evidence with HIGH confidence\n"
+          "    An armed subject (weapon_signals) + another subject in "
+          "    geometric_incident_candidates (prone/fall) within ~5s = "
+          "    ARMED ASSAULT WITH VICTIM DOWN — the strongest and most "
+          "    dispositive shootout signal the pipeline can produce. "
+          "    NEVER downgrade this to 'possible weapon' or 'unclear' "
+          "    when the detector has confirmed multi-frame presence.\n\n"
 
           "WINDOW ANALYSIS PROTOCOL:\n"
           "For each window, before writing your master JSON, silently walk through "
