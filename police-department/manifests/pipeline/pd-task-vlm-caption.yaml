@@ -337,12 +337,28 @@ spec:
               vid_stride=vid_stride, stream=True,
               persist=True, save=False, verbose=False,
           )
+          # We rescale ByteTrack bboxes from native video coord space into
+          # the dense_frames coord space (SAVE_W-wide) so ALL downstream
+          # phases (pose, weapon, muzzle-flash) can crop / IoU-match without
+          # needing to know the source video resolution.
+          src_w_native = None  # captured on first frame
+          scale_to_dense = 1.0
+          dense_w = None
+          dense_h = None
           for frame_idx, res in enumerate(stream):
               frame_count = frame_idx + 1
               sec = round(frame_idx * vid_stride / src_fps, 3)
-              # Save the raw frame downsized for downstream phases
               if res.orig_img is not None:
                   h, w = res.orig_img.shape[:2]
+                  if src_w_native is None:
+                      src_w_native = w
+                      if w > SAVE_W:
+                          scale_to_dense = SAVE_W / float(w)
+                          dense_w = SAVE_W
+                          dense_h = int(round(h * scale_to_dense))
+                      else:
+                          scale_to_dense = 1.0
+                          dense_w, dense_h = w, h
                   if w > SAVE_W:
                       new_h = int(h * SAVE_W / w)
                       img_out = cv2.resize(res.orig_img, (SAVE_W, new_h))
@@ -362,15 +378,17 @@ spec:
               persons_per_frame.append(n)
               if ids:
                   for tid, bx, cf in zip(ids, boxes, confs):
+                      # Rescale bbox from native → dense coord space.
+                      bx_dense = [round(x * scale_to_dense, 1) for x in bx]
                       tracks.setdefault(str(tid), []).append({
                           "frame_idx": frame_idx,
                           "sec": sec,
-                          "bbox": [round(x, 1) for x in bx],
+                          "bbox": bx_dense,
                           "conf": round(float(cf), 3),
                       })
               # Per-window running max
-              w = min(int(sec / window_dur) + 1, num_windows) if window_dur > 0 else 1
-              key = str(w)
+              w2 = min(int(sec / window_dur) + 1, num_windows) if window_dur > 0 else 1
+              key = str(w2)
               per_window_max[key] = max(per_window_max.get(key, 0), n)
       except Exception as e:
           traceback.print_exc()
@@ -432,7 +450,9 @@ spec:
       with open(signals_path, "w") as f:
           json.dump(signals, f, indent=2)
 
-      # Per-track full trajectory (for downstream phases)
+      # Per-track full trajectory (for downstream phases).
+      # bboxes are stored in dense_frames coord space (dense_w × dense_h).
+      # Downstream (pose, weapon, muzzle-flash) does NOT need to rescale.
       tracks_out = {
           "available": True,
           "source": "yolov8n + bytetrack",
@@ -441,6 +461,10 @@ spec:
           "vid_stride": vid_stride,
           "frame_count": frame_count,
           "clip_duration_sec": duration_sec,
+          "src_video_native_w": src_w_native,
+          "dense_frame_w": dense_w,
+          "dense_frame_h": dense_h,
+          "coord_space": "dense_frames",
           "num_unique_tracks": len(stable_tracks),
           "noise_tracks_dropped": dropped,
           "tracks": stable_tracks,
