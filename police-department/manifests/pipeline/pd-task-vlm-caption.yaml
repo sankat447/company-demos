@@ -783,6 +783,71 @@ spec:
               "keypoints_downsampled": kps_downsampled,
           }
 
+      # ── Geometric fall/prone detector (no pose model needed) ────────────
+      # YOLOv8-pose fails on small bboxes (~30-40px, night lighting, low
+      # keypoint visibility). But raw ByteTrack bbox geometry is a robust
+      # signal by itself:
+      #   aspect < 0.55  → upright / standing / walking  (typical human)
+      #   aspect 0.55-0.9 → crouched / kneeling / bending
+      #   aspect > 0.9   → prone / horizontal   (person on ground)
+      # For each track: detect intervals where aspect > 0.9 for 3+ frames
+      # AND sharp transitions from aspect<0.55 to aspect>0.9 (fall events).
+      # This catches the "shootout victim on the ground" case even when
+      # the pose classifier bailed out.
+      geometric = {}
+      for tid, t in tracks.items():
+          dets = t.get("detections", [])
+          if len(dets) < 3:
+              continue
+          per_frame = []
+          for d in dets:
+              x1, y1, x2, y2 = d["bbox"]
+              w, h = max(x2-x1, 0.001), max(y2-y1, 0.001)
+              per_frame.append({"sec": d["sec"], "aspect": w/h,
+                                "bbox_h": h, "bbox_w": w})
+          # Sustained prone intervals
+          intervals = []
+          cur = None
+          for pf in per_frame:
+              if pf["aspect"] > 0.9:
+                  if cur is None:
+                      cur = {"start_sec": pf["sec"], "end_sec": pf["sec"],
+                              "peak_aspect": pf["aspect"], "frames": 1,
+                              "median_bbox_h": pf["bbox_h"]}
+                  else:
+                      cur["end_sec"] = pf["sec"]
+                      cur["peak_aspect"] = max(cur["peak_aspect"], pf["aspect"])
+                      cur["frames"] += 1
+              else:
+                  if cur and cur["frames"] >= 3:
+                      cur["duration_sec"] = round(cur["end_sec"] - cur["start_sec"], 2)
+                      intervals.append(cur)
+                  cur = None
+          if cur and cur["frames"] >= 3:
+              cur["duration_sec"] = round(cur["end_sec"] - cur["start_sec"], 2)
+              intervals.append(cur)
+          # Fall events: aspect jumps from <0.55 (standing) to >0.9 (prone)
+          # within a 6-frame window (~0.75s at 8 fps).
+          fall_events = []
+          for i in range(4, len(per_frame)):
+              window = per_frame[max(0, i-6):i]
+              min_prev = min(pf["aspect"] for pf in window) if window else 1.0
+              if per_frame[i]["aspect"] > 0.9 and min_prev < 0.55:
+                  fall_events.append({
+                      "sec": round(per_frame[i]["sec"], 2),
+                      "aspect_before": round(min_prev, 2),
+                      "aspect_after": round(per_frame[i]["aspect"], 2),
+                  })
+          # % time in prone-like posture over the track's whole lifetime
+          prone_ratio = sum(1 for pf in per_frame if pf["aspect"] > 0.9) / len(per_frame)
+          if intervals or fall_events or prone_ratio > 0.3:
+              geometric[tid] = {
+                  "track_id": int(tid),
+                  "prone_ratio": round(prone_ratio, 3),
+                  "sustained_prone_intervals": intervals,
+                  "fall_events": fall_events,
+              }
+
       poses_out = {
           "available": True,
           "model": "yolov8n-pose",
@@ -792,6 +857,7 @@ spec:
           "unmatched_poses": unmatched_poses,
           "num_tracks_with_poses": len(per_track_summary),
           "tracks": per_track_summary,
+          "geometric_prone_signals": geometric,
       }
       with open(poses_path, "w") as f:
           json.dump(poses_out, f)
@@ -799,7 +865,17 @@ spec:
       size_kb = os.path.getsize(poses_path) / 1024
       print(f"[pose-estimate] frames_processed={processed_frames} matched={matched_poses} "
             f"unmatched={unmatched_poses} tracks_with_poses={len(per_track_summary)} "
+            f"geometric_flagged_tracks={len(geometric)} "
             f"payload={size_kb:.1f}KB", flush=True)
+      if geometric:
+          print("[pose-estimate] Geometric prone/fall candidates:")
+          for tid, g in sorted(geometric.items(), key=lambda x: int(x[0])):
+              parts = [f"track {tid}: prone_ratio={g['prone_ratio']}"]
+              for iv in g["sustained_prone_intervals"][:3]:
+                  parts.append(f"prone-interval {iv['start_sec']:.1f}s→{iv['end_sec']:.1f}s ({iv['frames']}f, peak_aspect={iv['peak_aspect']:.2f})")
+              for fe in g["fall_events"][:3]:
+                  parts.append(f"FALL@{fe['sec']:.1f}s (aspect {fe['aspect_before']}→{fe['aspect_after']})")
+              print("  " + "; ".join(parts), flush=True)
       for tid, s in sorted(per_track_summary.items(), key=lambda x: int(x[0])):
           # Compact posture summary per track
           counts_str = ", ".join(f"{p}:{n}" for p, n in
@@ -1057,6 +1133,7 @@ spec:
                       "segments": s["segments"],
                       "changes": s["changes"],
                   }
+              geometric = _pose.get("geometric_prone_signals", {}) or {}
               pose_signals = {
                   "model": _pose.get("model"),
                   "num_tracks_with_poses": _pose.get("num_tracks_with_poses"),
@@ -1064,6 +1141,7 @@ spec:
                                         max(_pose.get("matched_poses", 0)
                                              + _pose.get("unmatched_poses", 0), 1), 3)),
                   "tracks": track_pose_summary,
+                  "geometric_prone_signals": geometric,
                   "note": ("Per-subject posture data from a YOLOv8-pose "
                            "estimator matched to ByteTrack IDs by IoU. "
                            "`segments` is the contiguous posture-time "
@@ -1078,10 +1156,18 @@ spec:
                            "`arm-extended` warrant scrutiny."),
               }
               print(f"[caption] pose-signals: tracks_with_poses={pose_signals['num_tracks_with_poses']} "
-                    f"match_rate={pose_signals['match_rate']}")
+                    f"match_rate={pose_signals['match_rate']} "
+                    f"geometric_flagged={len(geometric)}")
               for tid, s in sorted(track_pose_summary.items(), key=lambda x: int(x[0])):
                   print(f"  track {tid}: postures={s['posture_counts']} "
                         f"changes={len(s['changes'])}")
+              if geometric:
+                  print("[caption] geometric-fall signals (bbox-aspect based):")
+                  for tid, g in sorted(geometric.items(), key=lambda x: int(x[0])):
+                      msg = (f"    track {tid}: prone_ratio={g['prone_ratio']} "
+                             f"prone_intervals={len(g['sustained_prone_intervals'])} "
+                             f"fall_events={len(g['fall_events'])}")
+                      print(msg)
           else:
               print(f"[caption] pose-signals unavailable: {_pose.get('reason','unknown')}")
       except FileNotFoundError:
@@ -1193,7 +1279,35 @@ spec:
           "    NEVER contradict the pose data — the classifier is running "
           "    on ~8 fps of the full video, not on the 60 sampled "
           "    keyframes you see, so it can catch transient events "
-          "    invisible to you.\n\n"
+          "    invisible to you.\n"
+          "  - `pose_signals.geometric_prone_signals` is a CRITICAL fallback "
+          "    signal computed from raw ByteTrack bbox geometry — no pose "
+          "    model needed. YOLOv8-pose fails on small / distant / occluded "
+          "    / night-lit subjects, so we ALSO analyze the bbox aspect "
+          "    ratio (width/height) over each track's lifetime. A person "
+          "    standing has aspect ~0.35-0.55; a prone person has "
+          "    aspect >0.9 (wider than tall). Each entry contains:\n"
+          "      * `prone_ratio`: fraction of the track's frames where "
+          "        the bbox was prone-shaped. >0.3 is suspicious; >0.6 "
+          "        strongly suggests the subject spent significant time "
+          "        on the ground.\n"
+          "      * `sustained_prone_intervals`: continuous time-windows "
+          "        where the bbox stayed prone (aspect>0.9) for 3+ frames. "
+          "        Each interval has a start_sec, end_sec, and duration.\n"
+          "      * `fall_events`: sharp aspect transitions from <0.55 "
+          "        (upright) to >0.9 (prone) within ~0.75s — the visual "
+          "        signature of a person being knocked down or falling.\n"
+          "    When a track appears in `geometric_prone_signals` with "
+          "    fall_events or sustained_prone_intervals, TREAT THAT AS A "
+          "    STRONG INCIDENT SIGNAL. Even if pose keypoints could not be "
+          "    reliably extracted (e.g. because the subject is far from "
+          "    the camera or occluded), a track whose bbox stays "
+          "    horizontal for 5+ seconds is almost certainly a person on "
+          "    the ground. Surface this in Modus Operandi, Timeline, and "
+          "    Forensic Conclusion. Do NOT dismiss it as 'noise' or "
+          "    'stationary object' unless there's a clear alternative "
+          "    explanation (e.g. the same aspect from clip start to end, "
+          "    indicating a permanent feature like a bench or a car).\n\n"
 
           "WINDOW ANALYSIS PROTOCOL:\n"
           "For each window, before writing your master JSON, silently walk through "
