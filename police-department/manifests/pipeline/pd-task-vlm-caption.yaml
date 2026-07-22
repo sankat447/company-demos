@@ -188,55 +188,66 @@ spec:
       printf '%s\n' "${step:-${STEP:-0}}" > .clip-frame-step-sec
 
   # ─────────────────────────────────────────────────────────────────────────
-  # object-detect (YOLOv8n people-count pre-pass)
-  # Emits `.object-signals.json` with per-frame + per-window + clip-level
-  # person counts. The caption step reads this and injects it into TRUSTED
-  # SIGNALS so Claude gets a HARD ground-truth people count it cannot
-  # hallucinate away. Fixes the "missed 3 people" gap where the VLM
-  # narrative describes fewer subjects than actually appear on-screen.
+  # object-detect (YOLOv8n + ByteTrack persistent person tracking)
+  # PHASE 1 of the CV-stack upgrade — foundation for pose / weapon /
+  # action-recognition / muzzle-flash / event-fusion. Every downstream
+  # signal keys off the persistent track_id emitted here.
   #
-  # Model: Ultralytics YOLOv8n (COCO-pretrained, class 0 = person).
-  # Runtime: ~150ms/frame on CPU → ~10-15s for 60 frames. Weights (~6MB)
-  # auto-download to /workspace/.ultralytics-cache on first run and are
-  # cached on shared EFS across subsequent PipelineRuns.
-  # License: AGPL-3.0 — acceptable for on-cluster demo; redistribution
-  # would require Ultralytics enterprise license.
-  # This step is defensive — if it fails, caption still runs and emits
-  # its narration without hardcoded people-count signals.
+  # Behavior:
+  #   1. Runs YOLOv8n + ByteTrack on the raw video file (not the sampled
+  #      60 keyframes) with vid_stride computed to hit ~8 fps effective.
+  #      ByteTrack maintains temporal identity across occlusion / re-entry.
+  #   2. Saves dense_frames/f_%06d.jpg (640-wide JPEGs) alongside — these
+  #      are the frames downstream phases will crop bboxes from.
+  #   3. Emits .tracks.json with per-track_id trajectory (frame_idx, sec,
+  #      bbox, conf) — used by Phase 2+ (pose, weapon, action).
+  #   4. Emits .object-signals.json (existing schema, now sourced from
+  #      the tracker so unique_subjects_lower_bound is a TRUE unique
+  #      count from persistent IDs, not a max-simultaneous approximation).
+  #
+  # Model: Ultralytics YOLOv8n + built-in ByteTrack.
+  # Runtime: ~100-150ms/frame on CPU; a 60s clip @ 8fps effective =
+  # ~480 frames = 60-90s inference. Weights cached on shared EFS.
+  # License: AGPL-3.0 — acceptable for on-cluster demo.
+  # This step is defensive — on any failure, downstream steps degrade
+  # gracefully (caption step's TRUSTED SIGNALS just omits the object-
+  # detector block).
   # ─────────────────────────────────────────────────────────────────────────
   - name: object-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
     script: |
       #!/usr/bin/env python3
-      import os, sys, glob, json, re, subprocess, traceback
+      import os, sys, json, subprocess, traceback
 
       clip_id = "$(params.clip-id)"
       workspace = "$(workspaces.shared.path)"
-      frames_dir = f"{workspace}/{clip_id}/frames"
-      out_path   = f"{workspace}/{clip_id}/.object-signals.json"
+      clip_dir = f"{workspace}/{clip_id}"
+      video_path = f"{clip_dir}/clip.mp4"
+      dense_dir = f"{clip_dir}/dense_frames"
+      signals_path = f"{clip_dir}/.object-signals.json"
+      tracks_path  = f"{clip_dir}/.tracks.json"
       cache_dir  = f"{workspace}/.ultralytics-cache"
       weights_path = f"{cache_dir}/yolov8n.pt"
 
-      # Best-effort: on any exception we write an empty signal file so the
-      # caption step degrades to its old behavior instead of failing.
+      # Best-effort: on any exception we still write the (empty) signal
+      # files so the caption step degrades gracefully.
       def _bail(reason):
-          try:
-              with open(out_path, "w") as f:
-                  json.dump({"available": False, "reason": reason}, f)
-          except Exception:
-              pass
+          for p in (signals_path, tracks_path):
+              try:
+                  with open(p, "w") as f:
+                      json.dump({"available": False, "reason": reason}, f)
+              except Exception:
+                  pass
           print(f"[object-detect] skipped — {reason}", flush=True)
           sys.exit(0)
+
+      if not os.path.exists(video_path):
+          _bail(f"video not found at {video_path}")
 
       try:
           import ultralytics  # noqa
       except ImportError:
-          # ultralytics pulls in `opencv-python`, which needs libGL.so.1 —
-          # not present in ubi9/python-311. Force `opencv-python-headless`
-          # first so pip's dep resolver treats the requirement as satisfied
-          # by the headless variant. Then install ultralytics without deps
-          # for cv2, then top up the rest of its deps.
-          print("[object-detect] installing ultralytics + torch (headless cv2) — takes ~60-90s the first time...", flush=True)
+          print("[object-detect] installing ultralytics + torch (headless cv2) — ~60-90s first time...", flush=True)
           try:
               subprocess.check_call(
                   [sys.executable, "-m", "pip", "install", "--quiet",
@@ -245,8 +256,6 @@ spec:
                    "opencv-python-headless", "ultralytics"],
                   timeout=600,
               )
-              # If pip still ended up installing opencv-python (needing
-              # libGL), replace it with the headless build.
               subprocess.call(
                   [sys.executable, "-m", "pip", "uninstall", "-y",
                    "--disable-pip-version-check", "opencv-python"],
@@ -264,87 +273,188 @@ spec:
 
       try:
           os.makedirs(cache_dir, exist_ok=True)
-          # Point ultralytics at the shared cache dir so weights persist
-          # across PipelineRuns on EFS.
+          os.makedirs(dense_dir, exist_ok=True)
           os.environ["YOLO_CONFIG_DIR"] = cache_dir
+          import cv2
           from ultralytics import YOLO
-          # If the weights aren't cached yet, this triggers a one-time
-          # ~6MB download from ultralytics.com to `cache_dir`.
           model = YOLO(weights_path if os.path.exists(weights_path) else "yolov8n.pt")
       except Exception as e:
           _bail(f"model load failed: {type(e).__name__}: {e}")
 
-      frame_paths = sorted(glob.glob(f"{frames_dir}/window*_*.jpg"))
-      if not frame_paths:
-          frame_paths = sorted(glob.glob(f"{frames_dir}/*.jpg"))
-      if not frame_paths:
-          _bail("no frames found on workspace")
+      # Probe source fps so we can compute a vid_stride that lands at
+      # ~8 fps effective — dense enough for tracking + pose without
+      # burning CPU on every frame of a 30 fps recording.
+      try:
+          cap = cv2.VideoCapture(video_path)
+          src_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+          src_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+          cap.release()
+      except Exception:
+          src_fps = 30.0
+          src_frame_count = 0
+      if src_fps < 1:
+          src_fps = 30.0
+      TARGET_FPS = 8.0
+      vid_stride = max(1, int(round(src_fps / TARGET_FPS)))
+      effective_fps = src_fps / vid_stride
+      print(f"[object-detect] video src_fps={src_fps:.1f} src_frames={src_frame_count} "
+            f"vid_stride={vid_stride} effective_fps={effective_fps:.2f}", flush=True)
 
-      # Group by window using the windowN_MMM.jpg filename convention
-      by_window = {}
-      for fp in frame_paths:
-          m = re.match(r"window(\d+)_(\d+)\.jpg", os.path.basename(fp))
-          w = int(m.group(1)) if m else 1
-          by_window.setdefault(w, []).append(fp)
+      # Clear stale dense_frames from a prior run on this clip
+      for old in os.listdir(dense_dir):
+          if old.startswith("f_") and old.endswith(".jpg"):
+              try: os.remove(os.path.join(dense_dir, old))
+              except OSError: pass
 
-      # Confidence 0.4 keeps false positives low on distant CCTV; class 0 is
-      # `person` in COCO. Small imgsz keeps CPU time down.
+      # Read chunked-window meta so we can aggregate per-window signals.
+      try:
+          num_windows = int(open(f"{clip_dir}/.num-windows").read().strip())
+          window_dur = float(open(f"{clip_dir}/.window-durations").read().strip())
+      except Exception:
+          num_windows, window_dur = 1, 60.0
+      try:
+          duration_sec = int(open(f"{clip_dir}/.clip-duration-sec").read().strip())
+      except Exception:
+          duration_sec = int(num_windows * window_dur)
+
       CONF = 0.4
       IMGSZ = 640
+      SAVE_W = 640   # width of saved dense_frame JPEGs
 
-      per_frame = []          # [{path, window, person_count}]
-      per_window_max = {}     # {window_idx: max count}
-      per_window_first_sec = {}
-      per_window_last_sec  = {}
-      max_count = 0
+      # tracks[track_id] = [{frame_idx, sec, bbox, conf}, ...]
+      tracks = {}
+      persons_per_frame = []
+      per_window_max = {str(w): 0 for w in range(1, num_windows + 1)}
+      frame_count = 0
 
       try:
-          # Ultralytics accepts a list of paths; runs batched.
-          results = model(frame_paths, conf=CONF, classes=[0],
-                          imgsz=IMGSZ, verbose=False)
+          # `.track()` maintains ByteTrack state across the video. persist=True
+          # keeps track IDs stable if we chain multiple .track() calls (not
+          # doing that here but sets a safer default).
+          stream = model.track(
+              source=video_path, tracker="bytetrack.yaml",
+              classes=[0], conf=CONF, imgsz=IMGSZ,
+              vid_stride=vid_stride, stream=True,
+              persist=True, save=False, verbose=False,
+          )
+          for frame_idx, res in enumerate(stream):
+              frame_count = frame_idx + 1
+              sec = round(frame_idx * vid_stride / src_fps, 3)
+              # Save the raw frame downsized for downstream phases
+              if res.orig_img is not None:
+                  h, w = res.orig_img.shape[:2]
+                  if w > SAVE_W:
+                      new_h = int(h * SAVE_W / w)
+                      img_out = cv2.resize(res.orig_img, (SAVE_W, new_h))
+                  else:
+                      img_out = res.orig_img
+                  cv2.imwrite(
+                      f"{dense_dir}/f_{frame_idx:06d}.jpg",
+                      img_out, [int(cv2.IMWRITE_JPEG_QUALITY), 85],
+                  )
+              # Extract per-frame track detections
+              ids = boxes = confs = None
+              if res.boxes is not None and res.boxes.id is not None:
+                  ids = res.boxes.id.int().cpu().tolist()
+                  boxes = res.boxes.xyxy.cpu().tolist()
+                  confs = res.boxes.conf.cpu().tolist()
+              n = len(ids) if ids else 0
+              persons_per_frame.append(n)
+              if ids:
+                  for tid, bx, cf in zip(ids, boxes, confs):
+                      tracks.setdefault(str(tid), []).append({
+                          "frame_idx": frame_idx,
+                          "sec": sec,
+                          "bbox": [round(x, 1) for x in bx],
+                          "conf": round(float(cf), 3),
+                      })
+              # Per-window running max
+              w = min(int(sec / window_dur) + 1, num_windows) if window_dur > 0 else 1
+              key = str(w)
+              per_window_max[key] = max(per_window_max.get(key, 0), n)
       except Exception as e:
           traceback.print_exc()
-          _bail(f"inference failed: {type(e).__name__}: {e}")
+          _bail(f"tracking failed: {type(e).__name__}: {e}")
 
-      for fp, res in zip(frame_paths, results):
-          n = 0
-          try:
-              n = int(res.boxes.shape[0]) if res.boxes is not None else 0
-          except Exception:
-              n = 0
-          m = re.match(r"window(\d+)_(\d+)\.jpg", os.path.basename(fp))
-          w = int(m.group(1)) if m else 1
-          per_frame.append({"path": os.path.basename(fp), "window": w,
-                            "person_count": n})
-          per_window_max[w] = max(per_window_max.get(w, 0), n)
-          max_count = max(max_count, n)
+      # ── Post-process tracks ──────────────────────────────────────────────
+      tracks_meta = {}
+      for tid, dets in tracks.items():
+          firsts, lasts = dets[0], dets[-1]
+          confs = [d["conf"] for d in dets]
+          tracks_meta[tid] = {
+              "track_id": int(tid),
+              "first_frame_idx": firsts["frame_idx"],
+              "last_frame_idx":  lasts["frame_idx"],
+              "first_sec": firsts["sec"],
+              "last_sec":  lasts["sec"],
+              "duration_sec": round(lasts["sec"] - firsts["sec"], 2),
+              "num_detections": len(dets),
+              "mean_confidence": round(sum(confs)/len(confs), 3),
+              "first_bbox": firsts["bbox"],
+              "last_bbox":  lasts["bbox"],
+              "detections": dets,
+          }
 
-      # A best-estimate "unique subjects in the clip" is the max simultaneous
-      # count. Real tracking (bytetrack) could give a better number, but max
-      # per-frame is already correct up to occlusion + is a hard upper-bound
-      # for what Claude should say if it under-counts.
-      unique_subjects_estimate = max_count
+      # Filter obvious noise: tracks that appeared in <3 frames or <0.4s.
+      # ByteTrack can emit ghost tracks on false-positive YOLO hits; these
+      # would pollute the "unique subjects" count. Real subjects appear
+      # for at least half a second even in a fast walk-through.
+      MIN_DETS, MIN_DUR = 3, 0.4
+      stable_tracks = {
+          tid: t for tid, t in tracks_meta.items()
+          if t["num_detections"] >= MIN_DETS and t["duration_sec"] >= MIN_DUR
+      }
+      dropped = len(tracks_meta) - len(stable_tracks)
 
-      # Median-per-frame is useful too — it tells Claude the typical
-      # "steady state" people count.
-      counts_sorted = sorted(f["person_count"] for f in per_frame)
-      median_count = counts_sorted[len(counts_sorted) // 2] if counts_sorted else 0
+      max_simultaneous = max(persons_per_frame) if persons_per_frame else 0
+      counts_sorted = sorted(persons_per_frame)
+      median_count = counts_sorted[len(counts_sorted)//2] if counts_sorted else 0
 
+      # Backwards-compat signals payload (caption step reads this)
       signals = {
           "available": True,
           "detector": "yolov8n",
+          "tracker": "bytetrack",
           "class_filter": "person",
           "confidence_threshold": CONF,
-          "frame_count_scanned": len(per_frame),
-          "max_simultaneous_people": max_count,
+          "effective_fps": round(effective_fps, 2),
+          "frame_count_scanned": frame_count,
+          "max_simultaneous_people": max_simultaneous,
           "median_people_per_frame": int(median_count),
-          "unique_subjects_lower_bound": unique_subjects_estimate,
-          "per_window_max_people": {str(k): v for k, v in per_window_max.items()},
+          # Unique count now comes from persistent track IDs, not from
+          # max-per-frame approximation. This is the TRUE number of
+          # distinguishable subjects the tracker saw.
+          "unique_subjects_lower_bound": len(stable_tracks),
+          "num_unique_tracks": len(stable_tracks),
+          "noise_tracks_dropped": dropped,
+          "per_window_max_people": per_window_max,
       }
-      with open(out_path, "w") as f:
+      with open(signals_path, "w") as f:
           json.dump(signals, f, indent=2)
-      print(f"[object-detect] frames={len(per_frame)} max={max_count} "
-            f"median={median_count} per_window_max={per_window_max}", flush=True)
+
+      # Per-track full trajectory (for downstream phases)
+      tracks_out = {
+          "available": True,
+          "source": "yolov8n + bytetrack",
+          "video_src_fps": round(src_fps, 2),
+          "effective_fps": round(effective_fps, 2),
+          "vid_stride": vid_stride,
+          "frame_count": frame_count,
+          "clip_duration_sec": duration_sec,
+          "num_unique_tracks": len(stable_tracks),
+          "noise_tracks_dropped": dropped,
+          "tracks": stable_tracks,
+      }
+      with open(tracks_path, "w") as f:
+          json.dump(tracks_out, f, indent=2)
+
+      print(f"[object-detect] frames={frame_count} tracks={len(tracks_meta)} "
+            f"stable={len(stable_tracks)} dropped_noise={dropped} "
+            f"max_simultaneous={max_simultaneous} per_window={per_window_max}", flush=True)
+      for tid, t in sorted(stable_tracks.items(), key=lambda x: int(x[0])):
+          print(f"  track {tid}: {t['first_sec']:.1f}s → {t['last_sec']:.1f}s "
+                f"({t['num_detections']} dets, mean_conf={t['mean_confidence']:.2f})",
+                flush=True)
 
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
@@ -494,32 +604,77 @@ spec:
           windows_meta.append({"window": w_idx, "start_sec": w_start,
                                "end_sec": w_end, "frame_count": fpw})
 
-      # ── People-count signals from the object-detect step (YOLOv8n) ───────
+      # ── People-count + track signals from object-detect (YOLOv8n+ByteTrack) ─
       # Optional — the step is defensive and may skip on any error. When
-      # present, this gives Claude a HARD ground-truth count that it cannot
-      # under-report. Fixes the "missed 3 people" gap.
+      # present, this gives Claude HARD ground-truth counts + per-track
+      # lifetimes it cannot hallucinate away.
       object_signals = None
       obj_path = f"{workspace}/{clip_id}/.object-signals.json"
+      tracks_path = f"{workspace}/{clip_id}/.tracks.json"
       try:
           with open(obj_path) as f:
               _obj = json.load(f)
           if _obj.get("available"):
+              # If .tracks.json is also available, surface each track's
+              # first/last-seen timestamps — this tells Claude exactly
+              # when each subject appears and disappears in the clip.
+              tracks_summary = []
+              try:
+                  with open(tracks_path) as tf:
+                      _tr = json.load(tf)
+                  if _tr.get("available"):
+                      for tid, t in sorted(_tr.get("tracks", {}).items(),
+                                            key=lambda x: int(x[0])):
+                          tracks_summary.append({
+                              "track_id": t["track_id"],
+                              "first_sec": t["first_sec"],
+                              "last_sec":  t["last_sec"],
+                              "duration_sec": t["duration_sec"],
+                              "detections": t["num_detections"],
+                              "mean_conf": t["mean_confidence"],
+                          })
+              except FileNotFoundError:
+                  pass
+              except Exception as e:
+                  print(f"[caption] tracks.json read failed: {e}")
+
               object_signals = {
                   "detector": _obj.get("detector"),
+                  "tracker":  _obj.get("tracker"),
+                  "effective_fps": _obj.get("effective_fps"),
+                  "frame_count_scanned": _obj.get("frame_count_scanned"),
                   "max_simultaneous_people": _obj.get("max_simultaneous_people", 0),
                   "median_people_per_frame": _obj.get("median_people_per_frame", 0),
+                  "num_unique_tracks": _obj.get("num_unique_tracks",
+                                                _obj.get("unique_subjects_lower_bound", 0)),
                   "unique_subjects_lower_bound": _obj.get("unique_subjects_lower_bound", 0),
                   "per_window_max_people": _obj.get("per_window_max_people", {}),
-                  "note": ("These are HARD counts from a dedicated person detector "
-                           "running on every extracted frame. Your Suspects table "
-                           "MUST list at least `unique_subjects_lower_bound` "
-                           "distinguishable people. If your prose says 'two "
-                           "individuals' but this signal says 5, YOU HAVE "
-                           "UNDER-COUNTED — go back and enumerate every person "
-                           "visible across every window."),
+                  "per_track_lifetimes": tracks_summary,
+                  "note": ("These are HARD counts from a YOLOv8n detector + "
+                           "ByteTrack tracker running on the full video at "
+                           "~8 fps. `num_unique_tracks` is the count of "
+                           "PERSISTENT SUBJECT IDs the tracker maintained "
+                           "across the whole clip — this is the TRUE number "
+                           "of distinguishable people, resolved for "
+                           "occlusion and re-entry. Your Suspects/People "
+                           "table MUST enumerate at least this many rows. "
+                           "The `per_track_lifetimes` array tells you WHEN "
+                           "each subject was on-screen — use these "
+                           "timestamps to place each person on the "
+                           "Timeline. If a subject appears only in the "
+                           "last 3 seconds, they are NOT the ringleader; "
+                           "if a track spans the whole clip, that subject "
+                           "is a persistent presence (loiterer, victim, "
+                           "or fixed observer). NEVER assert more subjects "
+                           "than num_unique_tracks — the tracker cannot be "
+                           "beaten by imagination. NEVER under-count."),
               }
-              print(f"[caption] object-signals: max_simultaneous={object_signals['max_simultaneous_people']} "
+              print(f"[caption] object-signals: tracks={object_signals['num_unique_tracks']} "
+                    f"max_simultaneous={object_signals['max_simultaneous_people']} "
                     f"per_window={object_signals['per_window_max_people']}")
+              for ts in tracks_summary:
+                  print(f"  track {ts['track_id']}: {ts['first_sec']}s → {ts['last_sec']}s "
+                        f"({ts['detections']} dets)")
           else:
               print(f"[caption] object-signals unavailable: {_obj.get('reason','unknown')}")
       except FileNotFoundError:
@@ -590,16 +745,27 @@ spec:
           "    master narrative. A per-window analysis is what prevents transient "
           "    events from being averaged away across the whole clip.\n"
           "  - `object_detector_signals` (may be null if the detector was "
-          "    unavailable). When present, `max_simultaneous_people` is a HARD "
-          "    count from a dedicated YOLO person-detector run on every "
-          "    extracted frame. Your `Suspects / People` table MUST enumerate "
-          "    AT LEAST this many distinguishable subjects. If you can only "
-          "    describe 2 people but this signal says 5, YOU HAVE MISSED "
-          "    subjects — go back and look at each window (paying attention "
-          "    to `per_window_max_people`) and enumerate the ones you missed, "
-          "    even if you can only describe them as 'a fourth subject, "
-          "    partially visible near the right edge'. It is far worse to "
-          "    under-count than to describe an extra subject in general terms.\n\n"
+          "    unavailable). When present, `num_unique_tracks` is a HARD "
+          "    count of PERSISTENT SUBJECT IDs from a YOLO+ByteTrack "
+          "    tracker running on the full video at ~8 fps. Each track_id "
+          "    is one distinguishable person the tracker maintained across "
+          "    occlusion and re-entry — this is the TRUE unique-subject "
+          "    count. Your `Suspects / People` table MUST have AT LEAST "
+          "    `num_unique_tracks` rows, numbered to match the track_ids, "
+          "    e.g. Subject #1 = track 1, Subject #2 = track 2. \n"
+          "  - The `per_track_lifetimes` array is authoritative for each "
+          "    subject's on-screen presence. Use `first_sec` / `last_sec` "
+          "    for that subject in the Timeline. A track that spans the "
+          "    entire clip is a persistent presence (loiterer, victim, "
+          "    stationary observer); a track that appears only near the "
+          "    end is a late arrival (fleeing witness, responder). NEVER "
+          "    place a subject in the Timeline BEFORE their `first_sec` "
+          "    or AFTER their `last_sec`.\n"
+          "  - NEVER assert more subjects than `num_unique_tracks` — the "
+          "    tracker is the ceiling. NEVER assert fewer — if you only "
+          "    describe 2 people but the tracker saw 5, YOU HAVE MISSED "
+          "    subjects; go back through the windows and enumerate them, "
+          "    even as 'Subject #4, partially visible near the right edge'.\n\n"
 
           "WINDOW ANALYSIS PROTOCOL:\n"
           "For each window, before writing your master JSON, silently walk through "
