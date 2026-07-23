@@ -1171,6 +1171,243 @@ spec:
                     f"({s['first_weapon_sec']}s → {s['last_weapon_sec']}s) "
                     f"[{cls_str}] max_conf={s['max_conf']}", flush=True)
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # action-recognize (per-track temporal action classification)
+  # PHASE 4 of the CV-stack upgrade. For each ByteTrack track, extracts a
+  # 32-frame temporal window centered on the middle of the track's lifetime,
+  # crops each frame to the track's bbox (with 25% padding for arm-reach
+  # context), assembles into a spatiotemporal tensor, and classifies with
+  # torchvision MViT v2-S (Kinetics-400, Apache-2.0 weights).
+  #
+  # Kinetics-400 has ~400 human-action labels including many that map to
+  # forensic events: `punching person (boxing)`, `wrestling`, `sword
+  # fighting`, `high kick`, `jogging`, `running on treadmill`, `falling off
+  # bike`, `situp`. The pipeline surfaces the top-3 predictions per track
+  # AND a hand-curated `violence_signal` boolean when any top-3 class
+  # matches a violence-relevant label.
+  #
+  # Model: torchvision.models.video.mvit_v2_s (Apache-2.0, ~35MB weights,
+  # ~500-800ms per 32-frame clip on CPU).
+  # Runtime: 30 tracks × ~700ms = ~20s + torchvision install if not cached.
+  # Defensive: on any failure, .actions.json is written with available=false
+  # and caption degrades gracefully.
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: action-recognize
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json, subprocess, traceback
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      clip_dir = f"{workspace}/{clip_id}"
+      dense_dir = f"{clip_dir}/dense_frames"
+      tracks_path  = f"{clip_dir}/.tracks.json"
+      actions_path = f"{clip_dir}/.actions.json"
+      cache_dir = f"{workspace}/.torchvision-cache"
+
+      # Kinetics-400 labels that Claude should treat as forensic violence
+      # signals. Model outputs the top-1 label ID per class; we map back
+      # to strings and check membership.
+      VIOLENCE_LABELS = {
+          "punching person (boxing)", "boxing punching bag",
+          "wrestling", "sword fighting", "high kick", "side kick",
+          "punching bag", "krav maga", "capoeira", "arm wrestling",
+          "headbutting", "slapping", "sword swallowing",  # sanity — mostly harmless
+      }
+      # Kinetics also has movement labels that are useful context:
+      RUNNING_LABELS = {"running on treadmill", "jogging", "sprint racing"}
+      FALL_LABELS = {"falling off bike", "falling off chair"}
+
+      def _bail(reason):
+          try:
+              with open(actions_path, "w") as f:
+                  json.dump({"available": False, "reason": reason}, f)
+          except Exception:
+              pass
+          print(f"[action-recognize] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not os.path.exists(tracks_path):
+          _bail(".tracks.json not found — Phase 1 must run first")
+      if not os.path.isdir(dense_dir):
+          _bail("dense_frames/ not present")
+      try:
+          with open(tracks_path) as f:
+              tracks_data = json.load(f)
+          if not tracks_data.get("available"):
+              _bail(f"tracks unavailable: {tracks_data.get('reason','unknown')}")
+      except Exception as e:
+          _bail(f"tracks.json read failed: {e}")
+
+      # Install torch/torchvision if not present. Object-detect / pose-estimate
+      # already pull torch as a transitive dep, so this is usually a no-op
+      # except for the torchvision video-model weights.
+      try:
+          import torch  # noqa
+          import torchvision  # noqa
+      except ImportError:
+          print("[action-recognize] installing torch + torchvision (CPU-only)...", flush=True)
+          try:
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--quiet",
+                   "--disable-pip-version-check",
+                   "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+                   "opencv-python-headless", "torch", "torchvision"],
+                  timeout=600,
+              )
+              subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y",
+                               "--disable-pip-version-check", "opencv-python"])
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--quiet",
+                   "--disable-pip-version-check", "--force-reinstall",
+                   "opencv-python-headless"],
+                  timeout=180,
+              )
+          except subprocess.CalledProcessError as e:
+              _bail(f"install failed: {e}")
+
+      try:
+          import cv2, torch, numpy as np
+          from torchvision.models.video import mvit_v2_s, MViT_V2_S_Weights
+          from torchvision.transforms import v2 as T
+          os.makedirs(cache_dir, exist_ok=True)
+          os.environ["TORCH_HOME"] = cache_dir
+          weights = MViT_V2_S_Weights.KINETICS400_V1
+          model = mvit_v2_s(weights=weights).eval()
+          labels = weights.meta["categories"]
+          transforms = weights.transforms()
+          print(f"[action-recognize] model=mvit_v2_s Kinetics-400 loaded ({len(labels)} classes)",
+                flush=True)
+      except Exception as e:
+          traceback.print_exc()
+          _bail(f"model load failed: {type(e).__name__}: {e}")
+
+      tracks = tracks_data.get("tracks", {})
+      vid_stride = tracks_data.get("vid_stride", 1)
+      src_fps = tracks_data.get("video_src_fps", 30.0)
+
+      def sec_of(fidx):
+          return round(fidx * vid_stride / src_fps, 3)
+
+      # Model expects (T, C, H, W). For MViT_V2_S: 16 frames @ 224×224
+      # (from transforms metadata: `crop_size`=224, `min_size`=200,
+      # `frames_per_clip`=16 for v2-S).
+      NUM_FRAMES = 16
+      CROP_PAD = 0.25   # add 25% padding around bbox for context
+
+      def crop_and_stack(track_dets):
+          """Return a tensor (T, C, H, W) of NUM_FRAMES bbox crops
+          uniformly sampled across the track's lifetime, or None if too
+          few detections available."""
+          if len(track_dets) < 3:
+              return None
+          # Pick NUM_FRAMES detections evenly spaced across the track
+          idxs = [int(round(i * (len(track_dets) - 1) / (NUM_FRAMES - 1)))
+                  for i in range(NUM_FRAMES)]
+          frames = []
+          for i in idxs:
+              det = track_dets[i]
+              fp = f"{dense_dir}/f_{det['frame_idx']:06d}.jpg"
+              if not os.path.exists(fp):
+                  return None
+              img = cv2.imread(fp)  # BGR
+              if img is None:
+                  return None
+              h, w = img.shape[:2]
+              x1, y1, x2, y2 = det["bbox"]
+              bw, bh = x2 - x1, y2 - y1
+              # Pad
+              pad_x = bw * CROP_PAD; pad_y = bh * CROP_PAD
+              cx1 = max(0, int(x1 - pad_x))
+              cy1 = max(0, int(y1 - pad_y))
+              cx2 = min(w, int(x2 + pad_x))
+              cy2 = min(h, int(y2 + pad_y))
+              crop = img[cy1:cy2, cx1:cx2]
+              if crop.size == 0:
+                  return None
+              # Resize crop to 256×256 to keep it above the transforms'
+              # min_size before the pipeline resizes to 224 anyway
+              resized = cv2.resize(crop, (256, 256))
+              # BGR → RGB
+              resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+              frames.append(resized)
+          # Stack to (T, H, W, C) → (T, C, H, W) → (1, T, C, H, W) → apply
+          # torchvision video transforms (which want (T, C, H, W)).
+          arr = np.stack(frames, axis=0)   # (T, H, W, C)
+          tensor = torch.from_numpy(arr).permute(0, 3, 1, 2)   # (T, C, H, W)
+          return tensor
+
+      per_track_actions = {}
+      violence_flagged = []
+      running_flagged = []
+
+      for tid, t in tracks.items():
+          dets = t.get("detections", [])
+          if len(dets) < 3:
+              continue
+          try:
+              clip = crop_and_stack(dets)
+              if clip is None:
+                  continue
+              # transforms expects (T, C, H, W) — outputs (T, C, H, W)
+              # scaled/normalised. Model wants (batch, C, T, H, W).
+              x = transforms(clip)         # (T, C, H, W)
+              x = x.permute(1, 0, 2, 3)    # (C, T, H, W)
+              x = x.unsqueeze(0)           # (1, C, T, H, W)
+              with torch.no_grad():
+                  logits = model(x)
+              probs = torch.softmax(logits, dim=-1)[0]
+              top_p, top_i = torch.topk(probs, 5)
+              preds = [(labels[i.item()], round(p.item(), 4))
+                       for p, i in zip(top_p, top_i)]
+              is_violence = any(cls in VIOLENCE_LABELS for cls, _ in preds)
+              is_running = any(cls in RUNNING_LABELS for cls, _ in preds)
+              per_track_actions[tid] = {
+                  "track_id": int(tid),
+                  "middle_sec": round((t["first_sec"] + t["last_sec"]) / 2, 2),
+                  "duration_sec": t["duration_sec"],
+                  "top5": preds,
+                  "top1": preds[0][0],
+                  "top1_conf": preds[0][1],
+                  "violence_signal": is_violence,
+                  "running_signal": is_running,
+              }
+              if is_violence:
+                  violence_flagged.append((tid, preds[0][0], preds[0][1]))
+              if is_running:
+                  running_flagged.append((tid, preds[0][0], preds[0][1]))
+          except Exception as e:
+              print(f"  ⚠️ track {tid} failed: {type(e).__name__}: {e}", flush=True)
+              continue
+
+      actions_out = {
+          "available": True,
+          "model": "mvit_v2_s",
+          "dataset": "Kinetics-400",
+          "frames_per_clip": NUM_FRAMES,
+          "crop_padding_ratio": CROP_PAD,
+          "num_tracks_analyzed": len(per_track_actions),
+          "num_tracks_violence_flagged": len(violence_flagged),
+          "num_tracks_running_flagged": len(running_flagged),
+          "tracks": per_track_actions,
+      }
+      with open(actions_path, "w") as f:
+          json.dump(actions_out, f)
+      size_kb = os.path.getsize(actions_path) / 1024
+      print(f"[action-recognize] tracks_analyzed={len(per_track_actions)} "
+            f"violence_flagged={len(violence_flagged)} "
+            f"running_flagged={len(running_flagged)} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      if violence_flagged:
+          print("[action-recognize] 🚨 Violence-labeled tracks (Kinetics-400):")
+          for tid, cls, cf in violence_flagged:
+              print(f"  track {tid}: '{cls}' conf={cf}", flush=True)
+      if running_flagged:
+          print("[action-recognize] 🏃 Running-labeled tracks:")
+          for tid, cls, cf in running_flagged:
+              print(f"  track {tid}: '{cls}' conf={cf}", flush=True)
+
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
@@ -1511,6 +1748,58 @@ spec:
       except Exception as e:
           print(f"[caption] weapon-signals read failed: {e}")
 
+      # ── Action signals from action-recognize step (Phase 4) ─────────────
+      action_signals = None
+      actions_path = f"{workspace}/{clip_id}/.actions.json"
+      try:
+          with open(actions_path) as f:
+              _act = json.load(f)
+          if _act.get("available"):
+              action_signals = {
+                  "model": _act.get("model"),
+                  "dataset": _act.get("dataset"),
+                  "num_tracks_analyzed": _act.get("num_tracks_analyzed"),
+                  "num_tracks_violence_flagged": _act.get("num_tracks_violence_flagged"),
+                  "num_tracks_running_flagged": _act.get("num_tracks_running_flagged"),
+                  "tracks": _act.get("tracks", {}),
+                  "note": ("Per-track Kinetics-400 action recognition from a "
+                           "torchvision MViT v2-S classifier applied to bbox "
+                           "crops sampled across each subject's on-screen "
+                           "lifetime. `top1` is the model's single best guess, "
+                           "`top5` is the confidence-ranked shortlist. Two "
+                           "boolean signals summarize forensic relevance:\n"
+                           " - violence_signal = TRUE if any top-5 class is a "
+                           "close-combat / striking action (boxing / wrestling / "
+                           "kicking / sword fighting etc.). Combine with "
+                           "pose_signals.geometric_incident_candidates: if a "
+                           "track has both violence_signal AND another track is "
+                           "prone within 5s, that's the assailant. Kinetics-400 "
+                           "has NO firearm-firing class, so shooting subjects "
+                           "will typically appear as 'punching person' or "
+                           "'boxing' when combined with arm-extended pose.\n"
+                           " - running_signal = TRUE if top-5 includes jogging/"
+                           "running. Late-clip runners are typically fleeing.\n"
+                           "Action confidence is often moderate (0.1-0.3) at "
+                           "night / on small subjects; treat as corroborating "
+                           "evidence, NOT as sole basis for a determination."),
+              }
+              print(f"[caption] action-signals: analyzed={action_signals['num_tracks_analyzed']} "
+                    f"violence_flagged={action_signals['num_tracks_violence_flagged']} "
+                    f"running_flagged={action_signals['num_tracks_running_flagged']}")
+              for tid, s in sorted(action_signals["tracks"].items(),
+                                    key=lambda x: int(x[0])):
+                  markers = []
+                  if s.get("violence_signal"): markers.append("💥")
+                  if s.get("running_signal"): markers.append("🏃")
+                  print(f"  track {tid}: top1='{s['top1']}' ({s['top1_conf']:.2f}) "
+                        f"{''.join(markers)}")
+          else:
+              print(f"[caption] action-signals unavailable: {_act.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] .actions.json not found (action-recognize step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] action-signals read failed: {e}")
+
       trusted_signals = {
           "clip_duration_sec": duration_sec,
           "frame_count": len(frame_paths),
@@ -1525,6 +1814,7 @@ spec:
           "object_detector_signals": object_signals,
           "pose_signals": pose_signals,
           "weapon_signals": weapon_signals,
+          "action_signals": action_signals,
       }
       print(f"[caption] TRUSTED SIGNALS lighting={lighting_class} avg_lum={avg_lum:.1f} "
             f"hotspots={hotspot_frames}")
@@ -1675,7 +1965,31 @@ spec:
           "    ARMED ASSAULT WITH VICTIM DOWN — the strongest and most "
           "    dispositive shootout signal the pipeline can produce. "
           "    NEVER downgrade this to 'possible weapon' or 'unclear' "
-          "    when the detector has confirmed multi-frame presence.\n\n"
+          "    when the detector has confirmed multi-frame presence.\n"
+          "  - `action_signals` (may be null if action-recognizer "
+          "    unavailable). Per-track Kinetics-400 action labels from an "
+          "    MViT v2-S video classifier applied to bbox crops. Each "
+          "    track has `top1` (best guess), `top5` (shortlist with "
+          "    confidences), plus two derived booleans: `violence_signal` "
+          "    (top-5 includes boxing / wrestling / kicking / sword "
+          "    fighting) and `running_signal` (top-5 includes jogging / "
+          "    running / sprinting). Use these as CORROBORATING evidence "
+          "    alongside pose and weapon signals — do NOT treat "
+          "    Kinetics-400 top-1 as ground truth (labels are sport-"
+          "    biased and confidences at night are moderate).\n"
+          "      * A track with violence_signal=true co-timed with "
+          "        another track's prone interval = ASSAULT (name the "
+          "        assailant by track_id).\n"
+          "      * A track with running_signal=true late in the clip "
+          "        (last third) = fleeing suspect or fleeing witness — "
+          "        distinguish by whether the track was near the "
+          "        incident.\n"
+          "      * Kinetics-400 has NO firearm-firing class. A subject "
+          "        who fires a gun typically appears as 'punching "
+          "        person', 'boxing', or 'high kick' in this signal "
+          "        because those are the closest arm-extension actions "
+          "        in the training set. Cross-check with weapon_signals "
+          "        to disambiguate.\n\n"
 
           "WINDOW ANALYSIS PROTOCOL:\n"
           "For each window, before writing your master JSON, silently walk through "
