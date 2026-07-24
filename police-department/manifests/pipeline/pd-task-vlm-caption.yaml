@@ -1553,12 +1553,33 @@ spec:
             f"spike_threshold={spike_threshold}", flush=True)
 
       # ── Iterate per-track pose keypoints ────────────────────────────────
+      # For each arm-extended keypoint frame, compare ROI at the wrist AND
+      # projected muzzle position vs the SAME positions in the immediately
+      # adjacent keypoint frames (temporal differencing). A muzzle flash is
+      # brighter than what's normally at that hand location — even if the
+      # scene background is saturated with LEDs, the hand region isn't.
       per_track_flashes = {}
       arm_extended_track_count = 0
       arm_extended_frames_scanned = 0
 
+      # Cache the current frame's grayscale so temporal neighbours can be
+      # queried without re-decoding: dict frame_idx → PIL image.
+      _img_cache = {}
+      def _get_gray(frame_idx):
+          if frame_idx in _img_cache:
+              return _img_cache[frame_idx]
+          fp = f"{dense_dir}/f_{frame_idx:06d}.jpg"
+          if not os.path.exists(fp):
+              return None
+          g = Image.open(fp).convert("L")
+          _img_cache[frame_idx] = g
+          return g
+
+      # Flash requires ROI max spikes >=30 above the max of both neighbours,
+      # and absolute ROI max must exceed FLASH_LUMA_THRESHOLD.
+      TEMPORAL_JUMP_MIN = 30
+
       for tid, t in poses_data.get("tracks", {}).items():
-          # Determine which frames are within an arm-extended segment
           arm_segments = [s for s in t.get("segments", [])
                           if s.get("posture") == "arm-extended"]
           if not arm_segments:
@@ -1567,34 +1588,55 @@ spec:
           def in_arm_segment(sec):
               return any(s["start_sec"] <= sec <= s["end_sec"] for s in arm_segments)
 
-          # Keypoints are downsampled per pose-estimate step
           kp_frames = t.get("keypoints_downsampled", [])
-          candidate_events = []   # list of {sec, kind, wrist, muzzle, roi_max}
+          # Build a list of (sec, frame_idx, wrist, muzzle) for THIS track's
+          # keypoint samples — used to look up temporal neighbours by
+          # position for the differencing.
+          samples = []
           for kpf in kp_frames:
-              sec = kpf["sec"]
-              if not in_arm_segment(sec):
-                  continue
-              arm_extended_frames_scanned += 1
               kps = kpf.get("kps") or []
               if len(kps) < 17:
                   continue
               wrist, muzzle = wrist_and_muzzle(kps)
               if wrist is None:
                   continue
-              fp = f"{dense_dir}/f_{kpf['frame_idx']:06d}.jpg"
-              if not os.path.exists(fp):
+              samples.append({"sec": kpf["sec"], "frame_idx": kpf["frame_idx"],
+                              "wrist": wrist, "muzzle": muzzle})
+
+          candidate_events = []
+          for i, s in enumerate(samples):
+              if not in_arm_segment(s["sec"]):
                   continue
-              img_gray = Image.open(fp).convert("L")
-              w_max = sample_roi_max(img_gray, wrist[0], wrist[1])
-              m_max = sample_roi_max(img_gray, muzzle[0], muzzle[1]) if muzzle else 0
-              roi_max = max(w_max, m_max)
-              if roi_max >= spike_threshold:
+              arm_extended_frames_scanned += 1
+              img = _get_gray(s["frame_idx"])
+              if img is None:
+                  continue
+              w_max = sample_roi_max(img, s["wrist"][0], s["wrist"][1])
+              m_max = sample_roi_max(img, s["muzzle"][0], s["muzzle"][1]) if s["muzzle"] else 0
+              cur_max = max(w_max, m_max)
+
+              # Temporal-neighbour ROI-max at the SAME wrist position in
+              # this track's previous + next keypoint frame. Uses the CURRENT
+              # frame's wrist position (person hasn't moved much in ~0.5s).
+              neighbour_maxes = []
+              for j in (i - 1, i + 1):
+                  if 0 <= j < len(samples):
+                      nimg = _get_gray(samples[j]["frame_idx"])
+                      if nimg is not None:
+                          nw = sample_roi_max(nimg, s["wrist"][0], s["wrist"][1])
+                          nm = sample_roi_max(nimg, s["muzzle"][0], s["muzzle"][1]) if s["muzzle"] else 0
+                          neighbour_maxes.append(max(nw, nm))
+              neighbour_max = max(neighbour_maxes) if neighbour_maxes else 0
+
+              if (cur_max >= FLASH_LUMA_THRESHOLD
+                  and cur_max >= neighbour_max + TEMPORAL_JUMP_MIN):
                   candidate_events.append({
-                      "sec": sec,
-                      "frame_idx": kpf["frame_idx"],
+                      "sec": s["sec"],
+                      "frame_idx": s["frame_idx"],
                       "wrist_roi_max": w_max,
                       "muzzle_roi_max": m_max,
-                      "over_baseline": roi_max - baseline_max,
+                      "over_baseline": cur_max - baseline_max,
+                      "over_neighbours": cur_max - neighbour_max,
                   })
 
           # Reject persistent bright spots — group consecutive keypoint
