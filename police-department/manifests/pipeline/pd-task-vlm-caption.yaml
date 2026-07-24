@@ -187,32 +187,10 @@ spec:
       # so writing an approximate value here is only for backward-compat logs.
       printf '%s\n' "${step:-${STEP:-0}}" > .clip-frame-step-sec
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # object-detect (YOLOv8n + ByteTrack persistent person tracking)
-  # PHASE 1 of the CV-stack upgrade — foundation for pose / weapon /
-  # action-recognition / muzzle-flash / event-fusion. Every downstream
-  # signal keys off the persistent track_id emitted here.
-  #
-  # Behavior:
-  #   1. Runs YOLOv8n + ByteTrack on the raw video file (not the sampled
-  #      60 keyframes) with vid_stride computed to hit ~8 fps effective.
-  #      ByteTrack maintains temporal identity across occlusion / re-entry.
-  #   2. Saves dense_frames/f_%06d.jpg (640-wide JPEGs) alongside — these
-  #      are the frames downstream phases will crop bboxes from.
-  #   3. Emits .tracks.json with per-track_id trajectory (frame_idx, sec,
-  #      bbox, conf) — used by Phase 2+ (pose, weapon, action).
-  #   4. Emits .object-signals.json (existing schema, now sourced from
-  #      the tracker so unique_subjects_lower_bound is a TRUE unique
-  #      count from persistent IDs, not a max-simultaneous approximation).
-  #
-  # Model: Ultralytics YOLOv8n + built-in ByteTrack.
-  # Runtime: ~100-150ms/frame on CPU; a 60s clip @ 8fps effective =
-  # ~480 frames = 60-90s inference. Weights cached on shared EFS.
-  # License: AGPL-3.0 — acceptable for on-cluster demo.
-  # This step is defensive — on any failure, downstream steps degrade
-  # gracefully (caption step's TRUSTED SIGNALS just omits the object-
-  # detector block).
-  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 1: YOLOv8n + ByteTrack persistent person tracking on the raw
+  # video at ~8fps effective. Emits .tracks.json (per-track_id trajectory)
+  # + dense_frames/ (640-wide JPEGs for downstream phases) +
+  # .object-signals.json (backwards-compat person counts).
   - name: object-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
     script: |
@@ -480,27 +458,10 @@ spec:
                 f"({t['num_detections']} dets, mean_conf={t['mean_confidence']:.2f})",
                 flush=True)
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # pose-estimate (YOLOv8n-pose keypoints + posture classification per track)
-  # PHASE 2 of the CV-stack upgrade. Consumes .tracks.json + dense_frames
-  # from object-detect. For each dense frame, runs YOLOv8n-pose to extract
-  # 17 COCO keypoints per person; matches each pose to a ByteTrack track_id
-  # by IoU with the tracker's per-frame bbox; classifies posture from
-  # keypoint geometry (standing / walking / running / crouched / prone /
-  # arm-extended / falling); aggregates per-track posture segments +
-  # posture-change events.
-  #
-  # Output:
-  #   .poses.json — per-track_id posture segments + downsampled keypoints
-  #     for Phase 3+ (weapon association needs wrist positions; action
-  #     recognition uses full keypoint sequences; muzzle-flash keys off
-  #     hand keypoints of arm-extended tracks).
-  #
-  # Model: yolov8n-pose (~6MB, ~200ms/frame CPU at 640px). Cached on EFS.
-  # Runtime: 725 frames × 200ms ≈ 145s inference; 4-5min total step time.
-  # Defensive: on any failure, .poses.json is written with available=false
-  # and downstream steps degrade gracefully.
-  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 2: YOLOv8n-pose keypoints + posture classification per track.
+  # Matches poses to ByteTrack IDs via IoU on 640-wide dense_frames.
+  # Emits .poses.json (per-track segments/changes/downsampled_kps +
+  # geometric_incident_candidates from raw bbox aspect trajectory).
   - name: pose-estimate
     image: registry.access.redhat.com/ubi9/python-311:latest
     script: |
@@ -922,27 +883,10 @@ spec:
                 (f"  changes: {changes_str}" if changes_str else ""),
                 flush=True)
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # weapon-detect (open-vocabulary YOLO-World weapon detection per track)
-  # PHASE 3 of the CV-stack upgrade. Runs YOLO-World (Apache-2.0, open-vocab)
-  # over the dense frames looking for firearms, knives, and blunt-impact
-  # weapons. Each detected weapon is associated to the nearest ByteTrack
-  # track by IoU with that track's bbox at the same frame — so we get
-  # per-subject weapon presence, not just "there's a gun somewhere".
-  #
-  # Model: yolov8s-worldv2 (Apache-2.0 for weights, ~23MB, ~500ms/frame CPU).
-  # We call set_classes(...) with a fixed vocabulary of firearm/blade terms
-  # so YOLO-World knows what to look for — no fine-tuning required.
-  #
-  # Runtime: 725 dense frames × 500ms ≈ 6-8min inference. Weights cached
-  # on shared EFS after first download. Fully defensive — on any failure,
-  # .weapons.json is written with available=false and caption degrades.
-  #
-  # Output:
-  #   .weapons.json — per-track weapon associations. When a track has
-  #     weapons_detected, the caption step surfaces this as a definitive
-  #     armed-subject signal in TRUSTED SIGNALS.
-  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 3: open-vocabulary weapon detector (YOLO-World v2-S, Apache-2.0).
+  # Matches every weapon detection to the nearest ByteTrack ID via IoU +
+  # bbox-containment. Emits .weapons.json with per-track associations
+  # filtered to tracks with 2+ weapon frames (single-frame noise dropped).
   - name: weapon-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
     script: |
@@ -1171,27 +1115,9 @@ spec:
                     f"({s['first_weapon_sec']}s → {s['last_weapon_sec']}s) "
                     f"[{cls_str}] max_conf={s['max_conf']}", flush=True)
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # action-recognize (per-track temporal action classification)
-  # PHASE 4 of the CV-stack upgrade. For each ByteTrack track, extracts a
-  # 32-frame temporal window centered on the middle of the track's lifetime,
-  # crops each frame to the track's bbox (with 25% padding for arm-reach
-  # context), assembles into a spatiotemporal tensor, and classifies with
-  # torchvision MViT v2-S (Kinetics-400, Apache-2.0 weights).
-  #
-  # Kinetics-400 has ~400 human-action labels including many that map to
-  # forensic events: `punching person (boxing)`, `wrestling`, `sword
-  # fighting`, `high kick`, `jogging`, `running on treadmill`, `falling off
-  # bike`, `situp`. The pipeline surfaces the top-3 predictions per track
-  # AND a hand-curated `violence_signal` boolean when any top-3 class
-  # matches a violence-relevant label.
-  #
-  # Model: torchvision.models.video.mvit_v2_s (Apache-2.0, ~35MB weights,
-  # ~500-800ms per 32-frame clip on CPU).
-  # Runtime: 30 tracks × ~700ms = ~20s + torchvision install if not cached.
-  # Defensive: on any failure, .actions.json is written with available=false
-  # and caption degrades gracefully.
-  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 4: per-track temporal action classification. torchvision MViT
+  # v2-S (Kinetics-400, Apache-2.0). Emits top-5 + violence_signal +
+  # running_signal per track. Runtime ~20s + one-time torch install.
   - name: action-recognize
     image: registry.access.redhat.com/ubi9/python-311:latest
     script: |
@@ -1409,30 +1335,10 @@ spec:
           for tid, cls, cf in running_flagged:
               print(f"  track {tid}: '{cls}' conf={cf}", flush=True)
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # muzzle-flash-detect (visual shootout detector — motion + pose + flash)
-  # PHASE 5 of the CV-stack upgrade. Pure-Python; no new ML model.
-  #
-  # For each track with an arm-extended pose segment, iterate the pose-
-  # estimator's downsampled keypoint frames within that segment and check
-  # the pixel region near the wrist for a saturated-brightness spike (>=225
-  # / 255) that is BOTH brighter than the same location in adjacent frames
-  # AND localized (small hot spot, not a global brightness change). Also
-  # check the projected "muzzle" point (wrist extended along the arm
-  # direction by ~1.5x forearm length) so hand-guarded weapons like a
-  # pistol still produce a flash we can find.
-  #
-  # A flash event =
-  #   * arm-extended posture at time T on track A
-  #   * localized brightness spike near A's wrist / muzzle-projection at T
-  #   * spike is transient (present in <=2 consecutive keypoint frames)
-  #   * NOT explained by ambient (surrounding pixels stay at their baseline)
-  #
-  # Emits .flashes.json — per-track flash events with timestamps and ROI
-  # bright-value. The caption step + system prompt then cross-check with
-  # geometric_incident_candidates (victim goes prone within 2s of a flash)
-  # to confirm SHOOTING vs BRANDISHING vs FALSE POSITIVE.
-  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 5: pixel-level muzzle-flash detector per track (pure Python).
+  # For each arm-extended pose frame, probe a 25x25 ROI at the wrist +
+  # projected-muzzle points; a flash = ROI luma >=225 AND >=30 above the
+  # same-position ROI luma in the immediately-adjacent keypoint frames.
   - name: muzzle-flash-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
     script: |
