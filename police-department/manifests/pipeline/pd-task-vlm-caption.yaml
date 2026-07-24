@@ -1350,10 +1350,11 @@ spec:
               clip = crop_and_stack(dets)
               if clip is None:
                   continue
-              # transforms expects (T, C, H, W) — outputs (T, C, H, W)
-              # scaled/normalised. Model wants (batch, C, T, H, W).
-              x = transforms(clip)         # (T, C, H, W)
-              x = x.permute(1, 0, 2, 3)    # (C, T, H, W)
+              # torchvision's video-classification transforms take (T, C, H, W)
+              # input and RETURN (C, T, H, W) — channels-first spatiotemporal
+              # order which is what the 3D-conv model expects. Only need to
+              # unsqueeze the batch dim; do NOT permute again.
+              x = transforms(clip)         # (C, T, H, W)
               x = x.unsqueeze(0)           # (1, C, T, H, W)
               with torch.no_grad():
                   logits = model(x)
