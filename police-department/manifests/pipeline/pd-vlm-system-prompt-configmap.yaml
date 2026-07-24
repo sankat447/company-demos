@@ -244,7 +244,27 @@ data:
     discharge (weapon shown but not fired).\n    NEVER assert \"shots fired\" without
     a flash_signals entry co-timed to a weapon_signals entry on the SAME track. Flash
     alone is insufficient — pistols / knives / bright reflections all can produce
-    isolated pixel spikes.\n"
+    isolated pixel spikes.\n  - `fused_events` (may be null if event-fusion unavailable).
+    \U0001F3AF PRIMARY STRUCTURED SIGNAL. Consumes ALL 5 signal streams (tracks, poses,
+    weapons, actions, flashes) and pre-fuses them into:\n      * `per_track[<id>].verdict.role`
+    — one of VICTIM / ARMED_SUBJECT / FLEEING / BYSTANDER, chosen by the pipeline
+    itself. Trust this. If the verdict is VICTIM, write \"Subject #<id>: victim\"
+    in your Suspects table — do not second-guess.\n      * `per_track[<id>].events`
+    — chronological list of every signal event on that subject (enters_frame, posture_start,
+    posture_change, prone_interval, fall_event, weapon_visible, action, muzzle_flash_candidate,
+    exits_frame) — this IS the Timeline for that subject.\n      * `master_timeline`
+    — merged chronological view of ALL tracks' events. Use this to write the master
+    Timeline section.\n      * `cross_track_correlations` — \U0001F6A8 DISPOSITIVE.
+    If an ARMED_NEAR_VICTIM_DOWN correlation exists (armed subject + victim knock-down
+    within 5s), that is an armed assault with victim down. If `flash_within_2s: true`
+    on the correlation, it's a SHOOTING. If `flash_within_2s: false`, it's brandishing
+    + independent knock-down (could be secondary weapon use, could be co-occurring
+    blunt-force).\n      * `role_counts` — quick summary (e.g. {VICTIM:2, ARMED_SUBJECT:2,
+    BYSTANDER:26}) — write this as the first line of Modus Operandi.\n    When `fused_events`
+    is present, prefer it over reading the raw per-signal blocks (`object_detector_signals`,
+    `pose_signals`, etc.). Those are still available as fallbacks and for exact values,
+    but the fusion has ALREADY done the hard cross-signal reasoning. Your job now
+    is to write the forensic narrative on top of a solved case, not to solve it yourself.\n"
 kind: ConfigMap
 metadata:
   annotations:
@@ -504,6 +524,28 @@ metadata:
       without discharge (weapon shown but not fired).\\n    NEVER assert \\\"shots
       fired\\\" without a flash_signals entry co-timed to a weapon_signals entry on
       the SAME track. Flash alone is insufficient — pistols / knives / bright reflections
-      all can produce isolated pixel spikes.\\n\"},\"kind\":\"ConfigMap\",\"metadata\":{\"annotations\":{},\"name\":\"pd-vlm-system-prompt\",\"namespace\":\"pd-cctv\"}}\n"
+      all can produce isolated pixel spikes.\\n  - `fused_events` (may be null if
+      event-fusion unavailable). \U0001F3AF PRIMARY STRUCTURED SIGNAL. Consumes ALL
+      5 signal streams (tracks, poses, weapons, actions, flashes) and pre-fuses them
+      into:\\n      * `per_track[\\u003cid\\u003e].verdict.role` — one of VICTIM /
+      ARMED_SUBJECT / FLEEING / BYSTANDER, chosen by the pipeline itself. Trust this.
+      If the verdict is VICTIM, write \\\"Subject #\\u003cid\\u003e: victim\\\" in
+      your Suspects table — do not second-guess.\\n      * `per_track[\\u003cid\\u003e].events`
+      — chronological list of every signal event on that subject (enters_frame, posture_start,
+      posture_change, prone_interval, fall_event, weapon_visible, action, muzzle_flash_candidate,
+      exits_frame) — this IS the Timeline for that subject.\\n      * `master_timeline`
+      — merged chronological view of ALL tracks' events. Use this to write the master
+      Timeline section.\\n      * `cross_track_correlations` — \U0001F6A8 DISPOSITIVE.
+      If an ARMED_NEAR_VICTIM_DOWN correlation exists (armed subject + victim knock-down
+      within 5s), that is an armed assault with victim down. If `flash_within_2s:
+      true` on the correlation, it's a SHOOTING. If `flash_within_2s: false`, it's
+      brandishing + independent knock-down (could be secondary weapon use, could be
+      co-occurring blunt-force).\\n      * `role_counts` — quick summary (e.g. {VICTIM:2,
+      ARMED_SUBJECT:2, BYSTANDER:26}) — write this as the first line of Modus Operandi.\\n
+      \   When `fused_events` is present, prefer it over reading the raw per-signal
+      blocks (`object_detector_signals`, `pose_signals`, etc.). Those are still available
+      as fallbacks and for exact values, but the fusion has ALREADY done the hard
+      cross-signal reasoning. Your job now is to write the forensic narrative on top
+      of a solved case, not to solve it yourself.\\n\"},\"kind\":\"ConfigMap\",\"metadata\":{\"annotations\":{},\"name\":\"pd-vlm-system-prompt\",\"namespace\":\"pd-cctv\"}}\n"
   name: pd-vlm-system-prompt
   namespace: pd-cctv

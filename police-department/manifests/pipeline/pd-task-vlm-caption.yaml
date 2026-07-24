@@ -1378,6 +1378,191 @@ spec:
                         f"(+{f['over_baseline']} over baseline, group={f['group_size']})",
                         flush=True)
 
+  # Phase 6: event-fusion. Consumes tracks/poses/weapons/actions/flashes and
+  # emits .events.json — a per-track chronological event timeline plus a
+  # role verdict (VICTIM/ARMED/AGGRESSOR/BYSTANDER) and cross-track
+  # correlations. Caption step reads this as its primary structured signal.
+  - name: event-fusion
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      d = f"{workspace}/{clip_id}"
+      events_path = f"{d}/.events.json"
+
+      def _load(p, default=None):
+          try:
+              with open(p) as f:
+                  data = json.load(f)
+              if data.get("available") is False:
+                  return default
+              return data
+          except Exception:
+              return default
+
+      tracks = _load(f"{d}/.tracks.json", {"tracks": {}}) or {"tracks": {}}
+      poses = _load(f"{d}/.poses.json", {"tracks": {}}) or {"tracks": {}}
+      weapons = _load(f"{d}/.weapons.json", {"tracks_with_weapons": {}}) or {"tracks_with_weapons": {}}
+      actions = _load(f"{d}/.actions.json", {"tracks": {}}) or {"tracks": {}}
+      flashes = _load(f"{d}/.flashes.json", {"tracks_with_flashes": {}}) or {"tracks_with_flashes": {}}
+
+      def _bail(reason):
+          with open(events_path, "w") as f:
+              json.dump({"available": False, "reason": reason}, f)
+          print(f"[event-fusion] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not tracks.get("tracks"):
+          _bail("no tracks — Phase 1 must run first")
+
+      clip_dur = tracks.get("clip_duration_sec", 0)
+      geo = poses.get("geometric_incident_candidates", {}) or {}
+
+      per_track_events = {}
+      master_timeline = []
+
+      for tid, t in tracks.get("tracks", {}).items():
+          events = []
+          first, last = t["first_sec"], t["last_sec"]
+          events.append({"sec": first, "event": "enters_frame"})
+          events.append({"sec": last,  "event": "exits_frame"})
+          pose_t = poses.get("tracks", {}).get(tid) or {}
+          for seg in pose_t.get("segments", []) or []:
+              if seg.get("posture") in ("prone", "arm-extended", "running", "crouched", "falling"):
+                  events.append({"sec": seg["start_sec"],
+                                 "event": f"posture_start:{seg['posture']}",
+                                 "duration_sec": round(seg["end_sec"] - seg["start_sec"], 2)})
+          for ch in pose_t.get("changes", []) or []:
+              events.append({"sec": ch["sec"],
+                             "event": f"posture_change:{ch['from']}→{ch['to']}"})
+          g = geo.get(tid) or {}
+          for iv in g.get("sustained_prone_intervals", []) or []:
+              events.append({"sec": iv["start_sec"],
+                             "event": "prone_interval",
+                             "duration_sec": iv["duration_sec"],
+                             "peak_aspect": iv.get("peak_aspect"),
+                             "confidence": "HIGH_CONFIDENCE"})
+          for fe in g.get("fall_events", []) or []:
+              events.append({"sec": fe["sec"], "event": "fall_event",
+                             "aspect_before": fe.get("aspect_before"),
+                             "aspect_after": fe.get("aspect_after")})
+          w = weapons.get("tracks_with_weapons", {}).get(tid) or {}
+          for det in w.get("detections", []) or []:
+              events.append({"sec": det["sec"],
+                             "event": f"weapon_visible:{det.get('class')}",
+                             "confidence": det.get("conf")})
+          a = actions.get("tracks", {}).get(tid) or {}
+          if a.get("top1"):
+              events.append({"sec": a.get("middle_sec", (first+last)/2),
+                             "event": f"action:{a['top1']}",
+                             "confidence": a.get("top1_conf"),
+                             "violence_signal": a.get("violence_signal", False),
+                             "running_signal": a.get("running_signal", False)})
+          f = flashes.get("tracks_with_flashes", {}).get(tid) or {}
+          for fl in f.get("flashes", []) or []:
+              events.append({"sec": fl["sec"], "event": "muzzle_flash_candidate",
+                             "peak_roi_max": fl.get("peak_roi_max"),
+                             "over_baseline": fl.get("over_baseline")})
+          events.sort(key=lambda e: e["sec"])
+          # Role verdict
+          is_victim = bool(g.get("sustained_prone_intervals") and
+                            g.get("longest_prone_duration_sec", 0) > 5)
+          is_armed  = bool(w.get("num_weapon_frames", 0) >= 2)
+          is_fleeing = bool(a.get("running_signal", False) and
+                             (last / max(clip_dur, 1)) > 0.66)
+          role = "BYSTANDER"
+          reason_parts = []
+          if is_victim:
+              role = "VICTIM"
+              reason_parts.append(
+                  f"prone {g.get('longest_prone_duration_sec')}s across "
+                  f"{len(g.get('sustained_prone_intervals') or [])} intervals")
+          elif is_armed:
+              role = "ARMED_SUBJECT"
+              cls_str = ",".join((w.get("weapon_classes") or {}).keys())
+              reason_parts.append(
+                  f"{w.get('num_weapon_frames')} weapon frames "
+                  f"({w.get('first_weapon_sec')}s→{w.get('last_weapon_sec')}s, "
+                  f"{cls_str})")
+              if a.get("violence_signal"):
+                  reason_parts.append(f"action='{a.get('top1')}'")
+          elif is_fleeing:
+              role = "FLEEING"
+              reason_parts.append(f"action='{a.get('top1')}' late in clip")
+          verdict = {
+              "track_id": int(tid),
+              "role": role,
+              "reason": "; ".join(reason_parts) if reason_parts else "no incident-relevant signals",
+              "first_sec": first, "last_sec": last,
+              "duration_sec": t["duration_sec"],
+              "num_events": len(events),
+          }
+          per_track_events[tid] = {"verdict": verdict, "events": events}
+          for e in events:
+              master_timeline.append({"track_id": int(tid), **e})
+
+      master_timeline.sort(key=lambda e: e["sec"])
+
+      # Cross-track correlations: an armed subject firing near another
+      # subject's knock-down = strongest shooting evidence.
+      correlations = []
+      victims = [(tid, per_track_events[tid]) for tid in per_track_events
+                 if per_track_events[tid]["verdict"]["role"] == "VICTIM"]
+      armed   = [(tid, per_track_events[tid]) for tid in per_track_events
+                 if per_track_events[tid]["verdict"]["role"] == "ARMED_SUBJECT"]
+      for vt, vd in victims:
+          vg = geo.get(vt) or {}
+          fall_times = [iv["start_sec"] for iv in (vg.get("sustained_prone_intervals") or [])]
+          for at, ad in armed:
+              aw = weapons.get("tracks_with_weapons", {}).get(at) or {}
+              wep_secs = [det["sec"] for det in (aw.get("detections") or [])]
+              af = flashes.get("tracks_with_flashes", {}).get(at) or {}
+              flash_secs = [fl["sec"] for fl in (af.get("flashes") or [])]
+              for ft in fall_times:
+                  for ws_ in wep_secs:
+                      if abs(ws_ - ft) <= 5.0:
+                          correlations.append({
+                              "kind": "ARMED_NEAR_VICTIM_DOWN",
+                              "victim_track": int(vt),
+                              "armed_track": int(at),
+                              "victim_prone_start_sec": ft,
+                              "armed_weapon_seen_sec": ws_,
+                              "delta_sec": round(ws_ - ft, 2),
+                              "flash_within_2s": any(abs(fs - ft) <= 2 for fs in flash_secs),
+                          })
+      out = {
+          "available": True,
+          "clip_duration_sec": clip_dur,
+          "num_tracks": len(per_track_events),
+          "role_counts": {r: sum(1 for e in per_track_events.values()
+                                  if e["verdict"]["role"] == r)
+                          for r in ("VICTIM","ARMED_SUBJECT","FLEEING","BYSTANDER")},
+          "per_track": per_track_events,
+          "master_timeline": master_timeline,
+          "cross_track_correlations": correlations,
+      }
+      with open(events_path, "w") as f:
+          json.dump(out, f)
+      size_kb = os.path.getsize(events_path) / 1024
+      print(f"[event-fusion] tracks={len(per_track_events)} "
+            f"master_timeline_events={len(master_timeline)} "
+            f"correlations={len(correlations)} "
+            f"role_counts={out['role_counts']} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      for tid, e in sorted(per_track_events.items(), key=lambda x: int(x[0])):
+          v = e["verdict"]
+          print(f"  track {tid}: {v['role']} — {v['reason']}", flush=True)
+      if correlations:
+          print("[event-fusion] 🚨 Cross-track correlations:")
+          for c in correlations:
+              print(f"  {c['kind']}: victim={c['victim_track']}@{c['victim_prone_start_sec']}s, "
+                    f"armed={c['armed_track']}@{c['armed_weapon_seen_sec']}s "
+                    f"(Δ={c['delta_sec']}s, flash={c['flash_within_2s']})",
+                    flush=True)
+
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
@@ -1785,6 +1970,25 @@ spec:
       except Exception as e:
           print(f"[caption] flash-signals read failed: {e}")
 
+      fused_events = None
+      events_path = f"{workspace}/{clip_id}/.events.json"
+      try:
+          with open(events_path) as f:
+              _ev = json.load(f)
+          if _ev.get("available"):
+              fused_events = _ev
+              print(f"[caption] fused-events: tracks={_ev.get('num_tracks')} "
+                    f"master_timeline={len(_ev.get('master_timeline', []))} "
+                    f"correlations={len(_ev.get('cross_track_correlations', []))} "
+                    f"role_counts={_ev.get('role_counts')}")
+              for c in _ev.get("cross_track_correlations", []):
+                  print(f"  🚨 {c['kind']}: victim={c['victim_track']}, armed={c['armed_track']}, "
+                        f"Δ={c['delta_sec']}s")
+      except FileNotFoundError:
+          print("[caption] .events.json not found (event-fusion step may have failed)")
+      except Exception as e:
+          print(f"[caption] fused-events read failed: {e}")
+
       trusted_signals = {
           "clip_duration_sec": duration_sec,
           "frame_count": len(frame_paths),
@@ -1801,6 +2005,7 @@ spec:
           "weapon_signals": weapon_signals,
           "action_signals": action_signals,
           "flash_signals": flash_signals,
+          "fused_events": fused_events,
       }
       print(f"[caption] TRUSTED SIGNALS lighting={lighting_class} avg_lum={avg_lum:.1f} "
             f"hotspots={hotspot_frames}")
