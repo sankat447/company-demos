@@ -1527,20 +1527,29 @@ spec:
           return max(crop.getdata())
 
       # ── Compute clip-baseline luma so we can spot spikes over ambient ────
-      # Sample every ~20th dense frame for the baseline.
+      # Global-max baseline is broken for night scenes with any fixed bright
+      # source (canopy light, LED signage, headlight) — even one saturated
+      # pixel forces max→255 and no flash can beat it. Instead use the 99th
+      # percentile of pixel values across a stratified sample. This lets
+      # small clusters of saturated pixels (real transient flashes) still
+      # register while ignoring the handful of always-lit pixels.
       import glob
       all_frames = sorted(glob.glob(f"{dense_dir}/f_*.jpg"))
       if len(all_frames) < 5:
           _bail("too few dense frames")
       baseline_samples = all_frames[::max(1, len(all_frames)//20)][:20]
-      baseline_max = 0
+      # Collect a sample of top-1% values from each sampled frame — that's
+      # the 99th percentile approach that ignores rare saturated pixels.
+      p99_values = []
       for fp in baseline_samples:
           g = Image.open(fp).convert("L")
-          baseline_max = max(baseline_max, max(g.getdata()))
-      # baseline_max is the ambient ceiling — a real flash must exceed this
-      # by MIN_SPIKE_OVER_BASELINE AND cross FLASH_LUMA_THRESHOLD.
+          data = sorted(g.getdata(), reverse=True)
+          # Take the value at the 1% mark (top-1% cutoff)
+          cutoff_idx = max(1, len(data) // 100)
+          p99_values.append(data[cutoff_idx])
+      baseline_max = max(p99_values)   # 99th-percentile-max across sampled frames
       spike_threshold = max(FLASH_LUMA_THRESHOLD, baseline_max + MIN_SPIKE_OVER_BASELINE)
-      print(f"[muzzle-flash-detect] baseline_max={baseline_max} "
+      print(f"[muzzle-flash-detect] baseline_p99_max={baseline_max} "
             f"spike_threshold={spike_threshold}", flush=True)
 
       # ── Iterate per-track pose keypoints ────────────────────────────────
