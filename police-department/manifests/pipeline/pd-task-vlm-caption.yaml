@@ -70,20 +70,14 @@ spec:
       set -eu
       cd "$(workspaces.shared.path)/$(params.clip-id)"
 
-      # Effective mode: param override > ConfigMap > "local".
       MODE="$(params.vlm-mode-override)"
       [ -z "$MODE" ] && MODE="$(cat /etc/pd-vlm-mode/mode 2>/dev/null || echo local)"
 
-      # Effective frames + resolution + jpeg quality.
       F_OVERRIDE="$(params.frames-override)"
       F_CM="$(cat /etc/pd-vlm-mode/frames 2>/dev/null || echo 16)"
       RES_CM="$(cat /etc/pd-vlm-mode/resolution 2>/dev/null || echo 1280)"
       JPEG_CM="$(cat /etc/pd-vlm-mode/jpeg_quality 2>/dev/null || echo 2)"
 
-      # Clear stale keyframes — the shared workspace is RWX EFS and persists
-      # across PipelineRuns. If a previous run extracted N=60 and we now
-      # extract N=24, the old frame_025..060.jpg would remain and the caption
-      # step's glob picks up too many.
       rm -rf frames
       mkdir -p frames
 
@@ -91,39 +85,10 @@ spec:
                   -of default=noprint_wrappers=1:nokey=1 clip.mp4 | awk '{printf "%d", $1}')
       [ "$duration" -lt 1 ] && duration=1
 
-      # ── Forensic sampling density (lesson 17.36) ──────────────────────────
-      # The old fixed 16-frame sampling could not see transient events. A
-      # ~10-second assault window inside a 90-second clip is completely
-      # invisible to a model that only sees a frame every 6 seconds.
-      #
-      # New policy for claude-multimodal: target 1 frame every 2.5s, with a
-      # floor of 24 frames (short-clip minimum coverage) and a cap of 60
-      # (well under Sonnet's ~100-image-per-request ceiling; keeps a single
-      # request under ~100k input tokens). For local Qwen-VL: keep the
-      # vLLM-imposed 4-frame limit as before.
-      # ── Chunked-window sampling (lesson 17.37) ────────────────────────────
-      # The previous forensic-dynamic sampling (uniform density, floor 24 cap
-      # 60) still produced flat streams — Claude gets N unlabelled images and
-      # treats them as a single averaged picture. An incident spanning 5-7
-      # frames at frames #24-30 gets averaged into the rest.
-      #
-      # New: split the clip into K time windows and label each frame with its
-      # window index in the filename. Caption step will inject per-window
-      # boundaries into the Claude message so the model MUST analyze each
-      # window separately (no more flat-averaging away transient events).
-      # Guarantees per-window density even for long clips.
-      #
-      #   K windows        = clamp(round(duration/25), 3, 6)
-      #   frames_per_win   = clamp(floor(60/K), 10, 20)  ← total ≤ 60
-      #   res              = 1600w   (was 1280; better far-field detail —
-      #                                cost per image goes from ~1600 to
-      #                                ~2600 input tokens, ~2× per-frame)
-      #   quality          = q:v 1   (ffmpeg mjpeg's highest; was q:v 2)
       RES_FORENSIC=1600
       JPEG_FORENSIC=1
 
       if [ -n "$F_OVERRIDE" ]; then
-        # Explicit override → single-window uniform (backward compat)
         FRAMES="$F_OVERRIDE"
         step=$(awk -v d=$duration -v n=$FRAMES 'BEGIN{s=d/n; if(s<0.1)s=0.1; printf "%.3f", s}')
         echo "[extract-keyframes] mode=$MODE · explicit override: FRAMES=${FRAMES} · step=${step}s · single window"
@@ -135,7 +100,6 @@ spec:
         printf '1\n' > .num-windows
         printf '%s\n' "$duration" > .window-durations
       elif [ "$MODE" = "claude-multimodal" ]; then
-        # Chunked-window forensic sampling
         K=$(awk -v d=$duration 'BEGIN{k=int(d/25+0.5); if(k<3)k=3; if(k>6)k=6; print k}')
         FPW=$(awk -v k=$K 'BEGIN{n=int(60/k); if(n<10)n=10; if(n>20)n=20; print n}')
         WIN_DUR=$(awk -v d=$duration -v k=$K 'BEGIN{printf "%.3f", d/k}')
@@ -147,8 +111,6 @@ spec:
 
         for i in $(seq 1 $K); do
           START=$(awk -v i=$i -v w=$WIN_DUR 'BEGIN{printf "%.3f", (i-1)*w}')
-          # ffmpeg's -ss BEFORE -i is fast (keyframe seek). Extract FPW frames
-          # from within [START, START+WIN_DUR].
           ffmpeg -hide_banner -loglevel error \
                  -ss "$START" -t "$WIN_DUR" -i clip.mp4 \
                  -vf "fps=1/${STEP},scale=${RES_FORENSIC}:-1" \
@@ -159,7 +121,6 @@ spec:
         printf '%s\n' "$K" > .num-windows
         printf '%s\n' "$WIN_DUR" > .window-durations
       else
-        # local mode — Qwen-VL has --limit-mm-per-prompt=4; single-window
         FRAMES="$F_CM"
         [ "$FRAMES" -gt 4 ] 2>/dev/null && FRAMES=4
         step=$(( duration / FRAMES ))
@@ -176,15 +137,9 @@ spec:
 
       TOTAL=$(ls frames/ 2>/dev/null | wc -l | tr -d ' ')
       echo "[extract-keyframes] extracted ${TOTAL} frame files across $(cat .num-windows) window(s)"
-      # Stash the resolved mode + frame count + clip duration for the caption step
       printf '%s\n' "$MODE" > .vlm-mode
       printf '%s\n' "$TOTAL" > .vlm-frames
       printf '%s\n' "$duration" > .clip-duration-sec
-      # `step` is set only in the single-window branches; the chunked-window
-      # branch uses `STEP` (per-window step). Fall back so `set -eu` doesn't
-      # abort. The caption step no longer relies on this file — it computes
-      # per-frame timestamps from num_windows × window_duration_sec instead —
-      # so writing an approximate value here is only for backward-compat logs.
       printf '%s\n' "${step:-${STEP:-0}}" > .clip-frame-step-sec
 
   # Phase 1: YOLOv8n + ByteTrack persistent person tracking on the raw
@@ -207,8 +162,6 @@ spec:
       cache_dir  = f"{workspace}/.ultralytics-cache"
       weights_path = f"{cache_dir}/yolov8n.pt"
 
-      # Best-effort: on any exception we still write the (empty) signal
-      # files so the caption step degrades gracefully.
       def _bail(reason):
           for p in (signals_path, tracks_path):
               try:
@@ -259,9 +212,6 @@ spec:
       except Exception as e:
           _bail(f"model load failed: {type(e).__name__}: {e}")
 
-      # Probe source fps so we can compute a vid_stride that lands at
-      # ~8 fps effective — dense enough for tracking + pose without
-      # burning CPU on every frame of a 30 fps recording.
       try:
           cap = cv2.VideoCapture(video_path)
           src_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -278,13 +228,11 @@ spec:
       print(f"[object-detect] video src_fps={src_fps:.1f} src_frames={src_frame_count} "
             f"vid_stride={vid_stride} effective_fps={effective_fps:.2f}", flush=True)
 
-      # Clear stale dense_frames from a prior run on this clip
       for old in os.listdir(dense_dir):
           if old.startswith("f_") and old.endswith(".jpg"):
               try: os.remove(os.path.join(dense_dir, old))
               except OSError: pass
 
-      # Read chunked-window meta so we can aggregate per-window signals.
       try:
           num_windows = int(open(f"{clip_dir}/.num-windows").read().strip())
           window_dur = float(open(f"{clip_dir}/.window-durations").read().strip())
@@ -299,26 +247,18 @@ spec:
       IMGSZ = 640
       SAVE_W = 640   # width of saved dense_frame JPEGs
 
-      # tracks[track_id] = [{frame_idx, sec, bbox, conf}, ...]
       tracks = {}
       persons_per_frame = []
       per_window_max = {str(w): 0 for w in range(1, num_windows + 1)}
       frame_count = 0
 
       try:
-          # `.track()` maintains ByteTrack state across the video. persist=True
-          # keeps track IDs stable if we chain multiple .track() calls (not
-          # doing that here but sets a safer default).
           stream = model.track(
               source=video_path, tracker="bytetrack.yaml",
               classes=[0], conf=CONF, imgsz=IMGSZ,
               vid_stride=vid_stride, stream=True,
               persist=True, save=False, verbose=False,
           )
-          # We rescale ByteTrack bboxes from native video coord space into
-          # the dense_frames coord space (SAVE_W-wide) so ALL downstream
-          # phases (pose, weapon, muzzle-flash) can crop / IoU-match without
-          # needing to know the source video resolution.
           src_w_native = None  # captured on first frame
           scale_to_dense = 1.0
           dense_w = None
@@ -346,7 +286,6 @@ spec:
                       f"{dense_dir}/f_{frame_idx:06d}.jpg",
                       img_out, [int(cv2.IMWRITE_JPEG_QUALITY), 85],
                   )
-              # Extract per-frame track detections
               ids = boxes = confs = None
               if res.boxes is not None and res.boxes.id is not None:
                   ids = res.boxes.id.int().cpu().tolist()
@@ -356,7 +295,6 @@ spec:
               persons_per_frame.append(n)
               if ids:
                   for tid, bx, cf in zip(ids, boxes, confs):
-                      # Rescale bbox from native → dense coord space.
                       bx_dense = [round(x * scale_to_dense, 1) for x in bx]
                       tracks.setdefault(str(tid), []).append({
                           "frame_idx": frame_idx,
@@ -364,7 +302,6 @@ spec:
                           "bbox": bx_dense,
                           "conf": round(float(cf), 3),
                       })
-              # Per-window running max
               w2 = min(int(sec / window_dur) + 1, num_windows) if window_dur > 0 else 1
               key = str(w2)
               per_window_max[key] = max(per_window_max.get(key, 0), n)
@@ -372,7 +309,6 @@ spec:
           traceback.print_exc()
           _bail(f"tracking failed: {type(e).__name__}: {e}")
 
-      # ── Post-process tracks ──────────────────────────────────────────────
       tracks_meta = {}
       for tid, dets in tracks.items():
           firsts, lasts = dets[0], dets[-1]
@@ -391,10 +327,6 @@ spec:
               "detections": dets,
           }
 
-      # Filter obvious noise: tracks that appeared in <3 frames or <0.4s.
-      # ByteTrack can emit ghost tracks on false-positive YOLO hits; these
-      # would pollute the "unique subjects" count. Real subjects appear
-      # for at least half a second even in a fast walk-through.
       MIN_DETS, MIN_DUR = 3, 0.4
       stable_tracks = {
           tid: t for tid, t in tracks_meta.items()
@@ -406,7 +338,6 @@ spec:
       counts_sorted = sorted(persons_per_frame)
       median_count = counts_sorted[len(counts_sorted)//2] if counts_sorted else 0
 
-      # Backwards-compat signals payload (caption step reads this)
       signals = {
           "available": True,
           "detector": "yolov8n",
@@ -417,9 +348,6 @@ spec:
           "frame_count_scanned": frame_count,
           "max_simultaneous_people": max_simultaneous,
           "median_people_per_frame": int(median_count),
-          # Unique count now comes from persistent track IDs, not from
-          # max-per-frame approximation. This is the TRUE number of
-          # distinguishable subjects the tracker saw.
           "unique_subjects_lower_bound": len(stable_tracks),
           "num_unique_tracks": len(stable_tracks),
           "noise_tracks_dropped": dropped,
@@ -428,9 +356,6 @@ spec:
       with open(signals_path, "w") as f:
           json.dump(signals, f, indent=2)
 
-      # Per-track full trajectory (for downstream phases).
-      # bboxes are stored in dense_frames coord space (dense_w × dense_h).
-      # Downstream (pose, weapon, muzzle-flash) does NOT need to rescale.
       tracks_out = {
           "available": True,
           "source": "yolov8n + bytetrack",
@@ -486,7 +411,6 @@ spec:
           print(f"[pose-estimate] skipped — {reason}", flush=True)
           sys.exit(0)
 
-      # Preconditions
       if not os.path.exists(tracks_path):
           _bail(".tracks.json not found — Phase 1 (object-detect) must run first")
       if not os.path.isdir(dense_dir) or not os.listdir(dense_dir):
@@ -499,8 +423,6 @@ spec:
       except Exception as e:
           _bail(f"tracks.json read failed: {e}")
 
-      # ultralytics + headless-cv2 install (idempotent — object-detect
-      # will have already done this on first run of the pipeline)
       try:
           import ultralytics  # noqa
       except ImportError:
@@ -527,14 +449,11 @@ spec:
       try:
           os.environ["YOLO_CONFIG_DIR"] = cache_dir
           from ultralytics import YOLO
-          # ~6MB download on first run; cached to EFS after.
           model = YOLO(pose_weights if os.path.exists(pose_weights) else "yolov8n-pose.pt")
       except Exception as e:
           _bail(f"model load failed: {type(e).__name__}: {e}")
 
       tracks = tracks_data.get("tracks", {})
-      # Build a frame_idx -> [(track_id, bbox), ...] index so we can match
-      # each pose detection to the correct ByteTrack id by IoU.
       frame_to_track_bboxes = {}
       for tid, t in tracks.items():
           for det in t.get("detections", []):
@@ -542,10 +461,6 @@ spec:
                   (int(tid), det["bbox"])
               )
 
-      # ── Posture classification from 17 COCO keypoints ────────────────────
-      # COCO order: 0=nose 1=Leye 2=Reye 3=Lear 4=Rear 5=Lshoulder 6=Rshoulder
-      #  7=Lelbow 8=Relbow 9=Lwrist 10=Rwrist 11=Lhip 12=Rhip 13=Lknee
-      # 14=Rknee 15=Lankle 16=Rankle. Each is (x, y, visibility 0..1).
       def _mid(a, b):
           return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
       def _dist(a, b):
@@ -554,7 +469,6 @@ spec:
           return kp[2] >= thr
 
       def classify_posture(kps, bbox):
-          # bbox: [x1, y1, x2, y2]
           bw = max(1.0, bbox[2] - bbox[0])
           bh = max(1.0, bbox[3] - bbox[1])
           aspect = bw / bh  # >1 means wider than tall → prone-ish
@@ -563,8 +477,6 @@ spec:
           la, ra = kps[15], kps[16]; lw, rw = kps[9], kps[10]
           le, re = kps[7], kps[8]
 
-          # Prone: bbox wider than tall AND torso near-horizontal.
-          # Torso vector from shoulder-mid to hip-mid; angle from vertical.
           if _visible(ls) and _visible(rs) and _visible(lh) and _visible(rh):
               sh = _mid(ls, rs); hp = _mid(lh, rh)
               dy, dx = hp[1] - sh[1], hp[0] - sh[0]
@@ -575,8 +487,6 @@ spec:
               if torso_from_vertical_deg > 60:
                   return "falling", {"torso_angle_deg": round(torso_from_vertical_deg, 1)}
 
-          # Arm-extended: either arm nearly straight (shoulder-elbow-wrist
-          # angle > 150°) AND wrist distant from torso midline.
           def arm_extended(s, e, w, torso_mid_x):
               if not (_visible(s) and _visible(e) and _visible(w)):
                   return False
@@ -595,15 +505,10 @@ spec:
               if arm_extended(ls, le, lw, tmid_x) or arm_extended(rs, re, rw, tmid_x):
                   return "arm-extended", {"note": "possible aim/point/reach"}
 
-          # Crouched: knees higher on frame than hips (image y increases
-          # downward, so knee.y < hip.y means knee is above hip).
           if _visible(lk) and _visible(rk) and _visible(lh) and _visible(rh):
               if lk[1] < lh[1] and rk[1] < rh[1]:
                   return "crouched", {}
 
-          # Running gait: ankles spread wider than shoulder width; both
-          # feet clearly below hips (upright posture); one knee bent much
-          # more than the other (mid-stride).
           if _visible(la) and _visible(ra) and _visible(ls) and _visible(rs):
               ankle_spread = _dist(la, ra)
               shoulder_spread = _dist(ls, rs)
@@ -613,19 +518,16 @@ spec:
 
           return "standing", {}
 
-      # ── Run pose on every dense frame (in filename-sorted order) ─────────
       frame_paths = sorted(glob.glob(f"{dense_dir}/f_*.jpg"))
       if not frame_paths:
           _bail("no dense frames to process")
 
       def frame_idx_from_path(p):
-          # dense_frames/f_000042.jpg → 42
           try:
               return int(os.path.basename(p)[2:8])
           except Exception:
               return -1
 
-      # Batched inference for CPU efficiency.
       BATCH = 16
       per_track_postures = {tid: [] for tid in tracks.keys()}
       processed_frames = 0
@@ -652,17 +554,11 @@ spec:
                   processed_frames += 1
                   if res.keypoints is None or res.boxes is None:
                       continue
-                  # res.boxes.xyxy: list of [x1, y1, x2, y2] for each detection
-                  # res.keypoints.data: (num_dets, 17, 3) tensor of [x, y, conf]
                   try:
                       boxes = res.boxes.xyxy.cpu().tolist()
                       kps_all = res.keypoints.data.cpu().tolist()
                   except Exception:
                       continue
-                  # Match each pose detection to a track by best IoU.
-                  # Note: pose is on the 640-wide dense frame; the ByteTrack
-                  # bboxes came from the SAME 640-wide input (imgsz=640,
-                  # dense_frames saved at 640). So coordinates align.
                   candidates = frame_to_track_bboxes.get(fidx, [])
                   for box, kps in zip(boxes, kps_all):
                       best_tid, best_iou = None, 0.0
@@ -675,17 +571,12 @@ spec:
                           continue
                       matched_poses += 1
                       posture, meta = classify_posture(kps, box)
-                      # Store the KEYPOINTS-plus-posture. Downstream phases
-                      # (weapon, action, muzzle-flash) need the actual
-                      # keypoints for hand tracking / motion features.
                       per_track_postures[str(best_tid)].append({
                           "frame_idx": fidx,
                           "sec": round(fidx * tracks_data["vid_stride"]
                                         / tracks_data["video_src_fps"], 3),
                           "posture": posture,
                           "posture_meta": meta,
-                          # keep only [x,y] to halve payload — visibility
-                          # is embedded in the presence/absence of keypoint
                           "kps": [[round(k[0], 1), round(k[1], 1),
                                     round(k[2], 3)] for k in kps],
                           "bbox": [round(x, 1) for x in box],
@@ -694,14 +585,11 @@ spec:
           traceback.print_exc()
           _bail(f"pose inference failed: {type(e).__name__}: {e}")
 
-      # ── Aggregate posture segments + change events per track ─────────────
       per_track_summary = {}
       for tid, postures in per_track_postures.items():
           if not postures:
               continue
           postures.sort(key=lambda p: p["frame_idx"])
-          # Segment: contiguous frames with same posture (allow 1-frame gap
-          # to smooth noise).
           segments = []
           cur = None
           for p in postures:
@@ -718,9 +606,7 @@ spec:
                          "end_sec": p["sec"], "frame_count": 1}
           if cur:
               segments.append(cur)
-          # Drop segments <2 frames (transient / noisy)
           segments = [s for s in segments if s["frame_count"] >= 2]
-          # Posture-change events = transition between different postures
           changes = []
           for a, b in zip(segments, segments[1:]):
               changes.append({
@@ -728,12 +614,9 @@ spec:
                   "from": a["posture"],
                   "to":   b["posture"],
               })
-          # Aggregate counts per posture
           counts = {}
           for s in segments:
               counts[s["posture"]] = counts.get(s["posture"], 0) + s["frame_count"]
-          # Downsample keypoints to every 4th frame to keep payload small
-          # while still enabling downstream weapon/action reasoning.
           kps_downsampled = postures[::4]
           per_track_summary[tid] = {
               "track_id": int(tid),
@@ -744,18 +627,6 @@ spec:
               "keypoints_downsampled": kps_downsampled,
           }
 
-      # ── Geometric fall/prone detector (no pose model needed) ────────────
-      # YOLOv8-pose fails on small bboxes (~30-40px, night lighting, low
-      # keypoint visibility). But raw ByteTrack bbox geometry is a robust
-      # signal by itself:
-      #   aspect < 0.55  → upright / standing / walking  (typical human)
-      #   aspect 0.55-0.9 → crouched / kneeling / bending
-      #   aspect > 0.9   → prone / horizontal   (person on ground)
-      # For each track: detect intervals where aspect > 0.9 for 3+ frames,
-      # AND relative aspect transitions (posture-change fall events).
-      # Then partition into HIGH-CONFIDENCE incident candidates vs NOISE
-      # so Claude doesn't dismiss the good signals when they're mixed in
-      # with static-object false positives.
       geometric_all = {}
       for tid, t in tracks.items():
           dets = t.get("detections", [])
@@ -767,7 +638,6 @@ spec:
               w, h = max(x2-x1, 0.001), max(y2-y1, 0.001)
               per_frame.append({"sec": d["sec"], "aspect": w/h,
                                 "bbox_h": h, "bbox_w": w})
-          # Sustained prone intervals (aspect > 0.9 for 3+ frames)
           intervals = []
           cur = None
           for pf in per_frame:
@@ -787,10 +657,6 @@ spec:
           if cur and cur["frames"] >= 3:
               cur["duration_sec"] = round(cur["end_sec"] - cur["start_sec"], 2)
               intervals.append(cur)
-          # Fall events (RELATIVE): aspect increases ≥50% in the past 6
-          # frames from a local minimum, ending at aspect > 0.9. This
-          # catches transitions like 0.75 → 1.16 that the strict absolute
-          # <0.55 → >0.9 test misses on small / distant subjects.
           fall_events = []
           for i in range(4, len(per_frame)):
               window = per_frame[max(0, i-6):i]
@@ -809,15 +675,6 @@ spec:
                           - min(pf["aspect"] for pf in per_frame))
           longest_interval_dur = max((iv["duration_sec"] for iv in intervals),
                                       default=0.0)
-          # ── Classify into HIGH-CONFIDENCE incident vs NOISE ─────────────
-          # High-confidence rules (any of):
-          #   R1: fall_events > 0                     (visible posture flip)
-          #   R2: 0.3 < prone_ratio < 0.95            (subject WENT prone)
-          #        AND longest_interval > 3s           (stayed prone)
-          #        AND aspect_range > 0.4              (posture actually changed)
-          # Everything else with a prone signal → NOISE:
-          #   prone_ratio == 1.0 → probably a static blob / small
-          #     distant subject whose bbox is always compressed
           if fall_events or (0.3 < prone_ratio < 0.95
                               and longest_interval_dur > 3.0
                               and aspect_range > 0.4):
@@ -835,8 +692,6 @@ spec:
                   "longest_prone_duration_sec": round(longest_interval_dur, 2),
                   "fall_events": fall_events,
               }
-      # Split into two dicts so Claude can quickly scan the incident ones
-      # without the noise diluting the signal.
       geometric = {tid: g for tid, g in geometric_all.items()
                    if g["tier"] == "HIGH_CONFIDENCE"}
       geometric_noise = {tid: g for tid, g in geometric_all.items()
@@ -856,7 +711,6 @@ spec:
       }
       with open(poses_path, "w") as f:
           json.dump(poses_out, f)
-      # Also print a size hint so we can watch payload growth
       size_kb = os.path.getsize(poses_path) / 1024
       print(f"[pose-estimate] frames_processed={processed_frames} matched={matched_poses} "
             f"unmatched={unmatched_poses} tracks_with_poses={len(per_track_summary)} "
@@ -873,7 +727,6 @@ spec:
                   parts.append(f"FALL@{fe['sec']:.1f}s (aspect {fe['aspect_before']}→{fe['aspect_after']})")
               print("  " + "; ".join(parts), flush=True)
       for tid, s in sorted(per_track_summary.items(), key=lambda x: int(x[0])):
-          # Compact posture summary per track
           counts_str = ", ".join(f"{p}:{n}" for p, n in
                                   sorted(s["posture_counts"].items(),
                                          key=lambda kv: -kv[1]))
@@ -902,8 +755,6 @@ spec:
       cache_dir = f"{workspace}/.ultralytics-cache"
       weapon_weights = f"{cache_dir}/yolov8s-worldv2.pt"
 
-      # Vocabulary Claude cares about. YOLO-World scores every detection
-      # against the class list embedding — extra synonyms improve recall.
       WEAPON_CLASSES = [
           "pistol", "handgun", "gun", "firearm", "revolver",
           "rifle", "long gun", "shotgun", "assault rifle",
@@ -958,7 +809,6 @@ spec:
       try:
           os.environ["YOLO_CONFIG_DIR"] = cache_dir
           from ultralytics import YOLOWorld
-          # First run downloads ~23MB from ultralytics; cached on EFS after.
           model_id = (weapon_weights if os.path.exists(weapon_weights)
                       else "yolov8s-worldv2.pt")
           model = YOLOWorld(model_id)
@@ -966,7 +816,6 @@ spec:
       except Exception as e:
           _bail(f"model load failed: {type(e).__name__}: {e}")
 
-      # Build frame_idx -> [(track_id, bbox), ...] index for IoU matching.
       tracks = tracks_data.get("tracks", {})
       frame_to_track_bboxes = {}
       for tid, t in tracks.items():
@@ -996,19 +845,13 @@ spec:
           return inter / union if union > 0 else 0.0
 
       def bbox_contains(person_bbox, weapon_bbox):
-          # Weapon in hand → weapon bbox center should be inside person bbox
-          # extended vertically (arm reach). Person: [x1,y1,x2,y2].
           px1, py1, px2, py2 = person_bbox
           wcx = (weapon_bbox[0] + weapon_bbox[2]) / 2
           wcy = (weapon_bbox[1] + weapon_bbox[3]) / 2
-          # Extend person bbox by 30% laterally for arm reach
           pw = px2 - px1
           ex = pw * 0.3
           return (px1 - ex) <= wcx <= (px2 + ex) and py1 <= wcy <= py2
 
-      # Confidence 0.15 is intentionally permissive — YOLO-World open-vocab
-      # scores are lower than a fine-tuned detector; we'll filter downstream
-      # by consistency (weapon must be detected in >=2 frames on same track).
       CONF = 0.15
       IMGSZ = 640
       BATCH = 8
@@ -1040,9 +883,6 @@ spec:
                       wep = {"bbox": [round(v, 1) for v in bx],
                              "class": cls_name, "conf": round(float(cf), 3)}
                       weapons_per_frame[fidx].append(wep)
-                      # Match to track — either by IoU (weapon overlapping
-                      # person bbox for held items) or by containment
-                      # (weapon center inside person bbox extended for arm).
                       best_tid, best_score = None, 0.0
                       for tid, tbbox in candidates:
                           ov = iou(bx, tbbox)
@@ -1065,10 +905,6 @@ spec:
           traceback.print_exc()
           _bail(f"inference failed: {type(e).__name__}: {e}")
 
-      # ── Post-process: aggregate per-track summary + consistency filter ───
-      # A single weapon detection on a track is likely noise (YOLO-World
-      # over-fires at low conf). Real armed subjects should show weapon
-      # detections on 2+ frames within a plausible window.
       MIN_WEAPON_FRAMES = 2
       per_track_summary = {}
       for tid, dets in per_track_weapons.items():
@@ -1132,16 +968,12 @@ spec:
       actions_path = f"{clip_dir}/.actions.json"
       cache_dir = f"{workspace}/.torchvision-cache"
 
-      # Kinetics-400 labels that Claude should treat as forensic violence
-      # signals. Model outputs the top-1 label ID per class; we map back
-      # to strings and check membership.
       VIOLENCE_LABELS = {
           "punching person (boxing)", "boxing punching bag",
           "wrestling", "sword fighting", "high kick", "side kick",
           "punching bag", "krav maga", "capoeira", "arm wrestling",
           "headbutting", "slapping", "sword swallowing",  # sanity — mostly harmless
       }
-      # Kinetics also has movement labels that are useful context:
       RUNNING_LABELS = {"running on treadmill", "jogging", "sprint racing"}
       FALL_LABELS = {"falling off bike", "falling off chair"}
 
@@ -1166,9 +998,6 @@ spec:
       except Exception as e:
           _bail(f"tracks.json read failed: {e}")
 
-      # Install torch/torchvision if not present. Object-detect / pose-estimate
-      # already pull torch as a transitive dep, so this is usually a no-op
-      # except for the torchvision video-model weights.
       try:
           import torch  # noqa
           import torchvision  # noqa
@@ -1216,9 +1045,6 @@ spec:
       def sec_of(fidx):
           return round(fidx * vid_stride / src_fps, 3)
 
-      # Model expects (T, C, H, W). For MViT_V2_S: 16 frames @ 224×224
-      # (from transforms metadata: `crop_size`=224, `min_size`=200,
-      # `frames_per_clip`=16 for v2-S).
       NUM_FRAMES = 16
       CROP_PAD = 0.25   # add 25% padding around bbox for context
 
@@ -1228,7 +1054,6 @@ spec:
           few detections available."""
           if len(track_dets) < 3:
               return None
-          # Pick NUM_FRAMES detections evenly spaced across the track
           idxs = [int(round(i * (len(track_dets) - 1) / (NUM_FRAMES - 1)))
                   for i in range(NUM_FRAMES)]
           frames = []
@@ -1243,7 +1068,6 @@ spec:
               h, w = img.shape[:2]
               x1, y1, x2, y2 = det["bbox"]
               bw, bh = x2 - x1, y2 - y1
-              # Pad
               pad_x = bw * CROP_PAD; pad_y = bh * CROP_PAD
               cx1 = max(0, int(x1 - pad_x))
               cy1 = max(0, int(y1 - pad_y))
@@ -1252,14 +1076,9 @@ spec:
               crop = img[cy1:cy2, cx1:cx2]
               if crop.size == 0:
                   return None
-              # Resize crop to 256×256 to keep it above the transforms'
-              # min_size before the pipeline resizes to 224 anyway
               resized = cv2.resize(crop, (256, 256))
-              # BGR → RGB
               resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
               frames.append(resized)
-          # Stack to (T, H, W, C) → (T, C, H, W) → (1, T, C, H, W) → apply
-          # torchvision video transforms (which want (T, C, H, W)).
           arr = np.stack(frames, axis=0)   # (T, H, W, C)
           tensor = torch.from_numpy(arr).permute(0, 3, 1, 2)   # (T, C, H, W)
           return tensor
@@ -1276,10 +1095,6 @@ spec:
               clip = crop_and_stack(dets)
               if clip is None:
                   continue
-              # torchvision's video-classification transforms take (T, C, H, W)
-              # input and RETURN (C, T, H, W) — channels-first spatiotemporal
-              # order which is what the 3D-conv model expects. Only need to
-              # unsqueeze the batch dim; do NOT permute again.
               x = transforms(clip)         # (C, T, H, W)
               x = x.unsqueeze(0)           # (1, C, T, H, W)
               with torch.no_grad():
@@ -1386,24 +1201,15 @@ spec:
           )
           from PIL import Image
 
-      # ── Config ──────────────────────────────────────────────────────────
-      # A saturated flash on 8-bit grayscale is >~225 (near-white). Ambient
-      # night CCTV rarely exceeds ~180 outside floodlit surfaces, so 225 is
-      # a reasonable threshold. Flash region is small (~5-15 px on a
-      # 640-wide frame), so a 25x25 ROI captures it.
       FLASH_LUMA_THRESHOLD = 225
       ROI_HALF = 12          # 25x25 window
       MIN_SPIKE_OVER_BASELINE = 40   # ROI max must exceed clip-baseline+40
-      # Filter: any "flash" that persists for > 3 consecutive keypoint
-      # frames (0.5s at 4-frame downsampling) is probably a fixed light
-      # source, not a muzzle flash — reject.
       MAX_CONSECUTIVE_FLASH_FRAMES = 3
 
       vid_stride = tracks_data.get("vid_stride", 1)
       src_fps = tracks_data.get("video_src_fps", 30.0)
 
       def wrist_and_muzzle(kps):
-          # COCO: 5=Lsh 6=Rsh 7=Lelbow 8=Relbow 9=Lwrist 10=Rwrist
           def visible(k): return k[2] >= 0.3
           wrist = None; elbow = None; shoulder = None
           if visible(kps[10]):
@@ -1412,9 +1218,6 @@ spec:
               wrist, elbow, shoulder = kps[9], kps[7], kps[5]
           if wrist is None:
               return None, None
-          # Muzzle projection: wrist extended along elbow→wrist direction
-          # by half of forearm length. If elbow is invisible, project from
-          # shoulder→wrist direction instead.
           origin = elbow if elbow and elbow[2] >= 0.3 else shoulder
           if origin is None or origin[2] < 0.3:
               return (wrist[0], wrist[1]), None
@@ -1432,25 +1235,15 @@ spec:
           crop = img_gray.crop((x1, y1, x2, y2))
           return max(crop.getdata())
 
-      # ── Compute clip-baseline luma so we can spot spikes over ambient ────
-      # Global-max baseline is broken for night scenes with any fixed bright
-      # source (canopy light, LED signage, headlight) — even one saturated
-      # pixel forces max→255 and no flash can beat it. Instead use the 99th
-      # percentile of pixel values across a stratified sample. This lets
-      # small clusters of saturated pixels (real transient flashes) still
-      # register while ignoring the handful of always-lit pixels.
       import glob
       all_frames = sorted(glob.glob(f"{dense_dir}/f_*.jpg"))
       if len(all_frames) < 5:
           _bail("too few dense frames")
       baseline_samples = all_frames[::max(1, len(all_frames)//20)][:20]
-      # Collect a sample of top-1% values from each sampled frame — that's
-      # the 99th percentile approach that ignores rare saturated pixels.
       p99_values = []
       for fp in baseline_samples:
           g = Image.open(fp).convert("L")
           data = sorted(g.getdata(), reverse=True)
-          # Take the value at the 1% mark (top-1% cutoff)
           cutoff_idx = max(1, len(data) // 100)
           p99_values.append(data[cutoff_idx])
       baseline_max = max(p99_values)   # 99th-percentile-max across sampled frames
@@ -1458,18 +1251,10 @@ spec:
       print(f"[muzzle-flash-detect] baseline_p99_max={baseline_max} "
             f"spike_threshold={spike_threshold}", flush=True)
 
-      # ── Iterate per-track pose keypoints ────────────────────────────────
-      # For each arm-extended keypoint frame, compare ROI at the wrist AND
-      # projected muzzle position vs the SAME positions in the immediately
-      # adjacent keypoint frames (temporal differencing). A muzzle flash is
-      # brighter than what's normally at that hand location — even if the
-      # scene background is saturated with LEDs, the hand region isn't.
       per_track_flashes = {}
       arm_extended_track_count = 0
       arm_extended_frames_scanned = 0
 
-      # Cache the current frame's grayscale so temporal neighbours can be
-      # queried without re-decoding: dict frame_idx → PIL image.
       _img_cache = {}
       def _get_gray(frame_idx):
           if frame_idx in _img_cache:
@@ -1481,8 +1266,6 @@ spec:
           _img_cache[frame_idx] = g
           return g
 
-      # Flash requires ROI max spikes >=30 above the max of both neighbours,
-      # and absolute ROI max must exceed FLASH_LUMA_THRESHOLD.
       TEMPORAL_JUMP_MIN = 30
 
       for tid, t in poses_data.get("tracks", {}).items():
@@ -1495,9 +1278,6 @@ spec:
               return any(s["start_sec"] <= sec <= s["end_sec"] for s in arm_segments)
 
           kp_frames = t.get("keypoints_downsampled", [])
-          # Build a list of (sec, frame_idx, wrist, muzzle) for THIS track's
-          # keypoint samples — used to look up temporal neighbours by
-          # position for the differencing.
           samples = []
           for kpf in kp_frames:
               kps = kpf.get("kps") or []
@@ -1521,9 +1301,6 @@ spec:
               m_max = sample_roi_max(img, s["muzzle"][0], s["muzzle"][1]) if s["muzzle"] else 0
               cur_max = max(w_max, m_max)
 
-              # Temporal-neighbour ROI-max at the SAME wrist position in
-              # this track's previous + next keypoint frame. Uses the CURRENT
-              # frame's wrist position (person hasn't moved much in ~0.5s).
               neighbour_maxes = []
               for j in (i - 1, i + 1):
                   if 0 <= j < len(samples):
@@ -1545,8 +1322,6 @@ spec:
                       "over_neighbours": cur_max - neighbour_max,
                   })
 
-          # Reject persistent bright spots — group consecutive keypoint
-          # frames (≤~0.5s apart) and only keep groups <= MAX_CONSECUTIVE_FLASH_FRAMES.
           if not candidate_events:
               continue
           candidate_events.sort(key=lambda e: e["sec"])
@@ -1561,7 +1336,6 @@ spec:
           transient = [g for g in groups if len(g) <= MAX_CONSECUTIVE_FLASH_FRAMES]
           if not transient:
               continue
-          # Emit one flash event per transient group (its peak)
           flashes = []
           for g in transient:
               peak = max(g, key=lambda e: max(e["wrist_roi_max"], e["muzzle_roi_max"]))
@@ -1652,10 +1426,6 @@ spec:
       except (FileNotFoundError, ValueError):
           frame_step_sec = 0.0
 
-      # ── Install Pillow at runtime (UBI9 python-311 has no PIL preinstalled) ─
-      # We use it to compute pixel-derived TRUSTED SIGNALS that the VLM cannot
-      # hallucinate: mean luminance for day/night classification, inter-frame
-      # motion score for hotspot detection. ~1s install; ~3MB wheel.
       try:
           from PIL import Image, ImageChops  # noqa
       except ImportError:
@@ -1665,7 +1435,6 @@ spec:
           )
           from PIL import Image, ImageChops
 
-      # Read the window count from extract-keyframes step
       try:
           num_windows = int(open(f"{workspace}/{clip_id}/.num-windows").read().strip())
       except (FileNotFoundError, ValueError):
@@ -1675,11 +1444,8 @@ spec:
       except (FileNotFoundError, ValueError):
           window_duration_sec = float(duration_sec) if num_windows == 1 else float(duration_sec) / max(num_windows, 1)
 
-      # Group frames by their window (filename convention: windowN_MMM.jpg)
-      # Order: window1_001, window1_002, …, window2_001, …
       import re as _re_fname
       frame_paths = sorted(glob.glob(f"{frames_dir}/window*_*.jpg"))
-      # Fallback for backward-compat (old fname convention frame_MMM.jpg)
       if not frame_paths:
           frame_paths = sorted(glob.glob(f"{frames_dir}/*.jpg"))
       windowed_frames = {}  # {window_index: [(within_win_idx, filepath), ...]}
@@ -1694,7 +1460,6 @@ spec:
       for w in windowed_frames:
           windowed_frames[w].sort()
 
-      # Build flat ordered list + parallel per-frame metadata
       frame_meta = []
       images_b64 = []
       for w_idx in sorted(windowed_frames.keys()):
@@ -1712,9 +1477,6 @@ spec:
       print(f"[caption] mode={mode} frames={len(images_b64)} in {num_windows} window(s) · "
             f"duration={duration_sec}s window_dur={window_duration_sec:.1f}s")
 
-      # ── TRUSTED SIGNALS pre-pass (lesson 17.36) ─────────────────────────────
-      # Compute what pixels actually say, so the VLM can't invent contradictory
-      # metadata like "daylight" over a night clip.
       per_frame_luminance = []
       motion_scores = []
       prev_img = None
@@ -1723,7 +1485,6 @@ spec:
           w, h = img.size
           mean_lum = sum(img.getdata()) / (w * h)
           per_frame_luminance.append(round(mean_lum, 1))
-          # Downscale for fast motion score
           small = img.resize((160, 90))
           if prev_img is not None:
               diff = ImageChops.difference(small, prev_img)
@@ -1731,8 +1492,6 @@ spec:
           prev_img = small
 
       avg_lum = sum(per_frame_luminance) / len(per_frame_luminance) if per_frame_luminance else 0
-      # Thresholds tuned on typical CCTV: <60 is clearly night (canopy lighting or
-      # dim streetlight); >130 is clearly day; in between = ambiguous / dusk.
       if avg_lum < 60:
           lighting_class = "NIGHT"
       elif avg_lum > 130:
@@ -1740,13 +1499,10 @@ spec:
       else:
           lighting_class = "AMBIGUOUS"
 
-      # Top motion hotspots — the frames where visual change is most concentrated.
-      # These are where transient events (running, falling, weapon-drawing) live.
       hotspot_ranked = sorted(enumerate(motion_scores), key=lambda x: -x[1])[:5]
       hotspot_frames = sorted(idx + 2 for idx, _ in hotspot_ranked)   # +2: motion is diff between frame N-1 and N
       hotspot_times  = sorted(round((idx - 1) * frame_step_sec, 1) for idx, _ in hotspot_ranked) if frame_step_sec else []
 
-      # Per-window summary — Claude uses these to know each window's time span
       windows_meta = []
       for w_idx in sorted(windowed_frames.keys()):
           fpw = len(windowed_frames[w_idx])
@@ -1755,10 +1511,6 @@ spec:
           windows_meta.append({"window": w_idx, "start_sec": w_start,
                                "end_sec": w_end, "frame_count": fpw})
 
-      # ── People-count + track signals from object-detect (YOLOv8n+ByteTrack) ─
-      # Optional — the step is defensive and may skip on any error. When
-      # present, this gives Claude HARD ground-truth counts + per-track
-      # lifetimes it cannot hallucinate away.
       object_signals = None
       obj_path = f"{workspace}/{clip_id}/.object-signals.json"
       tracks_path = f"{workspace}/{clip_id}/.tracks.json"
@@ -1766,9 +1518,6 @@ spec:
           with open(obj_path) as f:
               _obj = json.load(f)
           if _obj.get("available"):
-              # If .tracks.json is also available, surface each track's
-              # first/last-seen timestamps — this tells Claude exactly
-              # when each subject appears and disappears in the clip.
               tracks_summary = []
               try:
                   with open(tracks_path) as tf:
@@ -1833,18 +1582,12 @@ spec:
       except Exception as e:
           print(f"[caption] object-signals read failed: {e}")
 
-      # ── Pose signals from pose-estimate step (Phase 2) ───────────────────
-      # Per-track posture segments + posture-change events. Lets Claude
-      # write things like "Subject #4 transitions to prone at 12.3s" that
-      # the VLM alone cannot reliably assert from unlabeled keyframes.
       pose_signals = None
       poses_path = f"{workspace}/{clip_id}/.poses.json"
       try:
           with open(poses_path) as f:
               _pose = json.load(f)
           if _pose.get("available"):
-              # Trim payload for the prompt: drop raw keypoints, keep
-              # per-track posture counts + change events.
               track_pose_summary = {}
               for tid, s in _pose.get("tracks", {}).items():
                   track_pose_summary[tid] = {
@@ -1900,7 +1643,6 @@ spec:
       except Exception as e:
           print(f"[caption] pose-signals read failed: {e}")
 
-      # ── Weapon signals from weapon-detect (Phase 3) ─────────────────────
       weapon_signals = None
       weapons_path = f"{workspace}/{clip_id}/.weapons.json"
       try:
@@ -1947,7 +1689,6 @@ spec:
       except Exception as e:
           print(f"[caption] weapon-signals read failed: {e}")
 
-      # ── Action signals from action-recognize step (Phase 4) ─────────────
       action_signals = None
       actions_path = f"{workspace}/{clip_id}/.actions.json"
       try:
@@ -1999,7 +1740,6 @@ spec:
       except Exception as e:
           print(f"[caption] action-signals read failed: {e}")
 
-      # ── Muzzle-flash signals from muzzle-flash-detect step (Phase 5) ─────
       flash_signals = None
       flashes_path = f"{workspace}/{clip_id}/.flashes.json"
       try:
@@ -2069,38 +1809,16 @@ spec:
       _ctx.check_hostname = False
       _ctx.verify_mode = ssl.CERT_NONE
 
-      # ── Forensic system prompt (used by both modes) ─────────────────
-      # Asks for the same JSON shape so structure-and-write doesn't care.
-      # Claude's reasoning is much richer over this prompt; Qwen-VL 7B
-      # ignores most of the analytical asks and produces a generic
-      # description, which is fine — the prompt floor doesn't hurt it.
-      # ── Forensic system prompt (used by both modes) ─────────────────
-      # Loaded from ConfigMap pd-vlm-system-prompt (mounted at
-      # /etc/pd-vlm-system-prompt/system.txt). Externalised because the
-      # inline literal + all other step scripts crossed the Linux
-      # ARG_MAX ceiling that Tekton's place-scripts init container
-      # runs into (~128KB across all steps).
       try:
           with open("/etc/pd-vlm-system-prompt/system.txt") as f:
               SYSTEM_PROMPT = f.read()
       except FileNotFoundError:
-          # Defensive fallback so the pipeline still runs if the ConfigMap
-          # is missing — Claude will produce a plain caption instead of the
-          # 8-section forensic report.
           SYSTEM_PROMPT = (
               "You are a forensic CCTV analyst. Describe the clip in JSON with "
               "keys {summary, prose, entities, events}."
           )
           print("[caption] WARN: system-prompt ConfigMap missing, using stub", flush=True)
 
-      # The events array drives the Aurora pd_cctv.events table; the
-      # entities array drives pd_cctv.entities; both feed downstream chat
-      # context. claims[] is consumed by the persona service only.
-      #
-      # USER_TEXT now leads with a `## TRUSTED SIGNALS` JSON block that the
-      # SYSTEM PROMPT has trained the model to treat as ground truth. This is
-      # the defense against the day/night-hallucination class of failure —
-      # the model cannot invent lighting that contradicts computed luminance.
       USER_TEXT = (
           "## TRUSTED SIGNALS (pixel-derived — DO NOT contradict)\n"
           f"```json\n{json.dumps(trusted_signals, indent=2)}\n```\n\n"
@@ -2129,7 +1847,6 @@ spec:
       )
 
       def _do_local_qwen():
-          # OpenAI-compat chat-completion against in-cluster Qwen-VL.
           payload = {
               "model": os.environ["VLM_MODEL"],
               "max_tokens": 4096,
@@ -2155,19 +1872,14 @@ spec:
               return json.loads(resp.read())
 
       def _do_claude_multimodal():
-          # Anthropic Messages API. Wrap the response back into an
-          # OpenAI-compat shape so structure-and-write doesn't branch.
           api_key = os.environ.get("ANTHROPIC_API_KEY", "")
           if not api_key:
               raise RuntimeError("claude-multimodal mode requires "
                                  "ANTHROPIC_API_KEY (Secret pd-anthropic-key)")
-          # Interleave per-window text labels between the image groups so the
-          # model MUST analyze each window as its own scene (lesson 17.37).
           content = [{"type": "text", "text": USER_TEXT}]
           current_win = None
           for meta, b in zip(frame_meta, images_b64):
               if meta["window"] != current_win:
-                  # Emit a boundary marker before starting a new window
                   w = meta["window"]
                   w_meta = next((wm for wm in windows_meta if wm["window"] == w), None)
                   if w_meta:
@@ -2185,7 +1897,6 @@ spec:
                              "media_type": "image/jpeg",
                              "data": b},
               })
-          # Final instruction after the last image so Claude re-reads the ask
           content.append({
               "type": "text",
               "text": ("\n\n── End of windows ──\n\n"
@@ -2197,11 +1908,6 @@ spec:
           })
           payload = {
               "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
-              # Bumped from 4096 → 16000 (lesson 17.36): the enhanced 8-section
-              # forensic prose + a Forensic Conclusion + Investigative Angles
-              # cannot fit under 4k tokens for a dense clip. Claude Sonnet 4.5
-              # supports up to 64k output tokens; 16k gives room for a full
-              # report while keeping cost predictable.
               "max_tokens": 16000,
               "temperature": 0.2,
               "system": SYSTEM_PROMPT,
@@ -2221,8 +1927,6 @@ spec:
               ant = json.loads(resp.read())
           text = "".join(b.get("text", "") for b in ant.get("content", [])
                          if b.get("type") == "text")
-          # Wrap in OpenAI chat-completion shape so structure-and-write
-          # parses it identically to the Qwen-VL response.
           return {
               "id": ant.get("id"),
               "model": ant.get("model"),
@@ -2242,19 +1946,10 @@ spec:
           print(f"[caption] HTTP {e.code}: {body}", file=sys.stderr)
           raise
 
-      # ── Post-response hallucination guard (lesson 17.36) ───────────────────
-      # The model was told the TRUSTED SIGNALS are ground truth. Verify: if
-      # lighting_class = NIGHT and the narration still contains day-terms,
-      # something's off. Either (a) the model contradicted the signals — we
-      # inject a SANITY WARNING that will appear in the persona UI + at the
-      # top of any Detective reply, and set a metadata flag routing the clip
-      # to human review; or (b) the model correctly used night-terms and the
-      # check is a no-op.
       import re as _re
       def _extract_prose(res):
           try:
               text = res["choices"][0]["message"]["content"]
-              # Try structured JSON first
               m = _re.search(r"\{[\s\S]*\}", text)
               if m:
                   parsed = json.loads(m.group(0))
@@ -2287,8 +1982,6 @@ spec:
               f"Model claimed night lighting while pixel-derived luminance "
               f"({avg_lum:.1f}/255) indicates DAY — check narrative."
           )
-      # Timeline-coverage check: does the model's Timeline reach at least 80%
-      # of clip duration? Look for the maximum `<n>s` reference in the prose.
       if duration_sec > 10:
           timestamps = [float(m.group(1)) for m in _re.finditer(r"(\d+(?:\.\d+)?)\s*s\b", prose)]
           max_ts = max(timestamps) if timestamps else 0
@@ -2308,12 +2001,9 @@ spec:
           parsed["prose"] = warning_md + (parsed.get("prose") or "")
           parsed["_sanity_flags"] = sanity_flags
           parsed["_trusted_signals"] = trusted_signals
-          # Re-wrap the corrected JSON back into the OpenAI shape so
-          # structure-and-write picks up the annotated prose.
           result["choices"][0]["message"]["content"] = json.dumps(parsed)
           print(f"[caption] SANITY FLAGS raised: {sanity_flags}", file=sys.stderr)
       elif isinstance(parsed, dict):
-          # No flags — still attach the trusted signals so persona can reference
           parsed["_trusted_signals"] = trusted_signals
           result["choices"][0]["message"]["content"] = json.dumps(parsed)
 
