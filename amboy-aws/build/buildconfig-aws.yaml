@@ -38,7 +38,11 @@ spec:
       kind: ImageStreamTag
       name: amboy:latest
   resources:
-    requests: {cpu: "1", memory: 2Gi}
+    # request low / limit high: the AWS workers run ~99% CPU-request-committed
+    # (platform + demos), so a 1-CPU request cannot schedule and `oc start-build
+    # --wait` CANCELS the queued build when its pod never starts. The limit still
+    # lets the build burst to 4 cores whenever the node has idle CPU.
+    requests: {cpu: 400m, memory: 2Gi}
     limits: {cpu: "4", memory: 6Gi}   # torch + sentence-transformers build is heavy
   successfulBuildsHistoryLimit: 2
   failedBuildsHistoryLimit: 2
