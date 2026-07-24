@@ -122,3 +122,15 @@ A 3-part synthesis (label each explicitly):
 - Never recommend arrest / detention / pursuit — that is Patrol's job. This   report is investigative substrate, not operational orders.
 - claims[] (separate from prose) is for chat-time grounding — list 6-12   short factual claims the persona service can quote, each with a confidence   (0..1) and a frame_refs list of clip-relative timestamps. Prioritise   claims about weapons, MO, coordination cues, and physical evidence.
 - entities[] should include weapons as their own kind (kind='weapon') —   this is how downstream slash commands surface them.
+  - `flash_signals` (may be null if muzzle-flash detector unavailable). Per-track pixel-level flash-candidate detections. Each track in `tracks_with_flashes` has a list of `flashes[]`, each with:
+      * `sec` — timestamp of the flash
+      * `peak_roi_max` — max luminance in the wrist/muzzle ROI (255 = fully saturated)
+      * `over_baseline` — how much brighter than the clip's ambient ceiling
+      * `group_size` — number of consecutive keypoint frames the spike persisted (1–3 = transient flash, larger = ambient)
+    Cross-reference protocol:
+      * Flash on Subject #A + weapon detection on same Subject #A + Subject #B in geometric_incident_candidates going prone within ~2s = **SHOOTING** — a shot was fired and it hit someone.
+      * Flash on Subject #A + weapon on Subject #A + NO prone transition on any other track within ~2s = **WARNING SHOT or BRANDISHING WITH ONE FIRED ROUND** — call it out, but do not upgrade to homicide.
+      * Flash without a weapon detection on the same subject = **POSSIBLE muzzle flash** — could be a phone flash / lighter / reflective surface. Note it in Weapons & Threats as "possible flash" with a low confidence.
+      * Peak_roi_max < 250 or over_baseline < 50 = "possible" not "confirmed" — hedge the language.
+      * NO flashes detected + weapon signal present = **BRANDISHING** without discharge (weapon shown but not fired).
+    NEVER assert "shots fired" without a flash_signals entry co-timed to a weapon_signals entry on the SAME track. Flash alone is insufficient — pistols / knives / bright reflections all can produce isolated pixel spikes.

@@ -1409,6 +1409,244 @@ spec:
           for tid, cls, cf in running_flagged:
               print(f"  track {tid}: '{cls}' conf={cf}", flush=True)
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # muzzle-flash-detect (visual shootout detector — motion + pose + flash)
+  # PHASE 5 of the CV-stack upgrade. Pure-Python; no new ML model.
+  #
+  # For each track with an arm-extended pose segment, iterate the pose-
+  # estimator's downsampled keypoint frames within that segment and check
+  # the pixel region near the wrist for a saturated-brightness spike (>=225
+  # / 255) that is BOTH brighter than the same location in adjacent frames
+  # AND localized (small hot spot, not a global brightness change). Also
+  # check the projected "muzzle" point (wrist extended along the arm
+  # direction by ~1.5x forearm length) so hand-guarded weapons like a
+  # pistol still produce a flash we can find.
+  #
+  # A flash event =
+  #   * arm-extended posture at time T on track A
+  #   * localized brightness spike near A's wrist / muzzle-projection at T
+  #   * spike is transient (present in <=2 consecutive keypoint frames)
+  #   * NOT explained by ambient (surrounding pixels stay at their baseline)
+  #
+  # Emits .flashes.json — per-track flash events with timestamps and ROI
+  # bright-value. The caption step + system prompt then cross-check with
+  # geometric_incident_candidates (victim goes prone within 2s of a flash)
+  # to confirm SHOOTING vs BRANDISHING vs FALSE POSITIVE.
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: muzzle-flash-detect
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json, subprocess, math
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      clip_dir = f"{workspace}/{clip_id}"
+      dense_dir = f"{clip_dir}/dense_frames"
+      poses_path   = f"{clip_dir}/.poses.json"
+      tracks_path  = f"{clip_dir}/.tracks.json"
+      flashes_path = f"{clip_dir}/.flashes.json"
+
+      def _bail(reason):
+          try:
+              with open(flashes_path, "w") as f:
+                  json.dump({"available": False, "reason": reason}, f)
+          except Exception:
+              pass
+          print(f"[muzzle-flash-detect] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not os.path.isdir(dense_dir):
+          _bail("dense_frames/ not present")
+      if not os.path.exists(poses_path):
+          _bail(".poses.json missing")
+      if not os.path.exists(tracks_path):
+          _bail(".tracks.json missing")
+      try:
+          poses_data = json.load(open(poses_path))
+          tracks_data = json.load(open(tracks_path))
+          if not poses_data.get("available") or not tracks_data.get("available"):
+              _bail("prerequisite signal(s) unavailable")
+      except Exception as e:
+          _bail(f"json read failed: {e}")
+
+      try:
+          from PIL import Image
+      except ImportError:
+          subprocess.check_call(
+              [sys.executable, "-m", "pip", "install", "--quiet",
+               "--disable-pip-version-check", "Pillow"],
+              timeout=120,
+          )
+          from PIL import Image
+
+      # ── Config ──────────────────────────────────────────────────────────
+      # A saturated flash on 8-bit grayscale is >~225 (near-white). Ambient
+      # night CCTV rarely exceeds ~180 outside floodlit surfaces, so 225 is
+      # a reasonable threshold. Flash region is small (~5-15 px on a
+      # 640-wide frame), so a 25x25 ROI captures it.
+      FLASH_LUMA_THRESHOLD = 225
+      ROI_HALF = 12          # 25x25 window
+      MIN_SPIKE_OVER_BASELINE = 40   # ROI max must exceed clip-baseline+40
+      # Filter: any "flash" that persists for > 3 consecutive keypoint
+      # frames (0.5s at 4-frame downsampling) is probably a fixed light
+      # source, not a muzzle flash — reject.
+      MAX_CONSECUTIVE_FLASH_FRAMES = 3
+
+      vid_stride = tracks_data.get("vid_stride", 1)
+      src_fps = tracks_data.get("video_src_fps", 30.0)
+
+      def wrist_and_muzzle(kps):
+          # COCO: 5=Lsh 6=Rsh 7=Lelbow 8=Relbow 9=Lwrist 10=Rwrist
+          def visible(k): return k[2] >= 0.3
+          wrist = None; elbow = None; shoulder = None
+          if visible(kps[10]):
+              wrist, elbow, shoulder = kps[10], kps[8], kps[6]
+          elif visible(kps[9]):
+              wrist, elbow, shoulder = kps[9], kps[7], kps[5]
+          if wrist is None:
+              return None, None
+          # Muzzle projection: wrist extended along elbow→wrist direction
+          # by half of forearm length. If elbow is invisible, project from
+          # shoulder→wrist direction instead.
+          origin = elbow if elbow and elbow[2] >= 0.3 else shoulder
+          if origin is None or origin[2] < 0.3:
+              return (wrist[0], wrist[1]), None
+          dx = wrist[0] - origin[0]; dy = wrist[1] - origin[1]
+          scale = 0.5
+          muzzle = (wrist[0] + dx * scale, wrist[1] + dy * scale)
+          return (wrist[0], wrist[1]), muzzle
+
+      def sample_roi_max(img_gray, cx, cy):
+          w, h = img_gray.size
+          x1 = max(0, int(cx - ROI_HALF)); y1 = max(0, int(cy - ROI_HALF))
+          x2 = min(w, int(cx + ROI_HALF)); y2 = min(h, int(cy + ROI_HALF))
+          if x2 <= x1 or y2 <= y1:
+              return 0
+          crop = img_gray.crop((x1, y1, x2, y2))
+          return max(crop.getdata())
+
+      # ── Compute clip-baseline luma so we can spot spikes over ambient ────
+      # Sample every ~20th dense frame for the baseline.
+      import glob
+      all_frames = sorted(glob.glob(f"{dense_dir}/f_*.jpg"))
+      if len(all_frames) < 5:
+          _bail("too few dense frames")
+      baseline_samples = all_frames[::max(1, len(all_frames)//20)][:20]
+      baseline_max = 0
+      for fp in baseline_samples:
+          g = Image.open(fp).convert("L")
+          baseline_max = max(baseline_max, max(g.getdata()))
+      # baseline_max is the ambient ceiling — a real flash must exceed this
+      # by MIN_SPIKE_OVER_BASELINE AND cross FLASH_LUMA_THRESHOLD.
+      spike_threshold = max(FLASH_LUMA_THRESHOLD, baseline_max + MIN_SPIKE_OVER_BASELINE)
+      print(f"[muzzle-flash-detect] baseline_max={baseline_max} "
+            f"spike_threshold={spike_threshold}", flush=True)
+
+      # ── Iterate per-track pose keypoints ────────────────────────────────
+      per_track_flashes = {}
+      arm_extended_track_count = 0
+      arm_extended_frames_scanned = 0
+
+      for tid, t in poses_data.get("tracks", {}).items():
+          # Determine which frames are within an arm-extended segment
+          arm_segments = [s for s in t.get("segments", [])
+                          if s.get("posture") == "arm-extended"]
+          if not arm_segments:
+              continue
+          arm_extended_track_count += 1
+          def in_arm_segment(sec):
+              return any(s["start_sec"] <= sec <= s["end_sec"] for s in arm_segments)
+
+          # Keypoints are downsampled per pose-estimate step
+          kp_frames = t.get("keypoints_downsampled", [])
+          candidate_events = []   # list of {sec, kind, wrist, muzzle, roi_max}
+          for kpf in kp_frames:
+              sec = kpf["sec"]
+              if not in_arm_segment(sec):
+                  continue
+              arm_extended_frames_scanned += 1
+              kps = kpf.get("kps") or []
+              if len(kps) < 17:
+                  continue
+              wrist, muzzle = wrist_and_muzzle(kps)
+              if wrist is None:
+                  continue
+              fp = f"{dense_dir}/f_{kpf['frame_idx']:06d}.jpg"
+              if not os.path.exists(fp):
+                  continue
+              img_gray = Image.open(fp).convert("L")
+              w_max = sample_roi_max(img_gray, wrist[0], wrist[1])
+              m_max = sample_roi_max(img_gray, muzzle[0], muzzle[1]) if muzzle else 0
+              roi_max = max(w_max, m_max)
+              if roi_max >= spike_threshold:
+                  candidate_events.append({
+                      "sec": sec,
+                      "frame_idx": kpf["frame_idx"],
+                      "wrist_roi_max": w_max,
+                      "muzzle_roi_max": m_max,
+                      "over_baseline": roi_max - baseline_max,
+                  })
+
+          # Reject persistent bright spots — group consecutive keypoint
+          # frames (≤~0.5s apart) and only keep groups <= MAX_CONSECUTIVE_FLASH_FRAMES.
+          if not candidate_events:
+              continue
+          candidate_events.sort(key=lambda e: e["sec"])
+          groups = []
+          cur = [candidate_events[0]]
+          for e in candidate_events[1:]:
+              if e["sec"] - cur[-1]["sec"] <= 0.75:
+                  cur.append(e)
+              else:
+                  groups.append(cur); cur = [e]
+          groups.append(cur)
+          transient = [g for g in groups if len(g) <= MAX_CONSECUTIVE_FLASH_FRAMES]
+          if not transient:
+              continue
+          # Emit one flash event per transient group (its peak)
+          flashes = []
+          for g in transient:
+              peak = max(g, key=lambda e: max(e["wrist_roi_max"], e["muzzle_roi_max"]))
+              flashes.append({
+                  "sec": round(peak["sec"], 2),
+                  "frame_idx": peak["frame_idx"],
+                  "peak_roi_max": max(peak["wrist_roi_max"], peak["muzzle_roi_max"]),
+                  "over_baseline": peak["over_baseline"],
+                  "group_size": len(g),
+              })
+          per_track_flashes[tid] = {
+              "track_id": int(tid),
+              "num_flashes": len(flashes),
+              "flashes": flashes,
+          }
+
+      flashes_out = {
+          "available": True,
+          "baseline_max": baseline_max,
+          "spike_threshold": spike_threshold,
+          "flash_luma_threshold": FLASH_LUMA_THRESHOLD,
+          "roi_half": ROI_HALF,
+          "arm_extended_tracks_scanned": arm_extended_track_count,
+          "arm_extended_frames_scanned": arm_extended_frames_scanned,
+          "num_tracks_with_flashes": len(per_track_flashes),
+          "tracks_with_flashes": per_track_flashes,
+      }
+      with open(flashes_path, "w") as f:
+          json.dump(flashes_out, f)
+      size_kb = os.path.getsize(flashes_path) / 1024
+      print(f"[muzzle-flash-detect] arm_extended_tracks={arm_extended_track_count} "
+            f"frames_scanned={arm_extended_frames_scanned} "
+            f"tracks_with_flashes={len(per_track_flashes)} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      if per_track_flashes:
+          print("[muzzle-flash-detect] 💥 Flash candidates:")
+          for tid, ft in sorted(per_track_flashes.items(), key=lambda x: int(x[0])):
+              for f in ft["flashes"]:
+                  print(f"  track {tid}: flash@{f['sec']}s peak={f['peak_roi_max']} "
+                        f"(+{f['over_baseline']} over baseline, group={f['group_size']})",
+                        flush=True)
+
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
@@ -1804,6 +2042,52 @@ spec:
       except Exception as e:
           print(f"[caption] action-signals read failed: {e}")
 
+      # ── Muzzle-flash signals from muzzle-flash-detect step (Phase 5) ─────
+      flash_signals = None
+      flashes_path = f"{workspace}/{clip_id}/.flashes.json"
+      try:
+          with open(flashes_path) as f:
+              _flash = json.load(f)
+          if _flash.get("available"):
+              flash_signals = {
+                  "baseline_max_luma": _flash.get("baseline_max"),
+                  "spike_threshold": _flash.get("spike_threshold"),
+                  "arm_extended_tracks_scanned": _flash.get("arm_extended_tracks_scanned"),
+                  "num_tracks_with_flashes": _flash.get("num_tracks_with_flashes"),
+                  "tracks_with_flashes": _flash.get("tracks_with_flashes", {}),
+                  "note": ("Muzzle-flash detector: pixel-level brightness "
+                           "spike search around each arm-extended track's "
+                           "wrist and projected muzzle point. A candidate "
+                           "flash exceeds `spike_threshold` AND is transient "
+                           "(≤3 keypoint frames, ~0.4s) — persistent bright "
+                           "spots (headlights, floodlights) are rejected. "
+                           "Combined with weapon_signals and geometric_"
+                           "incident_candidates: a flash on Subject #A "
+                           "co-timed with weapon detection on the same "
+                           "track AND Subject #B going prone within ~2s = "
+                           "SHOOTING (not brandishing). A flash without a "
+                           "co-timed prone-transition on another track "
+                           "is BRANDISHING or a warning-shot. Low peak_roi_"
+                           "max (<250) and small over_baseline (<50) are "
+                           "less-certain and should be qualified as "
+                           "'possible muzzle flash'."),
+              }
+              print(f"[caption] flash-signals: tracks_with_flashes="
+                    f"{flash_signals['num_tracks_with_flashes']} "
+                    f"threshold={flash_signals['spike_threshold']}")
+              for tid, ft in sorted(flash_signals["tracks_with_flashes"].items(),
+                                     key=lambda x: int(x[0])):
+                  for f in ft["flashes"]:
+                      print(f"  💥 track {tid}: flash@{f['sec']}s "
+                            f"peak={f['peak_roi_max']} "
+                            f"(+{f['over_baseline']} over baseline)")
+          else:
+              print(f"[caption] flash-signals unavailable: {_flash.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] .flashes.json not found (muzzle-flash-detect step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] flash-signals read failed: {e}")
+
       trusted_signals = {
           "clip_duration_sec": duration_sec,
           "frame_count": len(frame_paths),
@@ -1819,6 +2103,7 @@ spec:
           "pose_signals": pose_signals,
           "weapon_signals": weapon_signals,
           "action_signals": action_signals,
+          "flash_signals": flash_signals,
       }
       print(f"[caption] TRUSTED SIGNALS lighting={lighting_class} avg_lum={avg_lum:.1f} "
             f"hotspots={hotspot_frames}")
