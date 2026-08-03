@@ -2,14 +2,25 @@
 
 Snapshot of what is built, what is verified, what is not, and the gotchas a future engineer needs to know on day one. Update this file whenever the truth shifts.
 
-**Last updated:** 2026-06-12
-**Branch:** `sanjeev-dev` (police-department/v1 merged in 2026-06-08 at `942340a`)
+**Last updated:** 2026-08-04
+**Branch:** `sanjeev-dev` (milestone `pd-cv-stack-complete-2026-07-24`)
 **Cluster:** `https://api.ai-demo.iisdemolab.click:6443` (AWS, OCP 4.21 · RHEL 9.6)
-**MachineSet prefix:** `ai-demo-fs25h` (auto-detected — see lesson 17.17; do not hardcode)
+**MachineSet prefix:** `ai-demo-q9sq6` (auto-detected — see lesson 17.17; do not hardcode)
 **Kubeconfig:** `/Users/sanjeevkumar/GitHub/ai-demo-stack-aws/environments/demo/ocp-install-dir/ai-demo/auth/kubeconfig`
 **Demo URL** (operator chat): https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/
 **Presenter URL** (second-screen control deck): https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/presenter
-**Predictor URL** (Knative KServe route): https://pd-qwen25-vl-7b-predictor-pd-cctv.apps.ai-demo.iisdemolab.click/v1/models
+**Predictor URL** (Knative KServe route): NOT DEPLOYED — pd-vlm-mode = `claude-multimodal` (uses Anthropic API, no local Qwen)
+**GPU node:** `ip-10-0-8-98.ec2.internal` (g5.xlarge, A10G, 4 vGPUs time-sliced, active — nvidia.com/gpu=4 on the node)
+**Demo state:** CLEAN — Aurora holds only the sentinel row, S3 clips/police-department/ is empty; ready for a fresh clip upload.
+
+## What's new since 2026-07-21 (session 2026-07-22 → 08-04)
+
+- ✅ **6-phase per-track CV stack** delivered end-to-end (Phases 1-6, milestone `pd-cv-stack-complete-2026-07-24`) — ByteTrack + pose + weapon + action + muzzle-flash + event-fusion, all inside a single Tekton Task `pd-task-vlm-caption`. Emits `.tracks.json`, `.poses.json`, `.weapons.json`, `.actions.json`, `.flashes.json`, `.events.json`. See `LESSONS_LEARNED.md` "Session 2026-07-22 → 07-24" for the full recap + 8 remediation lessons (17.38-17.47).
+- ✅ **Cluster rebuilt fresh** — old `ai-demo-6twt9` destroyed, new `ai-demo-q9sq6` provisioned. Aurora snapshotted + restored into new VPC. Persona service rebuilt (Deployment + Route + Aurora creds + Redis in `ai-demo` ns). Same demo URL, new endpoints under the hood.
+- ✅ **SSE streaming persona chat** with Anthropic prompt caching + Markdown-only prompt rewrite (in `personas/app/graphs/_common.py:to_markdown_system`). First-token latency ~2-3 s.
+- ✅ **GPU acceleration** — g5.xlarge in us-east-1a, NVIDIA operator + driver + device-plugin + time-slicing all live. 4 vGPUs exposed via ClusterPolicy + `time-slicing-config` ConfigMap. 4 CV pipeline ML steps request `nvidia.com/gpu:1`.
+- ✅ **External VLM system prompt** — extracted from inline Python to `pd-vlm-system-prompt.txt` + `pd-vlm-system-prompt` ConfigMap. Solves the Tekton ARG_MAX ~128KB ceiling (lesson 17.40).
+- ✅ **Fresh demo state** — Aurora cleared to sentinel-only; S3 clips prefix empty; PVC per-clip dirs deleted (model caches preserved).
 
 ## What's new since 2026-05-21 (post-merge to sanjeev-dev)
 

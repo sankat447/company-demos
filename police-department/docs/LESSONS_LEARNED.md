@@ -1048,3 +1048,22 @@ track-ID references throughout.
 - `pd-phase4-validated-2026-07-24`
 - `pd-phase5-validated-2026-07-24`
 - `pd-cv-stack-complete-2026-07-24` — **final**
+
+---
+
+## Session 2026-08-03 → 08-04 addendum
+
+**Cluster rebuild + persona restore + GPU-accelerated pipeline + clean demo state.**
+
+- **Cluster rebuild** — old `ai-demo-6twt9` destroyed (Aurora snapshotted+deleted first to unblock VPC destroy — see lesson 17.44). New `ai-demo-q9sq6` provisioned via `openshift-install create cluster` using a one-off IAM user for Mint mode (lesson 17.46). Persona service + Aurora + Redis + secrets rebuilt from `manifests/personas/pd-persona-service.yaml` and inline `bootstrap` steps.
+- **GPU turned on** — g5.xlarge in us-east-1a, NVIDIA operator + driver + device-plugin all Running; time-slicing config applied via `time-slicing-config` ConfigMap (1 physical A10G → 4 vGPUs). Node reports `nvidia.com/gpu: 4` in Allocatable.
+- **CV pipeline GPU-accelerated** — added `computeResources.limits.nvidia.com/gpu: "1"` on object-detect, pose-estimate, weapon-detect, action-recognize steps in `pd-task-vlm-caption.yaml`. Switched torch install from CPU wheel index to default PyPI (CUDA-enabled). action-recognize now calls `.to(device)` where device auto-detects cuda. First run wall-clock: ~12min (includes CUDA torch install ~3-5 min the first time). Subsequent runs with warm caches: ~4-6 min.
+- **Demo clean state prepared** — Aurora `pd_cctv.*` tables cleared (sentinel row + append-only custody_log preserved). S3 `clips/police-department/` prefix emptied (12 clips deleted). PVC per-clip dirs deleted (model caches under `.torchvision-cache/` + `.ultralytics-cache/` preserved). `/api/clips` now returns 1 sentinel entry only. Ready for a fresh clip upload → full 7-step GPU-accelerated pipeline → Claude forensic narration.
+
+### Lessons 17.48-17.50 (GPU + cleanup)
+
+**17.48 — Stuck NVIDIA operator's leader-election lease.** After the cluster rebuild, the NVIDIA GPU Operator pod restarted 12 times and stayed 0/1 Ready — it was stuck acquiring the leader-election lease from the DESTROYED old cluster's stale entry. Fix: `oc -n gpu-operator-resources delete lease 53822513.nvidia.com` and delete the operator pod so the new pod acquires a fresh lease. ClusterPolicy then transitions from `NoGPUNodes` → `Ready` within ~5 min as it reconciles the new GPU node.
+
+**17.49 — Torch CPU wheels prevent GPU use.** Every step that installed `torch` was using `--extra-index-url https://download.pytorch.org/whl/cpu`. Those wheels do NOT include CUDA runtime, so even with an `nvidia.com/gpu` resource allocated, torch reports `cuda.is_available() == False`. Fix: remove the CPU-wheel extra-index-url so pip pulls default PyPI wheels (which bundle CUDA runtime). Also add explicit `.to(device)` for torchvision models — Ultralytics auto-detects and moves tensors; torchvision does not.
+
+**17.50 — Root-required PVC cleanup.** The pipeline runs step containers as non-root but writes files as root (via SCC), so a subsequent non-root cleanup pod can't `rm -rf` them. Grant the ns `default` SA the `privileged` SCC temporarily (`oc -n <ns> adm policy add-scc-to-user privileged -z default`), run cleanup with `runAsUser: 0`, then remove the SCC binding. Applied for the demo-reset cleanup.
