@@ -11,6 +11,8 @@ import { color, radius, spacing, typeScale } from '@/ui/tokens';
 const TYPE_KEY: Record<string, string> = {
   ticket: 'tickets.typeTicket',
   volunteer: 'tickets.typeVolunteer',
+  'volunteer-attendance': 'tickets.typeVolunteerAttendance',
+  'seat-entry': 'tickets.typeSeatEntry',
   stall: 'tickets.typeStall',
   room: 'tickets.typeRoom',
 };

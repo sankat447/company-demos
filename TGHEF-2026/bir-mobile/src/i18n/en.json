@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "Bir",
-    "tagline": "The Official Digital Platform of Bir"
+    "tagline": "Bir Festival 2026 · 21–23 November"
   },
   "common": {
     "loading": "Loading…",
@@ -45,6 +45,8 @@
     "empty": "No passes yet — book a ticket to get started.",
     "typeTicket": "Festival ticket",
     "typeVolunteer": "Volunteer pass",
+    "typeVolunteerAttendance": "Volunteer attendance pass",
+    "typeSeatEntry": "Seat reservation pass",
     "typeStall": "Stall pass",
     "typeRoom": "Room pass"
   },
