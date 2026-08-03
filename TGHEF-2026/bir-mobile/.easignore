@@ -1,0 +1,19 @@
+# keep EAS build context lean & secret-free
+.git/
+.github/
+docs/
+store/
+.maestro/
+__tests__/
+scripts/publish-direct.ts
+
+# never ship credentials in build context
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+.env
+.env.*

@@ -1,0 +1,38 @@
+name: preview
+on:
+  push:
+    branches: [main]
+
+jobs:
+  preview-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - name: place stack outputs
+        run: echo "$STACK_OUTPUTS_JSON" > config/stack-outputs.json && npm run contract:check
+        env:
+          STACK_OUTPUTS_JSON: ${{ secrets.STACK_OUTPUTS_JSON }}
+      - name: build preview APK (QR sideload channel)
+        run: eas build --profile preview --platform android --non-interactive --wait
+      - name: download artifact
+        run: eas build:download --platform android --output bir-preview.apk
+      - name: publish to get.bir.example
+        run: |
+          npx tsx scripts/publish-direct.ts \
+            --apk bir-preview.apk \
+            --version "0.0.0-preview.${GITHUB_RUN_NUMBER}" \
+            --git-sha "$GITHUB_SHA" \
+            --distribution-id "${{ secrets.APP_DIST_CF_DISTRIBUTION_ID }}"
+        env:
+          # role from backend export ci/appDistPublishRoleArn (BACKEND_ASKS #1)
+          AWS_ACCESS_KEY_ID: ${{ secrets.APP_DIST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_DIST_AWS_SECRET_ACCESS_KEY }}

@@ -1,0 +1,22 @@
+name: e2e
+on:
+  schedule:
+    - cron: '30 21 * * *' # nightly, 03:00 IST
+  workflow_dispatch:
+
+jobs:
+  maestro:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: run Maestro flows on device cloud
+        run: |
+          curl -fsSL https://get.maestro.mobile.dev | bash
+          export PATH="$HOME/.maestro/bin:$PATH"
+          maestro cloud --api-key "${{ secrets.MAESTRO_CLOUD_KEY }}" \
+            --app-file bir-preview.apk .maestro/

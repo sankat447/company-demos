@@ -1,0 +1,42 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - name: place stack outputs
+        run: echo "$STACK_OUTPUTS_JSON" > config/stack-outputs.json && npm run contract:check
+        env:
+          STACK_OUTPUTS_JSON: ${{ secrets.STACK_OUTPUTS_JSON }}
+      - name: production builds (both platforms)
+        run: eas build --profile production --platform all --non-interactive --wait
+      - name: submit — Play internal track + TestFlight
+        run: |
+          eas submit --platform android --latest --non-interactive
+          eas submit --platform ios --latest --non-interactive
+      - name: production APK for the direct channel
+        run: |
+          eas build --profile preview --platform android --non-interactive --wait
+          eas build:download --platform android --output bir-release.apk
+          VERSION="${GITHUB_REF_NAME#v}"
+          npx tsx scripts/publish-direct.ts \
+            --apk bir-release.apk --version "$VERSION" --git-sha "$GITHUB_SHA" \
+            --distribution-id "${{ secrets.APP_DIST_CF_DISTRIBUTION_ID }}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.APP_DIST_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.APP_DIST_AWS_SECRET_ACCESS_KEY }}
+      - name: OTA baseline on the production channel
+        run: eas update --channel production --message "baseline ${GITHUB_REF_NAME}" --non-interactive

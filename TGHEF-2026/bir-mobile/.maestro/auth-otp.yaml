@@ -1,0 +1,14 @@
+# Gate 1 flow: phone → OTP → visitor home (uses the review/demo OTP number).
+appId: org.birfestival.app
+---
+- launchApp
+- assertVisible: 'Sign in with your phone|अपने फ़ोन से साइन इन करें'
+- tapOn:
+    id: 'phone-input'
+    optional: true
+- inputText: '9999999999'
+- tapOn: 'Send OTP|OTP भेजें'
+- assertVisible: 'Enter the 6-digit code|6 अंकों का कोड डालें'
+- inputText: '123456'
+- tapOn: 'Confirm|पुष्टि करें'
+- assertVisible: 'Today at the festival|आज महोत्सव में'

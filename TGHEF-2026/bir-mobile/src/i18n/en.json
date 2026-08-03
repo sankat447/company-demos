@@ -1,0 +1,76 @@
+{
+  "app": {
+    "name": "Bir",
+    "tagline": "The Official Digital Platform of Bir"
+  },
+  "common": {
+    "loading": "Loading…",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "offlineBanner": "You're offline — showing saved data. Changes will sync automatically.",
+    "directChannelNotice": "You're on the direct-download channel; updates arrive via get.bir.example or Google Play.",
+    "languageSwitch": "भाषा: हिन्दी"
+  },
+  "auth": {
+    "phoneTitle": "Sign in with your phone",
+    "phonePlaceholder": "10-digit mobile number",
+    "sendOtp": "Send OTP",
+    "otpTitle": "Enter the 6-digit code",
+    "otpSentTo": "OTP sent to {{phone}}",
+    "otpInvalid": "That code didn't match. Please try again.",
+    "otpOffline": "No connection. Reconnect to receive your OTP.",
+    "signOut": "Sign out"
+  },
+  "tabs": {
+    "home": "Home",
+    "tickets": "Tickets",
+    "schedule": "Schedule",
+    "assistant": "Assistant",
+    "stalls": "My Stall",
+    "hospitality": "Rooms",
+    "roster": "My Roster",
+    "scanner": "Scanner"
+  },
+  "home": {
+    "todayAtFestival": "Today at the festival",
+    "weatherHold": "Weather hold: flying is paused. We'll notify you the moment it resumes.",
+    "sos": "SOS",
+    "sosConfirm": "Call the emergency desk and share your location once?"
+  },
+  "tickets": {
+    "myPasses": "My passes",
+    "showAtGate": "Show this QR at the gate",
+    "worksOffline": "This pass works offline",
+    "empty": "No passes yet — book a ticket to get started.",
+    "typeTicket": "Festival ticket",
+    "typeVolunteer": "Volunteer pass",
+    "typeStall": "Stall pass",
+    "typeRoom": "Room pass"
+  },
+  "scanner": {
+    "title": "Gate scanner",
+    "pendingSync": "{{count}} scans waiting to sync",
+    "verdictValid": "VALID — welcome!",
+    "verdictExpired": "REJECTED — pass expired",
+    "verdictNotYetValid": "REJECTED — pass not valid yet",
+    "verdictRevoked": "REJECTED — pass revoked",
+    "verdictWrongZone": "REJECTED — wrong zone for this gate",
+    "verdictDuplicate": "REJECTED — already scanned at this gate",
+    "verdictBadSignature": "REJECTED — invalid pass",
+    "verdictMalformed": "REJECTED — unreadable code"
+  },
+  "consent": {
+    "title": "Your data, your choice",
+    "dpdpIntro": "We collect only what the festival needs to serve you, as listed below, under India's DPDP Act. You can withdraw consent anytime.",
+    "locationSos": "Share location once during an SOS",
+    "accept": "I agree",
+    "decline": "Not now"
+  },
+  "assistant": {
+    "title": "Festival assistant",
+    "placeholder": "Ask about shows, food, flying…",
+    "offlineFaq": "You're offline — answers come from the saved FAQ.",
+    "talkToHuman": "Talk to a human"
+  }
+}

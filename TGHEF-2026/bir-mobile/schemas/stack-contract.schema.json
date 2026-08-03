@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://bir.example/schemas/stack-contract.schema.json",
+  "title": "Bir stack contract",
+  "description": "Values the already-deployed AWS backend stack must export. The app consumes these via config/stack-outputs.json and NEVER provisions backend resources. Gaps go to docs/BACKEND_ASKS.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "region",
+    "auth",
+    "api",
+    "storage",
+    "push",
+    "ai",
+    "payments",
+    "passes",
+    "realtime",
+    "geo",
+    "flags"
+  ],
+  "properties": {
+    "region": { "type": "string", "minLength": 1 },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["userPoolId", "userPoolClientId", "identityPoolId", "otpChannel"],
+      "properties": {
+        "userPoolId": { "type": "string", "minLength": 1 },
+        "userPoolClientId": { "type": "string", "minLength": 1 },
+        "identityPoolId": { "type": "string", "minLength": 1 },
+        "otpChannel": { "type": "string", "enum": ["sms"] }
+      }
+    },
+    "api": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graphqlEndpoint", "graphqlRealtime", "restBase"],
+      "properties": {
+        "graphqlEndpoint": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "graphqlRealtime": { "type": "string", "format": "uri", "pattern": "^wss://" },
+        "restBase": { "type": "string", "format": "uri", "pattern": "^https://" }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mediaBucket", "cdnDomain", "appDistBucket", "appDistDomain"],
+      "properties": {
+        "mediaBucket": { "type": "string", "minLength": 1 },
+        "cdnDomain": { "type": "string", "minLength": 1 },
+        "appDistBucket": { "type": "string", "minLength": 1 },
+        "appDistDomain": { "type": "string", "minLength": 1 }
+      }
+    },
+    "push": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pinpointAppId", "fcmSenderId"],
+      "properties": {
+        "pinpointAppId": { "type": "string", "minLength": 1 },
+        "fcmSenderId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assistantPath", "plannerPath", "translatePath", "queuePredictPath"],
+      "properties": {
+        "assistantPath": { "type": "string", "pattern": "^/" },
+        "plannerPath": { "type": "string", "pattern": "^/" },
+        "translatePath": { "type": "string", "pattern": "^/" },
+        "queuePredictPath": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "payments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "orderPath", "webhookVerified"],
+      "properties": {
+        "provider": { "type": "string", "enum": ["razorpay", "cashfree"] },
+        "orderPath": { "type": "string", "pattern": "^/" },
+        "webhookVerified": { "type": "boolean", "const": true }
+      }
+    },
+    "passes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuerKid", "jwksPath", "alg"],
+      "properties": {
+        "issuerKid": { "type": "string", "minLength": 1 },
+        "jwksPath": { "type": "string", "pattern": "^/" },
+        "alg": { "type": "string", "enum": ["ES256"] }
+      }
+    },
+    "realtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alertTopicArnParam"],
+      "properties": {
+        "alertTopicArnParam": { "type": "string", "minLength": 1 }
+      }
+    },
+    "geo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["geofenceCollection", "shuttleTrackerName"],
+      "properties": {
+        "geofenceCollection": { "type": "string", "minLength": 1 },
+        "shuttleTrackerName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "required": ["festivalMode", "experiencesMarketplace"],
+      "properties": {
+        "festivalMode": { "type": "boolean" },
+        "experiencesMarketplace": { "type": "boolean" }
+      },
+      "additionalProperties": { "type": "boolean" }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sentryDsn": { "type": "string", "format": "uri" }
+      }
+    }
+  }
+}

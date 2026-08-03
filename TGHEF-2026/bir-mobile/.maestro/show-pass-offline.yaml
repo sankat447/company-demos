@@ -1,0 +1,11 @@
+# Gate 3 flow: pass renders from SQLite with airplane mode ON.
+appId: org.birfestival.app
+---
+- launchApp
+- toggleAirplaneMode: enabled
+- tapOn: 'Tickets|टिकट'
+- assertVisible: 'My passes|मेरे पास'
+- tapOn: 'Festival ticket|महोत्सव टिकट'
+- assertVisible: 'Show this QR at the gate|गेट पर यह QR दिखाएँ'
+- assertVisible: 'This pass works offline|यह पास ऑफ़लाइन भी चलता है'
+- toggleAirplaneMode: disabled

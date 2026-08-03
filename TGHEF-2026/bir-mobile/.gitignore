@@ -1,0 +1,25 @@
+# deps / build
+node_modules/
+.expo/
+dist/
+web-build/
+ios/
+android/
+*.tsbuildinfo
+
+# the ONLY binding to the AWS project — real values never committed
+config/stack-outputs.json
+
+# secrets & signing material (must live in EAS secrets only)
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+.env
+.env.*
+
+# OS / editor
+.DS_Store

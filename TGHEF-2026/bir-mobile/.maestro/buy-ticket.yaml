@@ -1,0 +1,14 @@
+# Gate 3 flow: browse tiers → pay (sandbox) → webhook-confirmed pass appears.
+# Payment success must arrive via the onOrderConfirmed subscription, never the
+# client callback — the flow asserts the pass card, not a checkout toast.
+appId: org.birfestival.app
+---
+- launchApp
+- tapOn: 'Tickets|टिकट'
+- tapOn: 'Book a ticket|टिकट बुक करें'
+- tapOn: 'Day pass|दिन का पास'
+- tapOn: 'Pay|भुगतान करें'
+# provider sandbox sheet handled by maestro's UPI stub in cloud config
+- extendedWaitUntil:
+    visible: 'Festival ticket|महोत्सव टिकट'
+    timeout: 30000

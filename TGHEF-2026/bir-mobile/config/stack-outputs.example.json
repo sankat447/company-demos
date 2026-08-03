@@ -1,0 +1,51 @@
+{
+  "region": "ap-south-1",
+  "auth": {
+    "userPoolId": "ap-south-1_EXAMPLE",
+    "userPoolClientId": "example1234567890client",
+    "identityPoolId": "ap-south-1:00000000-0000-0000-0000-000000000000",
+    "otpChannel": "sms"
+  },
+  "api": {
+    "graphqlEndpoint": "https://example.appsync-api.ap-south-1.amazonaws.com/graphql",
+    "graphqlRealtime": "wss://example.appsync-realtime-api.ap-south-1.amazonaws.com/graphql",
+    "restBase": "https://api.bir.example/v1"
+  },
+  "storage": {
+    "mediaBucket": "bir-media-example",
+    "cdnDomain": "cdn.bir.example",
+    "appDistBucket": "bir-app-dist-example",
+    "appDistDomain": "get.bir.example"
+  },
+  "push": {
+    "pinpointAppId": "0000000000000000000000000000000000",
+    "fcmSenderId": "000000000000"
+  },
+  "ai": {
+    "assistantPath": "/ai/assistant",
+    "plannerPath": "/ai/planner",
+    "translatePath": "/ai/translate",
+    "queuePredictPath": "/ai/queue"
+  },
+  "payments": {
+    "provider": "razorpay",
+    "orderPath": "/pay/order",
+    "webhookVerified": true
+  },
+  "passes": {
+    "issuerKid": "bir-2026-01",
+    "jwksPath": "/.well-known/bir-passes/jwks.json",
+    "alg": "ES256"
+  },
+  "realtime": {
+    "alertTopicArnParam": "/bir/sns/emergency"
+  },
+  "geo": {
+    "geofenceCollection": "bir-venues",
+    "shuttleTrackerName": "bir-shuttles"
+  },
+  "flags": {
+    "festivalMode": true,
+    "experiencesMarketplace": true
+  }
+}

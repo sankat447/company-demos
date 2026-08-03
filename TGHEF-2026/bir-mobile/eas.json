@@ -1,0 +1,26 @@
+{
+  "cli": { "appVersionSource": "remote" },
+  "build": {
+    "development": { "developmentClient": true, "distribution": "internal" },
+    "preview": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "ios": { "simulator": false },
+      "channel": "preview",
+      "env": { "APP_CHANNEL": "direct" }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": { "buildType": "app-bundle" },
+      "ios": {},
+      "channel": "production",
+      "env": { "APP_CHANNEL": "store" }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": { "serviceAccountKeyPath": "eas-secret:PLAY_SA_JSON", "track": "internal" },
+      "ios": { "ascApiKeyPath": "eas-secret:ASC_KEY", "appleTeamId": "REPLACE_TEAM_ID" }
+    }
+  }
+}

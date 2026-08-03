@@ -1,0 +1,29 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test -- --ci
+      - run: npm run contract:check
+      - run: npm run i18n:check
+      - name: bundle-size guard (rule 7 — AAB ≤ 40 MB proxy)
+        run: |
+          npx expo export --platform android --output-dir dist
+          SIZE=$(du -sm dist | cut -f1)
+          echo "exported JS bundle + assets: ${SIZE} MB"
+          if [ "$SIZE" -gt 40 ]; then
+            echo "::error::export exceeds 40 MB budget"; exit 1
+          fi
