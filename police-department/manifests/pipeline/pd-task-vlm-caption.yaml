@@ -148,9 +148,14 @@ spec:
   # .object-signals.json (backwards-compat person counts).
   - name: object-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - {name: PYTHONUSERBASE, value: /workspace/shared/.python-user}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
     script: |
       #!/usr/bin/env python3
       import os, sys, json, subprocess, traceback
+      # Enable user-site so imports find prior pip --user installs on PVC
+      import site; site.ENABLE_USER_SITE = True; site.main()
 
       clip_id = "$(params.clip-id)"
       workspace = "$(workspaces.shared.path)"
@@ -181,7 +186,7 @@ spec:
           print("[object-detect] installing ultralytics + torch (headless cv2) — ~60-90s first time...", flush=True)
           try:
               subprocess.check_call(
-                  [sys.executable, "-m", "pip", "install", "--quiet",
+                  [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                    "--disable-pip-version-check",
                    # CUDA wheels (default PyPI); GPU auto-detected
                    "opencv-python-headless", "ultralytics"],
@@ -192,7 +197,7 @@ spec:
                    "--disable-pip-version-check", "opencv-python"],
               )
               subprocess.check_call(
-                  [sys.executable, "-m", "pip", "install", "--quiet",
+                  [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                    "--disable-pip-version-check",
                    "--force-reinstall", "opencv-python-headless"],
                   timeout=180,
@@ -391,9 +396,14 @@ spec:
     image: registry.access.redhat.com/ubi9/python-311:latest
     computeResources:
       limits: { nvidia.com/gpu: "1" }
+    env:
+    - {name: PYTHONUSERBASE, value: /workspace/shared/.python-user}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
     script: |
       #!/usr/bin/env python3
-      import os, sys, json, glob, math, subprocess, traceback
+      import os, sys, json, subprocess, traceback
+      import site; site.ENABLE_USER_SITE = True; site.main()
+      import glob, math
 
       clip_id = "$(params.clip-id)"
       workspace = "$(workspaces.shared.path)"
@@ -431,7 +441,7 @@ spec:
           print("[pose-estimate] installing ultralytics + torch (headless cv2)...", flush=True)
           try:
               subprocess.check_call(
-                  [sys.executable, "-m", "pip", "install", "--quiet",
+                  [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                    "--disable-pip-version-check",
                    # CUDA wheels (default PyPI); GPU auto-detected
                    "opencv-python-headless", "ultralytics"],
@@ -440,7 +450,7 @@ spec:
               subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y",
                                "--disable-pip-version-check", "opencv-python"])
               subprocess.check_call(
-                  [sys.executable, "-m", "pip", "install", "--quiet",
+                  [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                    "--disable-pip-version-check",
                    "--force-reinstall", "opencv-python-headless"],
                   timeout=180,
@@ -744,9 +754,14 @@ spec:
   # filtered to tracks with 2+ weapon frames (single-frame noise dropped).
   - name: weapon-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - {name: PYTHONUSERBASE, value: /workspace/shared/.python-user}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
     script: |
       #!/usr/bin/env python3
-      import os, sys, json, glob, re, subprocess, traceback
+      import os, sys, json, subprocess, traceback
+      import site; site.ENABLE_USER_SITE = True; site.main()
+      import glob, re
 
       clip_id = "$(params.clip-id)"
       workspace = "$(workspaces.shared.path)"
@@ -791,7 +806,7 @@ spec:
           print("[weapon-detect] installing ultralytics + torch (headless cv2)...", flush=True)
           try:
               subprocess.check_call(
-                  [sys.executable, "-m", "pip", "install", "--quiet",
+                  [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                    "--disable-pip-version-check",
                    # CUDA wheels (default PyPI); GPU auto-detected
                    "opencv-python-headless", "ultralytics"],
@@ -800,7 +815,7 @@ spec:
               subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y",
                                "--disable-pip-version-check", "opencv-python"])
               subprocess.check_call(
-                  [sys.executable, "-m", "pip", "install", "--quiet",
+                  [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                    "--disable-pip-version-check", "--force-reinstall",
                    "opencv-python-headless"],
                   timeout=180,
@@ -958,9 +973,13 @@ spec:
   # running_signal per track. Runtime ~20s + one-time torch install.
   - name: action-recognize
     image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - {name: PYTHONUSERBASE, value: /workspace/shared/.python-user}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
     script: |
       #!/usr/bin/env python3
       import os, sys, json, subprocess, traceback
+      import site; site.ENABLE_USER_SITE = True; site.main()
 
       clip_id = "$(params.clip-id)"
       workspace = "$(workspaces.shared.path)"
@@ -1007,7 +1026,7 @@ spec:
           print("[action-recognize] installing torch + torchvision (CPU-only)...", flush=True)
           try:
               subprocess.check_call(
-                  [sys.executable, "-m", "pip", "install", "--quiet",
+                  [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                    "--disable-pip-version-check",
                    # CUDA wheels (default PyPI); GPU auto-detected
                    "opencv-python-headless", "torch", "torchvision"],
@@ -1016,7 +1035,7 @@ spec:
               subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y",
                                "--disable-pip-version-check", "opencv-python"])
               subprocess.check_call(
-                  [sys.executable, "-m", "pip", "install", "--quiet",
+                  [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                    "--disable-pip-version-check", "--force-reinstall",
                    "opencv-python-headless"],
                   timeout=180,
@@ -1198,7 +1217,7 @@ spec:
           from PIL import Image
       except ImportError:
           subprocess.check_call(
-              [sys.executable, "-m", "pip", "install", "--quiet",
+              [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                "--disable-pip-version-check", "Pillow"],
               timeout=120,
           )
@@ -1618,7 +1637,7 @@ spec:
           from PIL import Image, ImageChops  # noqa
       except ImportError:
           subprocess.check_call(
-              [sys.executable, "-m", "pip", "install", "--quiet",
+              [sys.executable, "-m", "pip", "install", "--user", "--quiet",
                "--disable-pip-version-check", "Pillow"],
           )
           from PIL import Image, ImageChops
