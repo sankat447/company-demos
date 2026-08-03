@@ -148,8 +148,6 @@ spec:
   # .object-signals.json (backwards-compat person counts).
   - name: object-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
-    computeResources:
-      limits: { nvidia.com/gpu: "1" }
     script: |
       #!/usr/bin/env python3
       import os, sys, json, subprocess, traceback
@@ -746,8 +744,6 @@ spec:
   # filtered to tracks with 2+ weapon frames (single-frame noise dropped).
   - name: weapon-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
-    computeResources:
-      limits: { nvidia.com/gpu: "1" }
     script: |
       #!/usr/bin/env python3
       import os, sys, json, glob, re, subprocess, traceback
@@ -962,8 +958,6 @@ spec:
   # running_signal per track. Runtime ~20s + one-time torch install.
   - name: action-recognize
     image: registry.access.redhat.com/ubi9/python-311:latest
-    computeResources:
-      limits: { nvidia.com/gpu: "1" }
     script: |
       #!/usr/bin/env python3
       import os, sys, json, subprocess, traceback
