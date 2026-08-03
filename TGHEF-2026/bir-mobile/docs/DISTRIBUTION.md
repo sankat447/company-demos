@@ -1,19 +1,21 @@
-# DISTRIBUTION.md — Building, Signing & Shipping the Bir Apps
+# DISTRIBUTION.md — Building, Signing & Shipping the Bir Festival 2026 App
 
-How the binaries leave this repo: **Play Store AAB**, **App Store IPA**, and the
-**direct-download APK with QR code** hosted on the existing AWS stack. Includes the CI/CD
-pipeline, signing custody, and the release/rollback runbook Claude Code automates.
+How the binaries of the **Bir Festival 2026 app** (one event, **21–23 November 2026**)
+leave this repo: **Play Store AAB**, **App Store IPA**, and the **direct-download APK
+with QR code** hosted on the existing AWS stack. Includes the CI/CD pipeline, signing
+custody, and the release/rollback runbook Claude Code automates. Release activity ends
+with the close-out window on **30 November 2026** (§6).
 
 ---
 
 ## 1. Channels at a glance
 
-| Channel                                   | Artifact                  | Audience                                                          | Trust model                                                           |
-| ----------------------------------------- | ------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Google Play (production + internal track) | `.aab`                    | General public                                                    | Play signing, Play Integrity                                          |
-| Direct download `get.bir.example`         | universal `.apk`          | Festival week onboarding, low-connectivity users, partner devices | Same upload key as Play; SHA-256 published; "unknown sources" install |
-| Apple App Store + TestFlight              | `.ipa`                    | General public / beta                                             | Apple signing & review                                                |
-| iOS ad-hoc OTA (QR)                       | `.ipa` + `manifest.plist` | **Registered test devices only** (≤100 UDIDs)                     | Ad-hoc provisioning                                                   |
+| Channel                                   | Artifact                  | Audience                                                                                              | Trust model                                                           |
+| ----------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Google Play (production + internal track) | `.aab`                    | General public                                                                                        | Play signing, Play Integrity                                          |
+| Direct download `get.bir.example`         | universal `.apk`          | **Primary festival-week onboarding (gate/hotel poster QRs), low-connectivity users, partner devices** | Same upload key as Play; SHA-256 published; "unknown sources" install |
+| Apple App Store + TestFlight              | `.ipa`                    | General public / beta                                                                                 | Apple signing & review                                                |
+| iOS ad-hoc OTA (QR)                       | `.ipa` + `manifest.plist` | **Registered test devices only** (≤100 UDIDs)                                                         | Ad-hoc provisioning                                                   |
 
 > **Apple reality check (do not promise otherwise):** iOS has no public sideloading
 > equivalent to the APK channel. The QR install for iOS works only for devices whose
@@ -63,7 +65,8 @@ touching native modules requires a new binary.
 ## 3. Direct-download channel on the existing AWS stack
 
 Uses only contract resources: `storage.appDistBucket` behind `storage.appDistDomain`
-(CloudFront + ACM cert + Route53 already in the backend project).
+(CloudFront + ACM cert + Route53 already in the backend project). This is the primary
+festival-week onboarding channel — the poster QRs at gates and hotels point here.
 
 **Bucket layout**
 
@@ -152,9 +155,22 @@ backend project must provide** (`ci/appDistPublishRoleArn`, add to contract).
 6. Announce in-app via Pinpoint (respecting quiet hours) + platform release notes en+hi.
 7. Monitor: crash-free sessions, ANR rate, scan-verdict latency dashboard for 48 h.
 
+> **Festival parity rule:** from **1 November 2026**, the direct channel and Google Play
+> must carry the **same `versionCode` at all times** — a visitor who installs from a gate
+> poster and later updates from Play (or vice-versa) must never move backwards or hit a
+> version fork.
+
 **Rollback:** halt staged rollout / re-promote previous AAB; flip `latest.json` to the
 prior artifact; `eas update --channel production --branch rollback` for JS-level issues.
 Target: ≤30 minutes, rehearsed in Phase 7 of the implementation plan.
+
+**Post-festival:** the final maintenance release window closes **30 November 2026**;
+stores remain published for archival access with a festival-concluded banner controlled
+by contract flag `flags.festivalMode`. **`flags.festivalMode`** — backend-controlled
+contract flag: `true` from launch through the festival; flipped to `false` at close-out
+(30 November 2026), which puts the app into festival-concluded mode — an archival banner,
+bookings and payments disabled, while passes, certificates and the public report remain
+viewable.
 
 ---
 

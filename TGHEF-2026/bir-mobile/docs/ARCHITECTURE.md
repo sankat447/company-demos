@@ -1,13 +1,19 @@
-# ARCHITECTURE.md — Bir Mobile ↔ Existing AWS Stack
+# ARCHITECTURE.md — Bir Festival 2026 App ↔ Existing AWS Stack
 
 Author: Rajeev Jambal (Convenor) · Prepared as the binding architecture for Claude Code.
-Scope: how one React Native codebase serves Visitor, Partner and Volunteer roles against
-the **already-deployed AWS stack** (separate project), and how it ships to Play, App Store
-and direct-QR channels without ever provisioning backend resources itself.
+Rescoped per change order **CO-001**: this is the architecture of the **Bir Festival 2026
+app** — one event, **21–23 November 2026**, product life ending **30 November 2026** with
+close-out (vendor settlements T+2, volunteer certificates, lost-&-found closure, public
+report). Scope: how one React Native codebase serves Visitor, Partner and Volunteer roles
+against the **already-deployed AWS stack** (separate project), and how it ships to Play,
+App Store and direct-QR channels without ever provisioning backend resources itself.
 
 ---
 
 ## 1. System context
+
+The app is the festival's mobile client for the three festival days and the close-out
+week — nothing more. Every capability below names the contract key it consumes.
 
 ```mermaid
 flowchart LR
@@ -26,7 +32,7 @@ flowchart LR
     CF[CloudFront\n+ Route53 domain]
     PIN[Pinpoint / SNS\nFCM · APNs]
     BR[Bedrock behind Lambda\nassistant · planner · translate]
-    EVB[EventBridge\nschedules · weather-hold fanout]
+    EVB[EventBridge\nschedules · fly-status fanout]
     LOC[Location Service\ngeofences · shuttle tracking]
   end
 
@@ -40,7 +46,6 @@ flowchart LR
 ```
 
 **Principle:** the app is a _client of record_, the stack is the _system of record_.
-Every capability below names the contract key it consumes.
 
 ---
 
@@ -89,27 +94,43 @@ Claude Code validates against `schemas/stack-contract.schema.json` (`npm run con
 }
 ```
 
-Anything the app needs beyond this list → write it into `docs/BACKEND_ASKS.md` with the
-proposed export name; do not improvise.
+**`flags.festivalMode`** — backend-controlled contract flag: `true` from launch through
+the festival; flipped to `false` at close-out (30 November 2026), which puts the app into
+festival-concluded mode — an archival banner, bookings and payments disabled, while
+passes, certificates and the public report remain viewable.
+
+All existing keys above are KEPT unchanged (backend naming is out of our control).
+Keys newly required by CO-001 are **requested via `docs/BACKEND_ASKS.md` (#8–#13)**, not
+added here until the backend exports them: `geo.shuttleEtaPath`,
+`ops.flyStatusTopicParam`, `ops.lostFoundPath`, `ops.cleanMetricsPath`,
+`ops.reunite.wristbandPath`, `refunds.autoQueueFlag`.
+
+Anything else the app needs beyond this list → write it into `docs/BACKEND_ASKS.md` with
+the proposed export name; do not improvise.
 
 ---
 
-## 3. Feature → stack mapping (the 10 AI features + core modules)
+## 3. Feature → stack mapping (CO-001 baseline: modules A–I + enhancements 1–6)
 
-| App module                                       | Consumes                                              | Notes for Claude Code                                                                                                               |
-| ------------------------------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Tickets & QR passes                              | `passes.*`, GraphQL `issuePass`, S3 pass art          | Pass = ES256 JWT rendered as QR; verify offline (§6)                                                                                |
-| Cultural nights: schedule, reminders, seat votes | GraphQL subs + EventBridge fanout via Pinpoint        | Subscriptions reconnect w/ backoff; votes queue in outbox offline                                                                   |
-| Stalls (partner)                                 | GraphQL `stallApplication` state machine              | Mirror backend Step Functions states read-only                                                                                      |
-| Hospitality (partner)                            | GraphQL rooms/allocations/check-ins                   | Occupancy board must render from cached data offline                                                                                |
-| Experiences marketplace                          | GraphQL + payments REST                               | Booking = create order (REST) → confirm (GraphQL mutation from webhook) — app polls subscription, never trusts client success alone |
-| Volunteer corps                                  | GraphQL rosters + offline scan log                    | QR attendance scans stored locally, synced via outbox                                                                               |
-| AI Assistant                                     | `ai.assistantPath` (SSE)                              | Streamed tokens; Hindi/English auto by locale; degrade to FAQ cache offline                                                         |
-| AI Travel Planner                                | `ai.plannerPath`                                      | Request/response JSON; render itinerary cards; "book all" fans into normal booking flows                                            |
-| AI Translate                                     | `ai.translatePath`                                    | Menu/sign photo → text; batch endpoint; cache aggressively                                                                          |
-| Queue & crowd                                    | `ai.queuePredictPath` + Location geofences            | Heatmap tiles from CDN, densities from REST; NEVER device-level tracking of other users                                             |
-| SOS & emergency alerts                           | SNS topic via Pinpoint push + local full-screen alert | Must fire with app in background; test on both platforms                                                                            |
-| Notifications                                    | Pinpoint campaigns/journeys                           | Respect quiet hours & per-user budget server-side; client only registers token + prefs                                              |
+This table is the authoritative feature list — no extras, no omissions.
+
+| #   | App module                                      | Consumes                                                                                                                     | Notes for Claude Code                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A   | Tickets & QR passes                             | `passes.*`, GraphQL `issuePass`, payments REST, S3 pass art                                                                  | Purchase → wallet-style pass screen; pass = ES256 JWT rendered as QR; offline-verifiable at gates (§6)                                                                                                                                                                                                                                                                                                                                                                                         |
+| B   | Daily Cultural Nights (every evening 21–23 Nov) | GraphQL schedule/subs + EventBridge fanout via Pinpoint                                                                      | Programme: folk music, traditional dances, live bands, storytelling, comedy & cultural performances, heritage showcases, guest appearances (if applicable), award ceremonies. Visitors: view schedules · reminders · reserve seats (where applicable) · vote for audience favourites — votes power the award ceremonies and queue in the outbox offline                                                                                                                                        |
+| C   | Experience Marketplace (festival week)          | GraphQL + `payments.orderPath` REST                                                                                          | Hotels/homestays/partners host paid experiences: yoga, meditation workshops, wellness, pottery, art workshops, cooking classes, village walks, farm visits, nature & adventure activities. Browse · book · pay · review (verified-booking only). Booking = order (REST) → webhook-confirmed mutation; app polls subscription, never trusts client success. Host payouts on the published T+2 cycle (backend; app shows status)                                                                 |
+| D   | Hospitality Partner Programme                   | GraphQL rooms/allocations/check-ins                                                                                          | Tiers: ≤10 rooms → one complimentary twin-sharing room ×2 nights; >10 rooms → two ×2 nights (tier logic backend-side). App: participant allocation · check-in management · occupancy tracking · accommodation coordination; occupancy board renders from cache offline                                                                                                                                                                                                                         |
+| E   | Food Stall Management                           | GraphQL `stallApplication` state machine + analytics feeds                                                                   | Applications · approvals · payments · stall allocation · vendor communication · performance analytics (mirror backend Step Functions states read-only). Food-street rules surfaced in-app: single-use-plastic-free, deposit-return cups/plates, daily waste weighed & published                                                                                                                                                                                                                |
+| F   | Volunteer Management (400 volunteers)           | GraphQL rosters + offline scan log + signed-URL uploads                                                                      | Registration · ID verification/upload · team assignments · QR attendance (offline via outbox) · duty rosters · notifications · incident reporting (photo + category, offline-safe) · digital certificates issued within 7 days post-festival                                                                                                                                                                                                                                                   |
+| G   | Organiser Dashboards (14) — organiser-lite      | GraphQL dashboard feeds + `realtime.alertTopicArnParam`                                                                      | Planning & Implementation, Logistics & Infrastructure, Hospitality & Accommodation, Competition Management, Vendor Management, Marketing & Media, Sponsorship, Traffic & Parking, Tourism & Experiences, Volunteer Management, Safety & Medical, Finance, IT & AI Operations, Cleanliness & Sustainability. Each: task management · team communication · live updates · reports · analytics · emergency alerts. Mobile ships the organiser-lite view; the full console remains the web surface |
+| H   | The ten AI features (festival-scoped)           | `ai.assistantPath`, `ai.plannerPath`, `ai.translatePath`, `ai.queuePredictPath` + backend-side services                      | AI Festival Assistant · AI Travel Planner (a visitor's 3-day festival plan) · AI Food Recommendations · AI Translation · AI Queue Prediction · AI Crowd Management · AI Notifications · AI Visitor Analytics · AI Organiser Analytics · AI Marketing Support. ALL via backend endpoints only — the app never calls models directly. Guardrail: **AI suggests, humans decide; the safety officer's "no fly" is final**                                                                          |
+| I   | Community-led collaboration                     | Cognito role groups + CDN-served content                                                                                     | Roles for Local Administration, Taxi Union, Paragliding Pilots Association, Vyapar Mandal, Hotels & Homestays, Self-Help Groups, Mahila Mandals, Youth Clubs, Sponsors, Volunteers, Government Departments; Himachal Tourism invited as official Co-Host. App renders acknowledgements + role-appropriate surfaces; no bespoke backend writes                                                                                                                                                  |
+| E1  | Offline gate scanning                           | `passes.jwksPath` + revocations delta (§6)                                                                                   | QR verdict on-device in **<1 s**; a network outage at Chogan must never stop entry, boarding or attendance                                                                                                                                                                                                                                                                                                                                                                                     |
+| E2  | Park-&-shuttle with live tracker                | `geo.shuttleTrackerName` + requested `geo.shuttleEtaPath` (ASK #8)                                                           | Periphery parking; shuttle ETA in-app from the Location tracker; resident/school/patient priority messaging                                                                                                                                                                                                                                                                                                                                                                                    |
+| E3  | Official "Can I fly today?" status              | `realtime.alertTopicArnParam` via Pinpoint + requested `ops.flyStatusTopicParam` (ASK #9), `refunds.autoQueueFlag` (ASK #13) | One weather-hold banner pushed to every device the moment the safety officer calls it; affected flight bookings auto-enter the refund queue **backend-driven** — the app renders state and notifies only                                                                                                                                                                                                                                                                                       |
+| E4  | SOS & medical grid                              | SNS/Pinpoint + `geo.geofenceCollection`                                                                                      | One-tap SOS with location consent; medical posts at Billing, Chogan and the main venue on the map; evacuation-route info screen                                                                                                                                                                                                                                                                                                                                                                |
+| E5  | Deposit-return & cleanliness metrics            | requested `ops.cleanMetricsPath` (ASK #11) + CDN config                                                                      | Visitor-facing return-point map; daily waste figures rendered from the Cleanliness dashboard feed                                                                                                                                                                                                                                                                                                                                                                                              |
+| E6  | Lost & found + child-reunite                    | requested `ops.lostFoundPath` (ASK #10), `ops.reunite.wristbandPath` (ASK #12) + signed-URL photo upload                     | Photo-based lost & found; QR wristband registration/lookup flow for family zones; wristband lookup works offline from cache                                                                                                                                                                                                                                                                                                                                                                    |
 
 ---
 
@@ -156,11 +177,13 @@ group claim is present — no separate apps to maintain during festival week.
 
 ## 6. Offline-first pass verification (festival-critical)
 
-Gate scanning must work when the 4G dies at Chogan.
+Gate scanning must work when the 4G dies at Chogan — this section is the core of
+CO-001 enhancement 1 (offline gate scanning, verdict on-device in <1 s) and is unchanged
+in design.
 
 1. Backend issues each ticket/roster pass as **ES256 JWT** (`passes.alg`), claims:
-   `jti` (pass id), `typ` (ticket|volunteer|stall|room), `sub`, `evt`, `zones[]`,
-   `nbf/exp`, `seat?`.
+   `jti` (pass id), `typ` (ticket | volunteer | volunteer-attendance | seat-entry |
+   stall | room), `sub`, `evt`, `zones[]`, `nbf/exp`, `seat?`.
 2. App bundles NOTHING secret: it caches the **JWKS** from `passes.jwksPath` (refetch
    daily; pin `kid`).
 3. Scanner verifies signature + time window **on device**, checks local
@@ -186,7 +209,7 @@ Gate scanning must work when the 4G dies at Chogan.
 - **Operational excellence:** Sentry (self-hosted DSN from contract if provided, else
   Pinpoint events only); every release tagged with EAS build ID + git SHA; feature flags
   from contract `flags` so backend can dark-launch.
-- **Sustainability:** dark-mode default at festival (OLED savings), batch sync windows.
+- **Sustainability:** dark-mode default at festival (OLED savings).
 
 ---
 

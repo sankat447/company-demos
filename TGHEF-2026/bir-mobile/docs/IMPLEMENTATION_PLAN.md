@@ -1,6 +1,8 @@
-# IMPLEMENTATION_PLAN.md — Bir Mobile Apps
+# IMPLEMENTATION_PLAN.md — Bir Festival 2026 App
 
-Execution plan for Claude Code. Work top-to-bottom; one PR per task ID; tick the box in
+Execution plan for Claude Code for the **Bir Festival 2026 app** — one event,
+**21–23 November 2026**; the plan (and the product's planned life) ends **30 November
+2026** with the close-out build. Work top-to-bottom; one PR per task ID; tick the box in
 the same PR. Every phase ends with a **Gate** — do not start the next phase until the
 gate's acceptance checks pass (`npm run typecheck && npm run lint && npm run test`,
 plus the listed manual/e2e checks).
@@ -54,10 +56,13 @@ test: verifier accepts valid pass, rejects revoked one from cached list.
 - [ ] **P3.1** Tickets: browse tiers → payment (order via REST, provider SDK, webhook-
       confirmed via subscription) → pass stored → **QR pass screen** (brightness bump,
       wallet-style card, works offline).
-- [ ] **P3.2** Schedule & cultural nights: day tabs, venue map pins, reminders (local
-      notifications), seat reservation + audience voting (outbox-safe).
-- [ ] **P3.3** Home: "today at the festival" feed, weather-hold banner (SNS-driven),
-      SOS button (confirm → call + report location once with consent).
+- [ ] **P3.2** Cultural nights: day tabs, venue map pins, reminders (local notifications),
+      seat reservation (where applicable) + **audience-favourite voting** — votes power
+      the award ceremonies and must be outbox-safe offline.
+- [ ] **P3.3** Home: "today at the festival" feed, **official fly-status banner +
+      auto-refund state rendering** (SNS-driven; refund queue is backend-driven, the app
+      renders state and notifies), SOS button (confirm → call + report location once
+      with consent).
 - [ ] **P3.4** Push registration: FCM/APNs token → Pinpoint endpoint w/ role+locale
       attributes; quiet-hours preference UI.
 - [ ] **P3.5** Preview channel build: `eas build --profile preview` universal APK;
@@ -78,7 +83,7 @@ installed on a physical device via the QR page; push received with app backgroun
 **Gate 4:** field-sim test script: 200 mixed scans offline then sync — zero loss, zero
 dupes server-side; incident with photo syncs after reconnect.
 
-## Phase 5 — Marketplace & partner tools
+## Phase 5 — Marketplace, stalls & hospitality
 
 - [ ] **P5.1** Experiences: browse/filter, detail, slots, book+pay, reviews
       (verified-booking only), host view for partners.
@@ -86,16 +91,21 @@ dupes server-side; incident with photo syncs after reconnect.
       partner stall console: application status, payments, daily analytics cards.
 - [ ] **P5.3** Hospitality partner: allocations list, check-in flow, occupancy board
       (offline-render from cache).
+- [ ] **P5.4** Food-street rules & clean-metrics screens: single-use-plastic-free and
+      deposit-return rules surfaced in-app; daily waste figures rendered from the
+      Cleanliness dashboard feed.
+- [ ] **P5.5** Deposit-return points map (visitor-facing return-point locations).
 
 **Gate 5:** partner happy-paths pass on both OSes; experiences booking follows the
 webhook-confirmation pattern verifiably (kill app between pay and confirm → state
 recovers correctly).
 
-## Phase 6 — AI layer & polish
+## Phase 6 — AI, ops enhancements & polish
 
 - [ ] **P6.1** AI Assistant: streaming chat (SSE), voice input (hi/en), FAQ offline
       fallback, "talk to a human" handoff deep link.
-- [ ] **P6.2** AI Travel Planner: constraints form → itinerary cards → book-all fan-out.
+- [ ] **P6.2** AI Travel Planner: constraints form → 3-day festival itinerary cards →
+      book-all fan-out.
 - [ ] **P6.3** AI Translate: camera → menu/sign translation; cache; usage disclaimer.
 - [ ] **P6.4** Crowd/queue view: venue heatmap tiles + best-time hints; landing-road
       shuttle ETA from Location tracker.
@@ -103,19 +113,31 @@ recovers correctly).
       screen-reader walkthrough of ticket→gate journey.
 - [ ] **P6.6** Store metadata: icons/splash (paraglider mark), screenshots (en+hi),
       privacy labels/Data Safety form drafts in `store/`.
+- [ ] **P6.7** Shuttle live ETA screen: park-&-shuttle view from `geo.shuttleTrackerName`
+      (+ `geo.shuttleEtaPath` once exported — BACKEND_ASKS #8); resident/school/patient
+      priority messaging.
+- [ ] **P6.8** Lost & found + child-reunite wristband flows: photo-based lost & found;
+      QR wristband registration/lookup for family zones, lookup offline from cache
+      (BACKEND_ASKS #10, #12).
+- [ ] **P6.9** SOS + medical grid map: medical posts at Billing, Chogan and the main
+      venue; evacuation-route info screen.
 
 **Gate 6:** production builds (`--profile production`) succeed for both platforms;
 internal testing tracks uploaded (Play Internal, TestFlight) per DISTRIBUTION.md.
 
-## Phase 7 — Hardening & release
+## Phase 7 — Hardening, release & close-out
 
 - [ ] **P7.1** Pen-test checklist run (pinning, secure storage, deeplink abuse, WebView-free).
 - [ ] **P7.2** Load-shed drills: AppSync throttle simulation, subscription storm on
-      weather-hold, notification burst — app stays responsive.
+      fly-status hold, notification burst — app stays responsive.
 - [ ] **P7.3** Release runbook executed once end-to-end (DISTRIBUTION.md §6), version
       1.0.0 tagged, EAS Update channel `production` verified with a trivial OTA fix.
 - [ ] **P7.4** Rollback rehearsal: previous AAB re-promoted, direct-APK `latest` alias
       flipped back, OTA rollback published — timed under 30 minutes.
+- [ ] **P7.5** Post-festival close-out build (24–30 Nov): certificates wallet issue
+      (volunteer certificates within 7 days), vendor settlement status views (T+2 cycle),
+      lost-&-found closure state, public-report deep link; `flags.festivalMode=false`
+      renders the festival-concluded state.
 
 **Gate 7 (GO/NO-GO, 7 Nov):** all e2e green on physical devices (1 low-end Android,
 1 recent Android, 1 iPhone), crash-free sessions ≥99.5% on internal track for 7 days.
@@ -128,3 +150,9 @@ internal testing tracks uploaded (Play Internal, TestFlight) per DISTRIBUTION.md
 - Keep `hi.json` at 100% key parity (CI check).
 - Add/extend a Maestro flow for every new user-visible journey.
 - Screenshot diffs for design-system components on both platforms.
+
+---
+
+**End of plan.** The product's planned life ends **30 November 2026** after P7.5
+close-out. There is no follow-on edition, no post-2026 roadmap, and no further KPIs
+beyond Gate 7 and the close-out duties above.
