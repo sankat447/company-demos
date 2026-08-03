@@ -1638,8 +1638,10 @@ spec:
       try:
           from PIL import Image, ImageChops  # noqa
       except ImportError:
+          # ubi9/python-311 is a virtualenv; pip refuses --user inside a venv.
+          # Install to the venv's site-packages (ephemeral per container, ~5s).
           subprocess.check_call(
-              [sys.executable, "-m", "pip", "install", "--user", "--quiet",
+              [sys.executable, "-m", "pip", "install", "--quiet",
                "--disable-pip-version-check", "Pillow"],
           )
           from PIL import Image, ImageChops
