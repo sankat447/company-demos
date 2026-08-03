@@ -148,6 +148,8 @@ spec:
   # .object-signals.json (backwards-compat person counts).
   - name: object-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
+    computeResources:
+      limits: { nvidia.com/gpu: "1" }
     script: |
       #!/usr/bin/env python3
       import os, sys, json, subprocess, traceback
@@ -183,7 +185,7 @@ spec:
               subprocess.check_call(
                   [sys.executable, "-m", "pip", "install", "--quiet",
                    "--disable-pip-version-check",
-                   "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+                   # CUDA wheels (default PyPI); GPU auto-detected
                    "opencv-python-headless", "ultralytics"],
                   timeout=600,
               )
@@ -389,6 +391,8 @@ spec:
   # geometric_incident_candidates from raw bbox aspect trajectory).
   - name: pose-estimate
     image: registry.access.redhat.com/ubi9/python-311:latest
+    computeResources:
+      limits: { nvidia.com/gpu: "1" }
     script: |
       #!/usr/bin/env python3
       import os, sys, json, glob, math, subprocess, traceback
@@ -431,7 +435,7 @@ spec:
               subprocess.check_call(
                   [sys.executable, "-m", "pip", "install", "--quiet",
                    "--disable-pip-version-check",
-                   "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+                   # CUDA wheels (default PyPI); GPU auto-detected
                    "opencv-python-headless", "ultralytics"],
                   timeout=600,
               )
@@ -742,6 +746,8 @@ spec:
   # filtered to tracks with 2+ weapon frames (single-frame noise dropped).
   - name: weapon-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
+    computeResources:
+      limits: { nvidia.com/gpu: "1" }
     script: |
       #!/usr/bin/env python3
       import os, sys, json, glob, re, subprocess, traceback
@@ -791,7 +797,7 @@ spec:
               subprocess.check_call(
                   [sys.executable, "-m", "pip", "install", "--quiet",
                    "--disable-pip-version-check",
-                   "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+                   # CUDA wheels (default PyPI); GPU auto-detected
                    "opencv-python-headless", "ultralytics"],
                   timeout=600,
               )
@@ -956,6 +962,8 @@ spec:
   # running_signal per track. Runtime ~20s + one-time torch install.
   - name: action-recognize
     image: registry.access.redhat.com/ubi9/python-311:latest
+    computeResources:
+      limits: { nvidia.com/gpu: "1" }
     script: |
       #!/usr/bin/env python3
       import os, sys, json, subprocess, traceback
@@ -1007,7 +1015,7 @@ spec:
               subprocess.check_call(
                   [sys.executable, "-m", "pip", "install", "--quiet",
                    "--disable-pip-version-check",
-                   "--extra-index-url", "https://download.pytorch.org/whl/cpu",
+                   # CUDA wheels (default PyPI); GPU auto-detected
                    "opencv-python-headless", "torch", "torchvision"],
                   timeout=600,
               )
@@ -1029,10 +1037,11 @@ spec:
           os.makedirs(cache_dir, exist_ok=True)
           os.environ["TORCH_HOME"] = cache_dir
           weights = MViT_V2_S_Weights.KINETICS400_V1
-          model = mvit_v2_s(weights=weights).eval()
+          device = "cuda" if torch.cuda.is_available() else "cpu"
+          model = mvit_v2_s(weights=weights).eval().to(device)
           labels = weights.meta["categories"]
           transforms = weights.transforms()
-          print(f"[action-recognize] model=mvit_v2_s Kinetics-400 loaded ({len(labels)} classes)",
+          print(f"[action-recognize] model=mvit_v2_s Kinetics-400 loaded ({len(labels)} classes) device={device}",
                 flush=True)
       except Exception as e:
           traceback.print_exc()
@@ -1096,7 +1105,7 @@ spec:
               if clip is None:
                   continue
               x = transforms(clip)         # (C, T, H, W)
-              x = x.unsqueeze(0)           # (1, C, T, H, W)
+              x = x.unsqueeze(0).to(device)  # (1, C, T, H, W) on GPU when available
               with torch.no_grad():
                   logits = model(x)
               probs = torch.softmax(logits, dim=-1)[0]
