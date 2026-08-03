@@ -1588,6 +1588,8 @@ spec:
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
+    - {name: PYTHONUSERBASE, value: /workspace/shared/.python-user}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
     # Local Qwen-VL endpoint (Knative Route, OpenShift Router → activator → vLLM).
     - name: VLM_ENDPOINT
       value: "https://pd-qwen25-vl-7b-predictor-pd-cctv.apps.ai-demo.iisdemolab.click/v1/chat/completions"
