@@ -1,0 +1,14 @@
+# =============================================================================
+#  Tekton Pipelines feature flags override.
+#  disable-affinity-assistant=true lets tasks in a single PipelineRun be
+#  scheduled independently across nodes. Safe because pd-pipeline-workspace
+#  is now an EFS-backed RWX PVC (any-node access), so we no longer need the
+#  affinity-assistant's one-node constraint originally required for RWO.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feature-flags
+  namespace: openshift-pipelines
+data:
+  disable-affinity-assistant: "true"
