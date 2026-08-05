@@ -16,11 +16,26 @@ export interface GqlClient {
   graphql(op: GqlOperation): Promise<unknown>;
 }
 
-let client: GqlClient | null = null;
+/** AppSync subscriptions return an observable, not a promise. */
+export interface GqlSubscription {
+  subscribe(handlers: { next(value: unknown): void; error(err: unknown): void }): {
+    unsubscribe(): void;
+  };
+}
+
+let raw: unknown = null;
+
+function rawClient(): unknown {
+  if (!raw) raw = generateClient();
+  return raw;
+}
 
 export function gqlClient(): GqlClient {
-  if (!client) client = generateClient() as unknown as GqlClient;
-  return client;
+  return rawClient() as GqlClient;
+}
+
+export function gqlSubscribe(op: GqlOperation): GqlSubscription {
+  return (rawClient() as { graphql(o: GqlOperation): GqlSubscription }).graphql(op);
 }
 
 export const RECORD_SCAN = /* GraphQL */ `
@@ -59,6 +74,31 @@ export const REVOCATIONS_DELTA = /* GraphQL */ `
         revokedAt
       }
       cursor
+    }
+  }
+`;
+
+export const TICKET_TIERS = /* GraphQL */ `
+  query TicketTiers {
+    ticketTiers {
+      items {
+        id
+        titleEn
+        titleHi
+        priceInr
+        description
+      }
+    }
+  }
+`;
+
+// Recovery path for app-killed-between-pay-and-confirm (BACKEND_ASKS #15).
+export const GET_ORDER = /* GraphQL */ `
+  query GetOrder($orderId: ID!) {
+    getOrder(orderId: $orderId) {
+      orderId
+      status
+      passTokens
     }
   }
 `;

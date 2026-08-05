@@ -38,8 +38,19 @@
     "sos": "SOS",
     "sosConfirm": "Call the emergency desk and share your location once?"
   },
+  "buy": {
+    "title": "Choose your pass",
+    "pay": "Pay",
+    "priceInr": "₹{{amount}}",
+    "confirming": "Confirming your payment…",
+    "confirmNote": "Confirmation comes from the payment provider's webhook — this can take a moment. Your money is safe either way.",
+    "stillPending": "Taking longer than usual. Your ticket will appear in the wallet as soon as it's confirmed.",
+    "failed": "Payment not completed. Nothing is charged without confirmation — please try again.",
+    "cancelled": "Payment cancelled."
+  },
   "tickets": {
     "myPasses": "My passes",
+    "bookTicket": "Book a ticket",
     "showAtGate": "Show this QR at the gate",
     "worksOffline": "This pass works offline",
     "empty": "No passes yet — book a ticket to get started.",

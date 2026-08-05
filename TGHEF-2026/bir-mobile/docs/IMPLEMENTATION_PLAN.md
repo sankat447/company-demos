@@ -53,7 +53,7 @@ test: verifier accepts valid pass, rejects revoked one from cached list.
 
 ## Phase 3 — Visitor MVP (festival-critical path)
 
-- [ ] **P3.1** Tickets: browse tiers → payment (order via REST, provider SDK, webhook-
+- [x] **P3.1** Tickets: browse tiers → payment (order via REST, provider SDK, webhook-
       confirmed via subscription) → pass stored → **QR pass screen** (brightness bump,
       wallet-style card, works offline).
 - [ ] **P3.2** Cultural nights: day tabs, venue map pins, reminders (local notifications),
