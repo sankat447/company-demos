@@ -38,6 +38,16 @@ export default function HighlightsHub() {
         <FlatList
           data={sortedCategories(catalog.data)}
           keyExtractor={(c) => c.id}
+          ListFooterComponent={
+            <Pressable
+              style={styles.myLink}
+              onPress={() => router.push('/highlights/my')}
+              accessibilityRole="button"
+              accessibilityLabel={t('highlights.myRegistrations')}
+            >
+              <Text style={styles.myLinkText}>{t('highlights.myRegistrations')} ›</Text>
+            </Pressable>
+          }
           renderItem={({ item }) => (
             <Pressable
               onPress={() =>
@@ -108,4 +118,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   chevText: { color: palette.ink, fontWeight: '800', fontSize: 15, marginTop: -2 },
+  myLink: { minHeight: 44, justifyContent: 'center', paddingVertical: spacing.sm },
+  myLinkText: { ...typeScale.body, color: color.info, fontWeight: '600' },
 });

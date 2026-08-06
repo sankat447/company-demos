@@ -98,10 +98,21 @@ const sha256 = createHash('sha256').update(apkBytes).digest('hex');
 const sizeMb = (apkBytes.length / (1024 * 1024)).toFixed(1);
 
 // 3. QR codes (embedded in the page as data URIs + standalone PNGs for print)
-const qrAndroidData = await QRCode.toDataURL(apkUrl, { width: 480, margin: 2, color: { dark: '#17232B' } });
-const qrPageData = await QRCode.toDataURL(pageUrl, { width: 480, margin: 2, color: { dark: '#17232B' } });
+const qrAndroidData = await QRCode.toDataURL(apkUrl, {
+  width: 480,
+  margin: 2,
+  color: { dark: '#17232B' },
+});
+const qrPageData = await QRCode.toDataURL(pageUrl, {
+  width: 480,
+  margin: 2,
+  color: { dark: '#17232B' },
+});
 const tmp = mkdtempSync(join(tmpdir(), 'bir-qr-'));
-writeFileSync(join(tmp, 'qr-android.png'), await QRCode.toBuffer(apkUrl, { width: 640, margin: 2 }));
+writeFileSync(
+  join(tmp, 'qr-android.png'),
+  await QRCode.toBuffer(apkUrl, { width: 640, margin: 2 }),
+);
 writeFileSync(join(tmp, 'qr-page.png'), await QRCode.toBuffer(pageUrl, { width: 640, margin: 2 }));
 
 // 4. branded page (BRAND.md palette + flight-line motif)
@@ -185,7 +196,18 @@ const html = `<!doctype html>
 
 // 5. upload
 function put(key, body, contentType, filePath) {
-  const args = ['s3api', 'put-object', '--bucket', bucket, '--key', key, '--content-type', contentType, '--cache-control', 'max-age=60'];
+  const args = [
+    's3api',
+    'put-object',
+    '--bucket',
+    bucket,
+    '--key',
+    key,
+    '--content-type',
+    contentType,
+    '--cache-control',
+    'max-age=60',
+  ];
   if (filePath) args.push('--body', filePath);
   else {
     const f = join(tmp, key.replace(/\//g, '_'));

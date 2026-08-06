@@ -117,6 +117,17 @@ export const REPORT_SOS = /* GraphQL */ `
 
 // Push registration (P3.4) — the backend owns the Pinpoint endpoint; the
 // client only registers token + prefs. Quiet hours enforced server-side.
+// Highlights standard registration (CO-002, ASK #22) — free items arrive via
+// outbox drain; backend dedupes on idempotencyKey (one per user+item+slot).
+export const CREATE_REGISTRATION = /* GraphQL */ `
+  mutation CreateRegistration($input: CreateRegistrationInput!) {
+    createRegistration(input: $input) {
+      registrationId
+      status
+    }
+  }
+`;
+
 export const REGISTER_DEVICE = /* GraphQL */ `
   mutation RegisterDevice($input: RegisterDeviceInput!) {
     registerDevice(input: $input) {

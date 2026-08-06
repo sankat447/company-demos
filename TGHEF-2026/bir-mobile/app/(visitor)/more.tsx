@@ -31,6 +31,7 @@ export default function More() {
 
   return (
     <Screen title={t('tabs.more')}>
+      <Row label={t('highlights.myRegistrations')} onPress={() => router.push('/highlights/my')} />
       <Row label={t('settings.title')} onPress={() => router.push('/settings')} />
       <Row label={t('common.languageSwitch')} onPress={toggleLocale} />
       {hasRole(auth, 'volunteer') || hasRole(auth, 'organiser-lite') ? (

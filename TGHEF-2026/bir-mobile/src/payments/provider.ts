@@ -34,7 +34,7 @@ export interface PaymentProvider {
 
 /** Create the order server-side; the app never computes amounts. */
 export async function createOrder(input: {
-  kind: 'ticket' | 'experience';
+  kind: 'ticket' | 'experience' | 'registration';
   itemId: string;
   quantity: number;
   idempotencyKey: string;
