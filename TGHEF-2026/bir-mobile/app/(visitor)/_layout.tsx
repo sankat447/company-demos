@@ -1,9 +1,10 @@
 import { Redirect, Tabs } from 'expo-router';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Text } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
+import { registerPushIfPossible } from '@/features/notifications/register';
 import { color } from '@/ui/tokens';
 
 function TabIcon({ glyph, focused }: { glyph: string; focused: boolean }) {
@@ -13,6 +14,11 @@ function TabIcon({ glyph, focused }: { glyph: string; focused: boolean }) {
 export default function VisitorLayout() {
   const { t } = useTranslation();
   const auth = useAuth();
+
+  // P3.4: register token + prefs once signed in; idempotent per payload.
+  useEffect(() => {
+    if (auth.status === 'signedIn') void registerPushIfPossible();
+  }, [auth.status]);
 
   if (auth.status === 'signedOut') return <Redirect href="/(auth)/sign-in" />;
 

@@ -5,11 +5,12 @@
  */
 import type { OutboxRecord } from '@/offline/outbox';
 
-import { CAST_VOTE, gqlClient, RECORD_SCAN, REPORT_SOS } from './graphql';
+import { CAST_VOTE, gqlClient, RECORD_SCAN, REGISTER_DEVICE, REPORT_SOS } from './graphql';
 
 const DOCUMENTS: Record<string, string> = {
   castVote: CAST_VOTE,
   recordScan: RECORD_SCAN,
+  registerDevice: REGISTER_DEVICE,
   reportSos: REPORT_SOS,
 };
 

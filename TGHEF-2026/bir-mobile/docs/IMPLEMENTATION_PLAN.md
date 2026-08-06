@@ -63,7 +63,7 @@ test: verifier accepts valid pass, rejects revoked one from cached list.
       auto-refund state rendering** (SNS-driven; refund queue is backend-driven, the app
       renders state and notifies), SOS button (confirm → call + report location once
       with consent).
-- [ ] **P3.4** Push registration: FCM/APNs token → Pinpoint endpoint w/ role+locale
+- [x] **P3.4** Push registration: FCM/APNs token → Pinpoint endpoint w/ role+locale
       attributes; quiet-hours preference UI.
 - [ ] **P3.5** Preview channel build: `eas build --profile preview` universal APK;
       verify install-from-QR flow end-to-end using DISTRIBUTION.md §3.

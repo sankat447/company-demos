@@ -43,6 +43,15 @@
     "sosConfirm": "Tap again: call the emergency desk & share your location once",
     "sosDone": "Emergency desk called. Your location was shared once and will sync if you're offline."
   },
+  "settings": {
+    "title": "Notification settings",
+    "quietDesc": "Set your quiet hours — the festival's notification service won't disturb you between them. Safety alerts always come through.",
+    "enabled": "Quiet hours on",
+    "from": "From",
+    "to": "Until",
+    "save": "Save",
+    "saved": "Saved — your preferences sync with this device's registration."
+  },
   "schedule": {
     "title": "Cultural nights",
     "day1": "21 Nov",

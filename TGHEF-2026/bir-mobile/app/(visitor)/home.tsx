@@ -140,6 +140,9 @@ export default function Home() {
           <Text style={styles.roleLinkText}>{t('tabs.stalls')} →</Text>
         </Link>
       ) : null}
+      <Link href="/settings" style={styles.roleLink}>
+        <Text style={styles.roleLinkText}>{t('settings.title')} →</Text>
+      </Link>
 
       <View style={styles.sosWrap}>
         {sosDone ? <Text style={styles.sosDone}>{t('home.sosDone')}</Text> : null}

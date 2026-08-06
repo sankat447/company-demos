@@ -1,0 +1,13 @@
+# Gate 3 supplement: quiet-hours preference saves and survives app restart.
+appId: org.birfestival.app
+---
+- launchApp
+- tapOn: 'Notification settings|सूचना सेटिंग्स'
+- assertVisible: 'Quiet hours on|शांत घंटे चालू'
+- tapOn: '.*From.*\+1|.*से.*\+1'
+- tapOn: 'Save|सहेजें'
+- assertVisible: 'Saved|सहेजा गया'
+- stopApp
+- launchApp
+- tapOn: 'Notification settings|सूचना सेटिंग्स'
+- assertVisible: '23:00'

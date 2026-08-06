@@ -115,6 +115,16 @@ export const REPORT_SOS = /* GraphQL */ `
   }
 `;
 
+// Push registration (P3.4) — the backend owns the Pinpoint endpoint; the
+// client only registers token + prefs. Quiet hours enforced server-side.
+export const REGISTER_DEVICE = /* GraphQL */ `
+  mutation RegisterDevice($input: RegisterDeviceInput!) {
+    registerDevice(input: $input) {
+      accepted
+    }
+  }
+`;
+
 // Audience-favourite voting (P3.2) — votes power the award ceremonies;
 // backend dedupes on idempotencyKey (one vote per user per event).
 export const CAST_VOTE = /* GraphQL */ `
