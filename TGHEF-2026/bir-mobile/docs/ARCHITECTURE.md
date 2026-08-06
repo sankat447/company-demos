@@ -133,6 +133,8 @@ This table is the authoritative feature list — no extras, no omissions.
 | E6     | Lost & found + child-reunite                    | requested `ops.lostFoundPath` (ASK #10), `ops.reunite.wristbandPath` (ASK #12) + signed-URL photo upload                                                                 | Photo-based lost & found; QR wristband registration/lookup flow for family zones; wristband lookup works offline from cache                                                                                                                                                                                                                                                                                                                                                                                   |
 | CO-002 | Highlights & registrations                      | requested `highlights.catalogPath`, `highlights.registerMutation`, `highlights.myRegistrationsQuery`, `highlights.cancelMutation`, `ops.capacityCounters` (ASKs #21–#26) | One generic system for Competitions, Cultural-Night participation, Yoga & Wellness, Pottery & Art, Adventure, Sightseeing: server-driven catalog (organisers edit without app release; cached offline), one shared registration engine (free = outbox-queued offline; paid = webhook-confirmed order per §5, never faked), capacity/waitlist chips. Gate-checked confirmations issue an ES256 QR pass `typ:'activity'` into the SAME offline pass wallet — verifier and revocation sync (§6) reused unchanged |
 
+| CO-003 | Participant lodging & badges (admin) | requested `lodging.roomsPath`/`roomMutations`, `lodging.poolQuery`, `lodging.commitAllocation`, `lodging.occupancyQuery`, `badges.issueMutation`, `badges.bulkPrintPath` (ASKs #27–#32) | Hospitality & Accommodation dashboard process for `admin-hospitality` (organiser family; server MUST also enforce the group + audit-log every allocation w/ `actorNote` on overrides). Room inventory CRUD; deterministic client-side allocation SUGGESTION engine (gender-sharing hard constraints, couples in doubleOccupancy rooms, undisclosed/other → dignified manual queue) with the backend re-validating the same constraints on commit — never trust the client alone. Badges = ES256 QR `typ:'participant'` in the SAME wallet; revocation via the existing delta sync. Gender is lodging-only data: admin screens only, never on badges/hotel rosters |
+
 ---
 
 ## 4. App architecture (client-side)
@@ -184,7 +186,7 @@ in design.
 
 1. Backend issues each ticket/roster pass as **ES256 JWT** (`passes.alg`), claims:
    `jti` (pass id), `typ` (ticket | volunteer | volunteer-attendance | seat-entry |
-   stall | room | activity — CO-002, ASK #25), `sub`, `evt`, `zones[]`, `nbf/exp`, `seat?`.
+   stall | room | activity — CO-002, ASK #25 | participant — CO-003, ASK #31), `sub`, `evt`, `zones[]`, `nbf/exp`, `seat?`.
 2. App bundles NOTHING secret: it caches the **JWKS** from `passes.jwksPath` (refetch
    daily; pin `kid`).
 3. Scanner verifies signature + time window **on device**, checks local

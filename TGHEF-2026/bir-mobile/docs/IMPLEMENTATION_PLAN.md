@@ -138,8 +138,25 @@ recovers correctly). **CO-002 extension:** e2e `register-free-offline.yaml` and
 - [ ] **P6.9** SOS + medical grid map: medical posts at Billing, Chogan and the main
       venue; evacuation-route info screen.
 
+- [ ] **P6.10** Room inventory CRUD (CO-003): admin/lodging/rooms list+filters, add,
+      edit/retire; validation (capacity ≥1, double ⇒ capacity 2, duplicate guard on
+      hotel+label, 20–24 Nov per-night availability editor).
+- [ ] **P6.11** Allocation engine + unit suite (CO-003): pure deterministic
+      propose(pool, rooms, nights); gender-sharing hard constraints, couples-exclusive
+      double rooms, undisclosed/other → manual queue; property-based tests.
+- [ ] **P6.12** Allocation workflow UI (CO-003): review pool → auto-allocate proposal →
+      adjust w/ inline constraint blocks (EN+HI) → commit (idempotent mutation) →
+      occupancy board (offline cache) + printable per-hotel roster.
+- [ ] **P6.13** Participant badge (CO-003): typ:'participant' wallet pass, branded badge
+      screen, PNG export + admin bulk print PDF; auto-issue on confirmed+lodging-resolved.
+- [ ] **P6.14** Notifications & change management (CO-003): post-commit reassignment with
+      re-checks + re-notify; cancellation frees beds; lodging card in My Registrations.
+
 **Gate 6:** production builds (`--profile production`) succeed for both platforms;
 internal testing tracks uploaded (Play Internal, TestFlight) per DISTRIBUTION.md.
+**CO-003 extension:** engine property tests prove constraints §3.1–3.4 hold for 1,000
+randomized pools; manual-queue path e2e `lodging-manual-place.yaml` green; badge QR
+verifies on the offline scanner.
 
 ## Phase 7 — Hardening, release & close-out
 

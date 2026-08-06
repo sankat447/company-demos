@@ -90,7 +90,7 @@
     "register": "Register",
     "registerParticipation": "Register for participation",
     "viewOnlyNote": "Finale & award ceremony — agenda only, no participation registration.",
-    "consent": "I consent to this data being used for festival operations under the DPDP Act.",
+    "consent": "I consent to this data being used for festival operations under the DPDP Act. Gender, where asked, is used only for accommodation allocation, is visible only to the hospitality team, and never appears on badges or hotel rosters.",
     "guardianConsent": "Guardian consent: I confirm a guardian approves this registration for any minor participant.",
     "feeNote": "Fee: ₹{{amount}} — payment is confirmed by the provider's webhook, never by this device.",
     "paidOffline": "You're offline. Paid registrations need a connection — we never fake a payment. Your form is kept; try again when you're back online.",

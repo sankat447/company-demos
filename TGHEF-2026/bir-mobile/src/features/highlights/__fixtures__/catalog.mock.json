@@ -65,7 +65,10 @@
       "rulesHi": "दो राउंड। पहले राउंड में केवल स्थानीय सामग्री। प्रति राउंड 90 मिनट।",
       "eligibility": "Open to home cooks and professionals, 16+.",
       "eligibilityHi": "घरेलू और पेशेवर रसोइयों के लिए खुला, 16+।",
-      "fee": { "amount": 200, "currency": "INR" },
+      "fee": {
+        "amount": 200,
+        "currency": "INR"
+      },
       "capacity": 40,
       "remaining": 12,
       "regMode": "register",
@@ -87,9 +90,91 @@
           "type": "select",
           "required": true,
           "options": [
-            { "value": "home", "label": "Home cook", "labelHi": "घरेलू रसोइया" },
-            { "value": "pro", "label": "Professional", "labelHi": "पेशेवर" }
+            {
+              "value": "home",
+              "label": "Home cook",
+              "labelHi": "घरेलू रसोइया"
+            },
+            {
+              "value": "pro",
+              "label": "Professional",
+              "labelHi": "पेशेवर"
+            }
           ]
+        },
+        {
+          "key": "gender",
+          "label": "Gender (used only for lodging allocation)",
+          "labelHi": "लिंग (केवल आवास आवंटन के लिए)",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "female",
+              "label": "Female",
+              "labelHi": "महिला"
+            },
+            {
+              "value": "male",
+              "label": "Male",
+              "labelHi": "पुरुष"
+            },
+            {
+              "value": "other",
+              "label": "Other",
+              "labelHi": "अन्य"
+            },
+            {
+              "value": "undisclosed",
+              "label": "Prefer not to say",
+              "labelHi": "नहीं बताना चाहते"
+            }
+          ]
+        },
+        {
+          "key": "needsLodging",
+          "label": "Do you need festival accommodation?",
+          "labelHi": "क्या आपको महोत्सव आवास चाहिए?",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes",
+              "labelHi": "हाँ"
+            },
+            {
+              "value": "no",
+              "label": "No — self-arranged",
+              "labelHi": "नहीं — स्वयं व्यवस्था"
+            }
+          ]
+        },
+        {
+          "key": "coupleConsent",
+          "label": "Registering as a couple? (both partners must consent)",
+          "labelHi": "दंपति के रूप में पंजीकरण? (दोनों की सहमति ज़रूरी)",
+          "type": "select",
+          "required": false,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes, we consent to share a double room",
+              "labelHi": "हाँ, हम डबल कमरा साझा करने की सहमति देते हैं"
+            },
+            {
+              "value": "no",
+              "label": "No",
+              "labelHi": "नहीं"
+            }
+          ]
+        },
+        {
+          "key": "partnerRef",
+          "label": "Partner's registration ID or phone (couples only)",
+          "labelHi": "साथी की पंजीकरण आईडी या फ़ोन (केवल दंपति)",
+          "type": "text",
+          "required": false
         }
       ]
     },
@@ -107,7 +192,10 @@
       "rulesHi": "एक 120-मिनट राउंड और प्लेटिंग प्रस्तुति।",
       "eligibility": "Open, 16+.",
       "eligibilityHi": "सबके लिए खुला, 16+।",
-      "fee": { "amount": 200, "currency": "INR" },
+      "fee": {
+        "amount": 200,
+        "currency": "INR"
+      },
       "capacity": 30,
       "remaining": 0,
       "waitlist": true,
@@ -122,6 +210,80 @@
           "labelHi": "प्रस्तावित फ़्यूज़न डिश",
           "type": "text",
           "required": true
+        },
+        {
+          "key": "gender",
+          "label": "Gender (used only for lodging allocation)",
+          "labelHi": "लिंग (केवल आवास आवंटन के लिए)",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "female",
+              "label": "Female",
+              "labelHi": "महिला"
+            },
+            {
+              "value": "male",
+              "label": "Male",
+              "labelHi": "पुरुष"
+            },
+            {
+              "value": "other",
+              "label": "Other",
+              "labelHi": "अन्य"
+            },
+            {
+              "value": "undisclosed",
+              "label": "Prefer not to say",
+              "labelHi": "नहीं बताना चाहते"
+            }
+          ]
+        },
+        {
+          "key": "needsLodging",
+          "label": "Do you need festival accommodation?",
+          "labelHi": "क्या आपको महोत्सव आवास चाहिए?",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes",
+              "labelHi": "हाँ"
+            },
+            {
+              "value": "no",
+              "label": "No — self-arranged",
+              "labelHi": "नहीं — स्वयं व्यवस्था"
+            }
+          ]
+        },
+        {
+          "key": "coupleConsent",
+          "label": "Registering as a couple? (both partners must consent)",
+          "labelHi": "दंपति के रूप में पंजीकरण? (दोनों की सहमति ज़रूरी)",
+          "type": "select",
+          "required": false,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes, we consent to share a double room",
+              "labelHi": "हाँ, हम डबल कमरा साझा करने की सहमति देते हैं"
+            },
+            {
+              "value": "no",
+              "label": "No",
+              "labelHi": "नहीं"
+            }
+          ]
+        },
+        {
+          "key": "partnerRef",
+          "label": "Partner's registration ID or phone (couples only)",
+          "labelHi": "साथी की पंजीकरण आईडी या फ़ोन (केवल दंपति)",
+          "type": "text",
+          "required": false
         }
       ]
     },
@@ -139,7 +301,10 @@
       "rulesHi": "तीन राउंड: परिचय, प्रतिभा, प्रश्नोत्तर। फ़िनाले 23 नव॰।",
       "eligibility": "18–30 years, Himachal residents.",
       "eligibilityHi": "18–30 वर्ष, हिमाचल निवासी।",
-      "fee": { "amount": 500, "currency": "INR" },
+      "fee": {
+        "amount": 500,
+        "currency": "INR"
+      },
       "capacity": 25,
       "remaining": 7,
       "regMode": "register",
@@ -147,13 +312,93 @@
       "roundsJudging": "Judged by a celebrity panel; audience vote counts 25% in the finale (vote on Cultural Nights).",
       "roundsJudgingHi": "सेलिब्रिटी पैनल का निर्णय; फ़िनाले में दर्शकों का वोट 25% (वोट सांस्कृतिक संध्या में)।",
       "formSchema": [
-        { "key": "age", "label": "Age", "labelHi": "आयु", "type": "number", "required": true },
+        {
+          "key": "age",
+          "label": "Age",
+          "labelHi": "आयु",
+          "type": "number",
+          "required": true
+        },
         {
           "key": "talent",
           "label": "Talent-round act",
           "labelHi": "प्रतिभा राउंड की प्रस्तुति",
           "type": "text",
           "required": true
+        },
+        {
+          "key": "gender",
+          "label": "Gender (used only for lodging allocation)",
+          "labelHi": "लिंग (केवल आवास आवंटन के लिए)",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "female",
+              "label": "Female",
+              "labelHi": "महिला"
+            },
+            {
+              "value": "male",
+              "label": "Male",
+              "labelHi": "पुरुष"
+            },
+            {
+              "value": "other",
+              "label": "Other",
+              "labelHi": "अन्य"
+            },
+            {
+              "value": "undisclosed",
+              "label": "Prefer not to say",
+              "labelHi": "नहीं बताना चाहते"
+            }
+          ]
+        },
+        {
+          "key": "needsLodging",
+          "label": "Do you need festival accommodation?",
+          "labelHi": "क्या आपको महोत्सव आवास चाहिए?",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes",
+              "labelHi": "हाँ"
+            },
+            {
+              "value": "no",
+              "label": "No — self-arranged",
+              "labelHi": "नहीं — स्वयं व्यवस्था"
+            }
+          ]
+        },
+        {
+          "key": "coupleConsent",
+          "label": "Registering as a couple? (both partners must consent)",
+          "labelHi": "दंपति के रूप में पंजीकरण? (दोनों की सहमति ज़रूरी)",
+          "type": "select",
+          "required": false,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes, we consent to share a double room",
+              "labelHi": "हाँ, हम डबल कमरा साझा करने की सहमति देते हैं"
+            },
+            {
+              "value": "no",
+              "label": "No",
+              "labelHi": "नहीं"
+            }
+          ]
+        },
+        {
+          "key": "partnerRef",
+          "label": "Partner's registration ID or phone (couples only)",
+          "labelHi": "साथी की पंजीकरण आईडी या फ़ोन (केवल दंपति)",
+          "type": "text",
+          "required": false
         }
       ]
     },
@@ -171,7 +416,10 @@
       "rulesHi": "तीन राउंड: परिचय, प्रतिभा, प्रश्नोत्तर। फ़िनाले 23 नव॰।",
       "eligibility": "18–30 years, Himachal residents.",
       "eligibilityHi": "18–30 वर्ष, हिमाचल निवासी।",
-      "fee": { "amount": 500, "currency": "INR" },
+      "fee": {
+        "amount": 500,
+        "currency": "INR"
+      },
       "capacity": 25,
       "remaining": 11,
       "regMode": "register",
@@ -179,13 +427,93 @@
       "roundsJudging": "Judged by a celebrity panel; audience vote counts 25% in the finale (vote on Cultural Nights).",
       "roundsJudgingHi": "सेलिब्रिटी पैनल का निर्णय; फ़िनाले में दर्शकों का वोट 25% (वोट सांस्कृतिक संध्या में)।",
       "formSchema": [
-        { "key": "age", "label": "Age", "labelHi": "आयु", "type": "number", "required": true },
+        {
+          "key": "age",
+          "label": "Age",
+          "labelHi": "आयु",
+          "type": "number",
+          "required": true
+        },
         {
           "key": "talent",
           "label": "Talent-round act",
           "labelHi": "प्रतिभा राउंड की प्रस्तुति",
           "type": "text",
           "required": true
+        },
+        {
+          "key": "gender",
+          "label": "Gender (used only for lodging allocation)",
+          "labelHi": "लिंग (केवल आवास आवंटन के लिए)",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "female",
+              "label": "Female",
+              "labelHi": "महिला"
+            },
+            {
+              "value": "male",
+              "label": "Male",
+              "labelHi": "पुरुष"
+            },
+            {
+              "value": "other",
+              "label": "Other",
+              "labelHi": "अन्य"
+            },
+            {
+              "value": "undisclosed",
+              "label": "Prefer not to say",
+              "labelHi": "नहीं बताना चाहते"
+            }
+          ]
+        },
+        {
+          "key": "needsLodging",
+          "label": "Do you need festival accommodation?",
+          "labelHi": "क्या आपको महोत्सव आवास चाहिए?",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes",
+              "labelHi": "हाँ"
+            },
+            {
+              "value": "no",
+              "label": "No — self-arranged",
+              "labelHi": "नहीं — स्वयं व्यवस्था"
+            }
+          ]
+        },
+        {
+          "key": "coupleConsent",
+          "label": "Registering as a couple? (both partners must consent)",
+          "labelHi": "दंपति के रूप में पंजीकरण? (दोनों की सहमति ज़रूरी)",
+          "type": "select",
+          "required": false,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes, we consent to share a double room",
+              "labelHi": "हाँ, हम डबल कमरा साझा करने की सहमति देते हैं"
+            },
+            {
+              "value": "no",
+              "label": "No",
+              "labelHi": "नहीं"
+            }
+          ]
+        },
+        {
+          "key": "partnerRef",
+          "label": "Partner's registration ID or phone (couples only)",
+          "labelHi": "साथी की पंजीकरण आईडी या फ़ोन (केवल दंपति)",
+          "type": "text",
+          "required": false
         }
       ]
     },
@@ -246,13 +574,21 @@
       "media": [],
       "regMode": "register-participation",
       "agenda": [
-        { "timeSec": 1795370400, "title": "Live band evening", "titleHi": "लाइव बैंड संध्या" },
+        {
+          "timeSec": 1795370400,
+          "title": "Live band evening",
+          "titleHi": "लाइव बैंड संध्या"
+        },
         {
           "timeSec": 1795376700,
           "title": "Comedy & cultural night",
           "titleHi": "हास्य और सांस्कृतिक रात"
         },
-        { "timeSec": 1795380300, "title": "Heritage showcase", "titleHi": "विरासत प्रदर्शनी" }
+        {
+          "timeSec": 1795380300,
+          "title": "Heritage showcase",
+          "titleHi": "विरासत प्रदर्शनी"
+        }
       ],
       "formSchema": [
         {
@@ -283,7 +619,11 @@
       "media": [],
       "regMode": "view-only",
       "agenda": [
-        { "timeSec": 1795456800, "title": "Guest appearance", "titleHi": "विशेष अतिथि" },
+        {
+          "timeSec": 1795456800,
+          "title": "Guest appearance",
+          "titleHi": "विशेष अतिथि"
+        },
         {
           "timeSec": 1795462200,
           "title": "Award ceremony — audience favourites",
@@ -312,8 +652,16 @@
           "type": "select",
           "required": true,
           "options": [
-            { "value": "beginner", "label": "Beginner", "labelHi": "शुरुआती" },
-            { "value": "regular", "label": "Regular practitioner", "labelHi": "नियमित अभ्यासी" }
+            {
+              "value": "beginner",
+              "label": "Beginner",
+              "labelHi": "शुरुआती"
+            },
+            {
+              "value": "regular",
+              "label": "Regular practitioner",
+              "labelHi": "नियमित अभ्यासी"
+            }
           ]
         }
       ]
@@ -342,7 +690,10 @@
       "venue": "Craft Courtyard",
       "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
       "media": [],
-      "fee": { "amount": 350, "currency": "INR" },
+      "fee": {
+        "amount": 350,
+        "currency": "INR"
+      },
       "capacity": 16,
       "remaining": 5,
       "regMode": "register"
@@ -357,7 +708,10 @@
       "venue": "Craft Courtyard",
       "dates": ["2026-11-22", "2026-11-23"],
       "media": [],
-      "fee": { "amount": 250, "currency": "INR" },
+      "fee": {
+        "amount": 250,
+        "currency": "INR"
+      },
       "capacity": 20,
       "remaining": 14,
       "regMode": "register"
@@ -372,7 +726,10 @@
       "venue": "Assembly: Chogan Gate 2",
       "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
       "media": [],
-      "fee": { "amount": 600, "currency": "INR" },
+      "fee": {
+        "amount": 600,
+        "currency": "INR"
+      },
       "capacity": 50,
       "remaining": 31,
       "regMode": "register",
@@ -391,7 +748,10 @@
       "venue": "Billing Take-off",
       "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
       "media": [],
-      "fee": { "amount": 2500, "currency": "INR" },
+      "fee": {
+        "amount": 2500,
+        "currency": "INR"
+      },
       "regMode": "register",
       "gateChecked": true,
       "guardianRequired": true,
@@ -443,7 +803,10 @@
       "venue": "River Bend Arena",
       "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
       "media": [],
-      "fee": { "amount": 1500, "currency": "INR" },
+      "fee": {
+        "amount": 1500,
+        "currency": "INR"
+      },
       "capacity": 80,
       "remaining": 22,
       "regMode": "register",
@@ -462,7 +825,10 @@
       "venue": "Tea Garden Rig",
       "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
       "media": [],
-      "fee": { "amount": 400, "currency": "INR" },
+      "fee": {
+        "amount": 400,
+        "currency": "INR"
+      },
       "capacity": 100,
       "remaining": 58,
       "regMode": "register",
@@ -478,7 +844,10 @@
       "venue": "Adventure Zone",
       "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
       "media": [],
-      "fee": { "amount": 300, "currency": "INR" },
+      "fee": {
+        "amount": 300,
+        "currency": "INR"
+      },
       "capacity": 120,
       "remaining": 96,
       "regMode": "register",
@@ -494,7 +863,10 @@
       "venue": "Departs: Chogan Gate 1",
       "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
       "media": [],
-      "fee": { "amount": 450, "currency": "INR" },
+      "fee": {
+        "amount": 450,
+        "currency": "INR"
+      },
       "regMode": "register",
       "slots": [
         {
