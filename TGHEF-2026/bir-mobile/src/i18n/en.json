@@ -115,6 +115,13 @@
     "calendarFailed": "Couldn't add — check calendar permission.",
     "cancel": "Cancel registration"
   },
+  "badge": {
+    "title": "Participant badge",
+    "open": "Participant badge",
+    "participant": "Participant",
+    "save": "Save badge",
+    "scannableOffline": "SCANNABLE OFFLINE AT GATES"
+  },
   "lodging": {
     "title": "Participant lodging",
     "rooms": "Rooms",
@@ -177,6 +184,7 @@
     "legend": "Grid: occupied/capacity per night · green = full · amber = partly filled · white = empty · grey = unavailable.",
     "yourStay": "YOUR STAY",
     "checkInNote": "Check-in from 13:00 — show this card at the desk",
+    "printBadges": "Print badges (per competition)",
     "err": {
       "required": "Required.",
       "min-1": "At least 1 bed.",

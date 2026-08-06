@@ -10,6 +10,13 @@ import { addToDeviceCalendar, eventWindow } from '@/features/highlights/calendar
 import { findItem, loadCatalog } from '@/features/highlights/catalog';
 import { cancelRegistration, kvRegistrationStore } from '@/features/highlights/registration';
 import type { RegistrationStatus } from '@/features/highlights/types';
+import {
+  shouldIssueBadge,
+  setRegistrationBadge,
+  type RegistrationWithBadge,
+} from '@/features/badges/badges';
+import { issueDemoParticipantBadge } from '@/demo/demo';
+import { savePass } from '@/features/tickets/passStore';
 import { loadAllocation, loadPool, lodgingCardFor } from '@/features/lodging/allocation';
 import { kvRoomStore } from '@/features/lodging/rooms';
 import { pickLang } from '@/i18n';
@@ -128,6 +135,31 @@ export default function MyRegistrations() {
                   accessibilityLabel={t('highlights.openPass')}
                 >
                   <Text style={styles.passLinkText}>{t('highlights.openPass')} ›</Text>
+                </Pressable>
+              ) : null}
+              {shouldIssueBadge(reg, item, allocation.data ?? null) ? (
+                <Pressable
+                  style={styles.passLink}
+                  onPress={async () => {
+                    let jti = (reg as RegistrationWithBadge).badgeJti;
+                    if (!jti && isEnabled('mockHighlights')) {
+                      const issued = await issueDemoParticipantBadge(
+                        { kv: kvStore, savePass },
+                        { competitionId: reg.itemId, sub: reg.id },
+                        Date.now(),
+                      );
+                      if (issued) {
+                        await setRegistrationBadge(store, reg.id, issued);
+                        await queryClient.invalidateQueries({ queryKey: ['registrations'] });
+                        jti = issued;
+                      }
+                    }
+                    if (jti) router.push({ pathname: '/badge/[jti]', params: { jti } });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('badge.open')}
+                >
+                  <Text style={styles.passLinkText}>{t('badge.open')} ›</Text>
                 </Pressable>
               ) : null}
               {(reg.status === 'confirmed' || reg.status === 'waitlisted') && item ? (

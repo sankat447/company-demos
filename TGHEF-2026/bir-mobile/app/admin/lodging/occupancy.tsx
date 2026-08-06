@@ -3,6 +3,8 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { badgesPdfHtml, participantNumber } from '@/features/badges/badges';
+import { loadCatalog, findItem } from '@/features/highlights/catalog';
 import { loadAllocation, loadPool, rosterHtml } from '@/features/lodging/allocation';
 import { kvRoomStore } from '@/features/lodging/rooms';
 import { LODGING_NIGHTS } from '@/features/lodging/types';
@@ -35,8 +37,35 @@ export default function Occupancy() {
     networkMode: 'always',
   });
 
+  const catalog = useQuery({
+    queryKey: ['highlights', 'catalog'],
+    queryFn: () => loadCatalog(kvStore, Date.now()),
+    networkMode: 'always',
+  });
+
   const byId = new Map((pool.data ?? []).map((p) => [p.regId, p]));
   const hotels = [...new Set((rooms.data ?? []).map((r) => r.hotelName))].sort();
+  const competitions = [...new Set((pool.data ?? []).map((p) => p.competitionId))].sort();
+
+  const printBadges = async (competitionId: string) => {
+    const item = catalog.data ? findItem(catalog.data, competitionId) : null;
+    const entries = (pool.data ?? [])
+      .filter((p) => p.competitionId === competitionId)
+      .map((p) => ({
+        name: p.name,
+        number: participantNumber(`demo-badge-${competitionId}-${p.regId}`),
+        jtiNote: p.regId,
+      }));
+    if (!entries.length) return;
+    const Print = await import('expo-print');
+    const Sharing = await import('expo-sharing');
+    const { uri } = await Print.printToFileAsync({
+      html: badgesPdfHtml(item?.title ?? competitionId, entries),
+    });
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { mimeType: 'application/pdf' });
+    }
+  };
 
   const printRoster = async (hotelName: string) => {
     if (!allocation.data) return;
@@ -112,6 +141,20 @@ export default function Occupancy() {
         <View style={styles.legend}>
           <Text style={styles.legendText}>{t('lodging.legend')}</Text>
         </View>
+        <Text style={styles.badgesTitle}>{t('lodging.printBadges')}</Text>
+        <View style={styles.badgesRow}>
+          {competitions.map((competitionId) => (
+            <Pressable
+              key={competitionId}
+              style={styles.print}
+              onPress={() => printBadges(competitionId)}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('lodging.printBadges')} ${competitionId}`}
+            >
+              <Text style={styles.printText}>{competitionId}</Text>
+            </Pressable>
+          ))}
+        </View>
       </ScrollView>
     </Screen>
   );
@@ -154,5 +197,12 @@ const styles = StyleSheet.create({
   cellPartial: { backgroundColor: '#F2C98A' },
   cellFull: { backgroundColor: '#9CC5AE' },
   legend: { marginTop: spacing.sm },
+  badgesTitle: {
+    ...typeScale.heading,
+    color: color.text,
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  badgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   legendText: { ...typeScale.caption, color: color.textMuted },
 });

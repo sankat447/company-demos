@@ -292,3 +292,31 @@ export async function issueDemoActivityPass(
   await deps.savePass(token, claims, nowMs);
   return claims.jti;
 }
+
+/**
+ * CO-003 PR-5 (demo sessions only): sign a `typ:'participant'` badge into
+ * the shared wallet. Real badges come from badges.issueMutation (ASK #31);
+ * this exists solely so evaluation builds demo the full badge + scanner path.
+ */
+export async function issueDemoParticipantBadge(
+  deps: { kv: KvStore; savePass(token: string, claims: PassClaims, nowMs: number): Promise<void> },
+  input: { competitionId: string; sub: string; backstage?: boolean },
+  nowMs: number,
+): Promise<string | null> {
+  const hex = await deps.kv.get(SIGNING_KEY);
+  if (!hex) return null;
+  const nowSec = Math.floor(nowMs / 1000);
+  const claims: PassClaims = {
+    jti: `demo-badge-${input.competitionId}-${input.sub}`,
+    typ: 'participant',
+    sub: input.sub,
+    evt: 'bir-festival-2026',
+    competition: input.competitionId,
+    zones: input.backstage ? ['participant', 'backstage'] : ['participant'],
+    nbf: nowSec - 3600,
+    exp: Math.floor(new Date('2026-12-01T00:00:00+05:30').getTime() / 1000),
+  };
+  const token = signDemoPass(hexToBytes(hex), claims);
+  await deps.savePass(token, claims, nowMs);
+  return claims.jti;
+}

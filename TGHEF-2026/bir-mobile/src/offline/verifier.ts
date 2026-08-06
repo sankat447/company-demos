@@ -17,9 +17,17 @@ export interface EcJwk {
 }
 
 // Full `typ` claim list per ARCHITECTURE.md §6 (CO-001 adds
-// volunteer-attendance/seat-entry; CO-002 adds activity — ASK #25).
+// volunteer-attendance/seat-entry; CO-002 adds activity; CO-003 adds
+// participant (ASK #31).
 export type PassType =
-  'ticket' | 'volunteer' | 'volunteer-attendance' | 'seat-entry' | 'stall' | 'room' | 'activity';
+  | 'ticket'
+  | 'volunteer'
+  | 'volunteer-attendance'
+  | 'seat-entry'
+  | 'stall'
+  | 'room'
+  | 'activity'
+  | 'participant';
 
 export interface PassClaims {
   jti: string;
@@ -30,6 +38,8 @@ export interface PassClaims {
   nbf: number;
   exp: number;
   seat?: string;
+  /** Participant badges (CO-003): which competition the badge belongs to. */
+  competition?: string;
 }
 
 export type VerifyFailure =
