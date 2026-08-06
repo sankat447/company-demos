@@ -235,7 +235,7 @@ export default function Home() {
         </View>
 
         <Pressable
-          onPress={() => router.push('/(visitor)/schedule')}
+          onPress={() => router.push('/highlights')}
           accessibilityRole="button"
           accessibilityLabel={t('home.highlights')}
         >

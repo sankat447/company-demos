@@ -70,6 +70,17 @@
     "missionHi": "हर विज़िटर ट्रैवलर · हर निवासी होस्ट · हर परंपरा अनुभव",
     "missionEn": "A festival by the valley, for the valley — Bir Festival 2026"
   },
+  "highlights": {
+    "title": "Highlights",
+    "unavailable": "The festival catalog isn't available yet — try again once you're online.",
+    "emptyCategory": "Nothing here yet — organisers can add items any time.",
+    "capOpen": "Open",
+    "capLeft": "{{n}} left",
+    "capFull": "Full",
+    "capWaitlist": "Waitlist",
+    "capViewOnly": "View only",
+    "free": "Free"
+  },
   "settings": {
     "title": "Notification settings",
     "quietDesc": "Set your quiet hours — the festival's notification service won't disturb you between them. Safety alerts always come through.",
