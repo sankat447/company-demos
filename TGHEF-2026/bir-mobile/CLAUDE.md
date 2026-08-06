@@ -1,23 +1,39 @@
-# CLAUDE.md — Bir Platform Mobile Apps (Android + iOS)
+# CLAUDE.md — Bir Festival 2026 Mobile App (Android + iOS)
 
 > Drop this file at the repo root. Claude Code reads it on every session.
 > Companion docs: `docs/ARCHITECTURE.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/DISTRIBUTION.md`.
+> Scope baseline: change order **CO-001** (Festival 2026 only).
 
 ## What this repo is
 
-The cross-platform mobile client for **The Official Digital Platform of Bir** — the festival
-(21–23 Nov) and year-round destination app. One codebase ships:
+The cross-platform mobile client for the **Bir Festival 2026 app** — one event,
+**21–23 November 2026** at Bir–Billing. This is a single-festival product: for planning
+purposes its life ends on **30 November 2026** with the close-out duties — vendor
+settlements (T+2), volunteer certificates, lost-&-found closure, and the public report
+to the community. There is no roadmap beyond that date and no future-edition backlog
+in this repo.
 
-1. **Android AAB** → Google Play (primary channel for the valley's Android-majority users)
-2. **Android universal APK** → direct download from our CloudFront domain via QR code
-   ("untrusted"/sideload channel for festival week and low-connectivity onboarding)
+One codebase ships three channels:
+
+1. **Android universal APK** → direct download from our CloudFront domain via QR code —
+   **the primary festival-week onboarding channel**: visitors at gates and hotels install
+   via poster QR; also serves low-connectivity users and partner devices.
+2. **Android AAB** → Google Play (the valley's Android-majority users).
 3. **iOS IPA** → App Store + TestFlight (ad-hoc OTA install via QR only for registered
-   test devices — see DISTRIBUTION.md for Apple's constraints)
+   test devices — see DISTRIBUTION.md for Apple's constraints).
 
 The AWS backend **already exists in a separate project/stack**. This repo NEVER creates
 backend resources. It consumes them through the stack contract (`config/stack-outputs.json`).
 If a capability seems missing from the contract, STOP and add it to
 `docs/BACKEND_ASKS.md` instead of provisioning anything.
+
+**Feature baseline:** exactly the CO-001 modules A–I plus the six festival-ops
+enhancements, mapped one-to-one in `docs/ARCHITECTURE.md` §3. No extras, no omissions.
+
+**`flags.festivalMode`** — backend-controlled contract flag: `true` from launch through
+the festival; flipped to `false` at close-out (30 November 2026), which puts the app into
+festival-concluded mode — an archival banner, bookings and payments disabled, while
+passes, certificates and the public report remain viewable.
 
 ## Stack & toolchain (fixed decisions — do not re-litigate)
 
@@ -63,7 +79,8 @@ npm run contract:check   # validates config/stack-outputs.json against schemas/s
 1. **Contract first.** Any code touching AWS reads `config/stack-outputs.json` through
    `src/config/stack.ts` (typed accessor). Run `npm run contract:check` after editing.
 2. **Offline is a feature, not a fallback.** Gate entry scanning, ticket display, volunteer
-   attendance, and the day's schedule must work with airplane mode on. Write the offline
+   attendance, seat-voting for the cultural-night award ceremonies, child-wristband
+   lookup, and the day's schedule must work with airplane mode on. Write the offline
    test before the online one.
 3. **Hindi is first-class.** Every user-facing string goes through i18n (`src/i18n/`),
    keys in English, `hi.json` filled in the same PR. No hardcoded strings in JSX.
@@ -87,10 +104,12 @@ app/                    # expo-router routes (visitor + partner + volunteer role
 src/
   api/                  # AppSync client, generated types, REST clients
   config/               # stack.ts (contract accessor), feature flags
-  features/             # feature modules: tickets/ schedule/ stalls/ experiences/
-                        #   volunteers/ hospitality/ ai-assistant/ payments/ sos/
+  features/             # feature modules: tickets/ cultural-nights/ experiences/
+                        #   stalls/ hospitality/ volunteers/ organiser-lite/
+                        #   ai-assistant/ flight-status/ shuttle/ sos/ lost-found/
+                        #   clean-metrics/
   offline/              # sqlite schema, outbox, sync engine, signed-pass verifier
-  i18n/                 # en.json, hi.json (+ bo.json, pah audio manifest later)
+  i18n/                 # en.json, hi.json (+ bo.json, pah audio manifest if capacity allows pre-festival)
   ui/                   # design system: tokens from docs/BRAND.md, components
 config/stack-outputs.json     # ← the ONLY binding to the AWS project (gitignored; example checked in)
 schemas/stack-contract.schema.json
@@ -109,4 +128,6 @@ Type: serif display for headings (Fraunces via expo-font), system sans for body.
 
 Prefer the smaller diff. Prefer the offline-safe path. Prefer asking via
 `docs/BACKEND_ASKS.md` over inventing backend behavior. Never mock a payment or a
-safety alert in production code paths.
+safety alert in production code paths. After 30 November 2026, the only in-scope work
+is P0 fixes to the close-out surfaces (certificates wallet, settlement status views,
+public-report link).
