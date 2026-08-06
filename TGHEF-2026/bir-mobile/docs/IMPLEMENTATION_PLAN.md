@@ -59,7 +59,7 @@ test: verifier accepts valid pass, rejects revoked one from cached list.
 - [x] **P3.2** Cultural nights: day tabs, venue map pins, reminders (local notifications),
       seat reservation (where applicable) + **audience-favourite voting** — votes power
       the award ceremonies and must be outbox-safe offline.
-- [ ] **P3.3** Home: "today at the festival" feed, **official fly-status banner +
+- [x] **P3.3** Home: "today at the festival" feed, **official fly-status banner +
       auto-refund state rendering** (SNS-driven; refund queue is backend-driven, the app
       renders state and notifies), SOS button (confirm → call + report location once
       with consent).

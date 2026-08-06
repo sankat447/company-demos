@@ -1,0 +1,16 @@
+# Gate 3 supplement: fly-status banner renders (cached offline) and the SOS
+# two-tap confirm can be cancelled without dialing.
+appId: org.birfestival.app
+---
+- launchApp
+- assertVisible: 'Today at the festival|आज महोत्सव में'
+# banner text depends on backend state; assert one of the three states exists
+- assertVisible: 'Flying today|Weather hold|Flying is closed|आज उड़ान|मौसम के कारण|उड़ानें बंद'
+- toggleAirplaneMode: enabled
+- assertVisible: 'Flying today|Weather hold|Flying is closed|आज उड़ान|मौसम के कारण|उड़ानें बंद'
+- toggleAirplaneMode: disabled
+# SOS: first tap arms, cancel disarms — never dials in the test
+- tapOn: 'SOS'
+- assertVisible: 'Tap again|फिर टैप करें'
+- tapOn: 'Cancel|रद्द करें'
+- assertVisible: 'SOS'

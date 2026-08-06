@@ -66,6 +66,20 @@ export function sortEvents(events: ScheduleEvent[]): ScheduleEvent[] {
   );
 }
 
+/**
+ * Which festival day the home feed should show: the current day during the
+ * festival, day 1 as a preview before it, and null once it's over (the
+ * close-out build renders the festival-concluded state instead).
+ */
+export function festivalDayFor(nowMs: number): FestivalDay | null {
+  const d = new Date(nowMs);
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate(),
+  ).padStart(2, '0')}`;
+  if (iso > FESTIVAL_DAYS[FESTIVAL_DAYS.length - 1]) return null;
+  return FESTIVAL_DAYS.find((day) => day === iso) ?? FESTIVAL_DAYS[0];
+}
+
 export async function listEventsForDay(day: string): Promise<ScheduleEvent[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<ScheduleRow>(

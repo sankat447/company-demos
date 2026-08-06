@@ -5,11 +5,12 @@
  */
 import type { OutboxRecord } from '@/offline/outbox';
 
-import { CAST_VOTE, gqlClient, RECORD_SCAN } from './graphql';
+import { CAST_VOTE, gqlClient, RECORD_SCAN, REPORT_SOS } from './graphql';
 
 const DOCUMENTS: Record<string, string> = {
   castVote: CAST_VOTE,
   recordScan: RECORD_SCAN,
+  reportSos: REPORT_SOS,
 };
 
 export async function dispatchOutboxRecord(record: OutboxRecord): Promise<void> {

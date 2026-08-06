@@ -78,6 +78,43 @@ export const REVOCATIONS_DELTA = /* GraphQL */ `
   }
 `;
 
+// Official "Can I fly today?" status (P3.3, CO-001 E3). The safety officer's
+// call is final; the app renders state and notifies — refund queueing is
+// backend-driven (refunds.autoQueueFlag, BACKEND_ASKS #13).
+export const FLY_STATUS = /* GraphQL */ `
+  query FlyStatus {
+    flyStatus {
+      state
+      reasonEn
+      reasonHi
+      updatedAt
+      refundsAutoQueued
+    }
+  }
+`;
+
+export const ON_FLY_STATUS_CHANGED = /* GraphQL */ `
+  subscription OnFlyStatusChanged {
+    onFlyStatusChanged {
+      state
+      reasonEn
+      reasonHi
+      updatedAt
+      refundsAutoQueued
+    }
+  }
+`;
+
+// SOS location report (P3.3) — fired once per SOS with consent; the call
+// itself goes through the dialer and never depends on connectivity.
+export const REPORT_SOS = /* GraphQL */ `
+  mutation ReportSos($input: ReportSosInput!) {
+    reportSos(input: $input) {
+      accepted
+    }
+  }
+`;
+
 // Audience-favourite voting (P3.2) — votes power the award ceremonies;
 // backend dedupes on idempotencyKey (one vote per user per event).
 export const CAST_VOTE = /* GraphQL */ `

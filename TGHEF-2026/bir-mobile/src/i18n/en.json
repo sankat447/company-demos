@@ -34,9 +34,14 @@
   },
   "home": {
     "todayAtFestival": "Today at the festival",
-    "weatherHold": "Weather hold: flying is paused. We'll notify you the moment it resumes.",
+    "flyFlying": "Flying today: YES — conditions are good.",
+    "flyHold": "Weather hold: flying is paused. We'll notify you the moment the safety officer clears it.",
+    "flyClosed": "Flying is closed for today — the safety officer's call is final.",
+    "flyRefundAuto": "Affected flight bookings enter the refund queue automatically — nothing to do on your side.",
+    "feedEmpty": "Today's programme arrives soon — check the Schedule tab.",
     "sos": "SOS",
-    "sosConfirm": "Call the emergency desk and share your location once?"
+    "sosConfirm": "Tap again: call the emergency desk & share your location once",
+    "sosDone": "Emergency desk called. Your location was shared once and will sync if you're offline."
   },
   "schedule": {
     "title": "Cultural nights",
