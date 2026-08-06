@@ -1,0 +1,72 @@
+{
+  "participants": [
+    {
+      "regId": "reg:p1:him-queen-2026:na",
+      "name": "Anita Thakur",
+      "competitionId": "him-queen-2026",
+      "gender": "female",
+      "nights": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "needsLodging": true
+    },
+    {
+      "regId": "reg:p2:him-queen-2026:na",
+      "name": "Priya Negi",
+      "competitionId": "him-queen-2026",
+      "gender": "female",
+      "nights": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "needsLodging": true
+    },
+    {
+      "regId": "reg:p3:chef-local:na",
+      "name": "Sunita Devi",
+      "competitionId": "chef-local",
+      "gender": "female",
+      "nights": ["2026-11-20", "2026-11-21", "2026-11-22"],
+      "needsLodging": true,
+      "notes": "Early check-in requested"
+    },
+    {
+      "regId": "reg:p4:him-prince-2026:na",
+      "name": "Rohan Katoch",
+      "competitionId": "him-prince-2026",
+      "gender": "male",
+      "nights": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "needsLodging": true
+    },
+    {
+      "regId": "reg:p5:chef-fusion:na",
+      "name": "Vikram Rana",
+      "competitionId": "chef-fusion",
+      "gender": "male",
+      "nights": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "needsLodging": true
+    },
+    {
+      "regId": "reg:p6:chef-local:na",
+      "name": "Karan Verma",
+      "competitionId": "chef-local",
+      "gender": "male",
+      "coupleGroupId": "couple-kv",
+      "nights": ["2026-11-20", "2026-11-21", "2026-11-22"],
+      "needsLodging": true
+    },
+    {
+      "regId": "reg:p7:chef-local:na",
+      "name": "Meera Verma",
+      "competitionId": "chef-local",
+      "gender": "female",
+      "coupleGroupId": "couple-kv",
+      "nights": ["2026-11-20", "2026-11-21", "2026-11-22"],
+      "needsLodging": true
+    },
+    {
+      "regId": "reg:p8:chef-fusion:na",
+      "name": "Sam Dorje",
+      "competitionId": "chef-fusion",
+      "gender": "undisclosed",
+      "nights": ["2026-11-22", "2026-11-23"],
+      "needsLodging": true,
+      "notes": "Vegetarian kitchen access"
+    }
+  ]
+}

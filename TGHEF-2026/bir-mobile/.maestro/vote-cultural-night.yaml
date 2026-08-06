@@ -1,0 +1,16 @@
+# Gate 3 supplement: audience vote queues offline and survives reconnect.
+appId: org.birfestival.app
+---
+- launchApp
+- tapOn: 'Schedule|कार्यक्रम'
+- assertVisible: 'Cultural nights|सांस्कृतिक संध्याएँ'
+- tapOn: '21 Nov|21 नव॰'
+- toggleAirplaneMode: enabled
+- tapOn: 'Vote|वोट करें'
+- assertVisible: 'Voted ✓|वोट हो गया ✓'
+- toggleAirplaneMode: disabled
+# outbox auto-drain ships the vote; re-open to confirm state persisted
+- stopApp
+- launchApp
+- tapOn: 'Schedule|कार्यक्रम'
+- assertVisible: 'Voted ✓|वोट हो गया ✓'

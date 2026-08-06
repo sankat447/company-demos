@@ -4,21 +4,28 @@ import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, Text, TextInput } from 'react-native';
 
 import { submitOtp } from '@/auth/otp';
+import { tryDemoOtp } from '@/demo/demo';
+import { demoDeps } from '@/demo/deps';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, radius, spacing, typeScale } from '@/ui/tokens';
 
 export default function Otp() {
   const { t } = useTranslation();
-  const { phone } = useLocalSearchParams<{ phone: string }>();
+  const { phone, mode } = useLocalSearchParams<{ phone: string; mode?: string }>();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const demoFallback = mode === 'demo-fallback';
 
   const submit = async () => {
     setError(null);
     setBusy(true);
     try {
-      const signedIn = await submitOtp(code);
+      // Cognito unreachable/unconfigured → ONLY the demo code opens a
+      // clearly-labelled demo session. Never consulted when SMS flow is live.
+      const signedIn = demoFallback
+        ? await tryDemoOtp(demoDeps(), code, Date.now())
+        : await submitOtp(code);
       if (signedIn) router.replace('/(visitor)/home');
       else setError(t('auth.otpInvalid'));
     } catch {
@@ -30,7 +37,11 @@ export default function Otp() {
 
   return (
     <Screen title={t('auth.otpTitle')}>
-      {phone ? <Text style={styles.sent}>{t('auth.otpSentTo', { phone })}</Text> : null}
+      {demoFallback ? (
+        <Text style={styles.demoHint}>{t('auth.demoHint')}</Text>
+      ) : phone ? (
+        <Text style={styles.sent}>{t('auth.otpSentTo', { phone })}</Text>
+      ) : null}
       <TextInput
         style={styles.input}
         keyboardType="number-pad"
@@ -56,6 +67,7 @@ export default function Otp() {
 
 const styles = StyleSheet.create({
   sent: { ...typeScale.caption, color: color.textMuted, marginBottom: spacing.md },
+  demoHint: { ...typeScale.caption, color: color.info, marginBottom: spacing.md },
   input: {
     borderWidth: 1,
     borderColor: color.cardBorder,

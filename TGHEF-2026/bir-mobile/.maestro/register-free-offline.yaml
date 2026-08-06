@@ -1,0 +1,20 @@
+# Gate 5 (CO-002): a FREE registration attempted offline queues in the outbox
+# with the explicit "will confirm when online" state, then survives restart.
+appId: org.birfestival.app
+---
+- launchApp
+- tapOn: 'Highlights|मुख्य आकर्षण'
+- tapOn: 'Yoga & Wellness|योग और वेलनेस'
+- tapOn: 'Sunrise Yoga at the Landing Site|लैंडिंग साइट पर सूर्योदय योग'
+- toggleAirplaneMode: enabled
+- tapOn: 'Register|पंजीकरण करें'
+- tapOn: 'Beginner|शुरुआती'
+- tapOn: '.*consent.*|.*सहमति.*'
+- tapOn: 'Register|पंजीकरण करें'
+- assertVisible: 'Queued — will confirm when online|कतार में — ऑनलाइन होते ही पुष्टि'
+- toggleAirplaneMode: disabled
+- stopApp
+- launchApp
+- tapOn: 'More|और'
+- tapOn: 'My Registrations|मेरे पंजीकरण'
+- assertVisible: 'Sunrise Yoga|सूर्योदय योग'

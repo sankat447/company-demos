@@ -53,17 +53,17 @@ test: verifier accepts valid pass, rejects revoked one from cached list.
 
 ## Phase 3 — Visitor MVP (festival-critical path)
 
-- [ ] **P3.1** Tickets: browse tiers → payment (order via REST, provider SDK, webhook-
+- [x] **P3.1** Tickets: browse tiers → payment (order via REST, provider SDK, webhook-
       confirmed via subscription) → pass stored → **QR pass screen** (brightness bump,
       wallet-style card, works offline).
-- [ ] **P3.2** Cultural nights: day tabs, venue map pins, reminders (local notifications),
+- [x] **P3.2** Cultural nights: day tabs, venue map pins, reminders (local notifications),
       seat reservation (where applicable) + **audience-favourite voting** — votes power
       the award ceremonies and must be outbox-safe offline.
-- [ ] **P3.3** Home: "today at the festival" feed, **official fly-status banner +
+- [x] **P3.3** Home: "today at the festival" feed, **official fly-status banner +
       auto-refund state rendering** (SNS-driven; refund queue is backend-driven, the app
       renders state and notifies), SOS button (confirm → call + report location once
       with consent).
-- [ ] **P3.4** Push registration: FCM/APNs token → Pinpoint endpoint w/ role+locale
+- [x] **P3.4** Push registration: FCM/APNs token → Pinpoint endpoint w/ role+locale
       attributes; quiet-hours preference UI.
 - [ ] **P3.5** Preview channel build: `eas build --profile preview` universal APK;
       verify install-from-QR flow end-to-end using DISTRIBUTION.md §3.
@@ -95,10 +95,26 @@ dupes server-side; incident with photo syncs after reconnect.
       deposit-return rules surfaced in-app; daily waste figures rendered from the
       Cleanliness dashboard feed.
 - [ ] **P5.5** Deposit-return points map (visitor-facing return-point locations).
+- [x] **P5.6** Highlights hub & catalog cache (CO-002): category hub + item lists rendered
+      from the server-driven catalog (`highlights.catalogPath`, kv-cached offline; local
+      mock fixture behind `flags.mockHighlights` until ASK #21 lands).
+- [x] **P5.7** Standard registration flow (CO-002): one shared engine — server-driven
+      form schema + DPDP consent (+ guardian consent when flagged), free path queues in
+      the outbox offline, paid path follows the webhook-confirmed order pattern
+      (connectivity required; never fake a payment).
+- [x] **P5.8** Activity QR passes in wallet (CO-002): gate-checked confirmations deliver
+      ES256 passes `typ:'activity'` into the existing offline wallet; verifier +
+      revocation sync reused unchanged.
+- [x] **P5.9** My Registrations (CO-002): status chips (confirmed/waitlisted/pending),
+      cancel where policy allows, add-to-calendar, offline QR passes.
+- [x] **P5.10** Category deltas (CO-002): slot picker (paragliding pilots, tour
+      departures), weather-hold gate on paragliding CTA (official status + refund copy),
+      Nov 23 view-only agenda, competitions "Rounds & judging" + voting link.
 
 **Gate 5:** partner happy-paths pass on both OSes; experiences booking follows the
 webhook-confirmation pattern verifiably (kill app between pay and confirm → state
-recovers correctly).
+recovers correctly). **CO-002 extension:** e2e `register-free-offline.yaml` and
+`register-paid.yaml` green; weather-hold disables the paragliding CTA in sim.
 
 ## Phase 6 — AI, ops enhancements & polish
 
@@ -122,8 +138,25 @@ recovers correctly).
 - [ ] **P6.9** SOS + medical grid map: medical posts at Billing, Chogan and the main
       venue; evacuation-route info screen.
 
+- [x] **P6.10** Room inventory CRUD (CO-003): admin/lodging/rooms list+filters, add,
+      edit/retire; validation (capacity ≥1, double ⇒ capacity 2, duplicate guard on
+      hotel+label, 20–24 Nov per-night availability editor).
+- [x] **P6.11** Allocation engine + unit suite (CO-003): pure deterministic
+      propose(pool, rooms, nights); gender-sharing hard constraints, couples-exclusive
+      double rooms, undisclosed/other → manual queue; property-based tests.
+- [x] **P6.12** Allocation workflow UI (CO-003): review pool → auto-allocate proposal →
+      adjust w/ inline constraint blocks (EN+HI) → commit (idempotent mutation) →
+      occupancy board (offline cache) + printable per-hotel roster.
+- [x] **P6.13** Participant badge (CO-003): typ:'participant' wallet pass, branded badge
+      screen, PNG export + admin bulk print PDF; auto-issue on confirmed+lodging-resolved.
+- [x] **P6.14** Notifications & change management (CO-003): post-commit reassignment with
+      re-checks + re-notify; cancellation frees beds; lodging card in My Registrations.
+
 **Gate 6:** production builds (`--profile production`) succeed for both platforms;
 internal testing tracks uploaded (Play Internal, TestFlight) per DISTRIBUTION.md.
+**CO-003 extension:** engine property tests prove constraints §3.1–3.4 hold for 1,000
+randomized pools; manual-queue path e2e `lodging-manual-place.yaml` green; badge QR
+verifies on the offline scanner.
 
 ## Phase 7 — Hardening, release & close-out
 

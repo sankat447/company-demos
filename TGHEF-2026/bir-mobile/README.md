@@ -1,9 +1,10 @@
 # bir-mobile
 
-Cross-platform client (Expo React Native, TypeScript strict) for **The Official
-Digital Platform of Bir** — visitor, partner and volunteer roles in one binary,
-shipping to Google Play, the App Store, and the direct-QR APK channel on the
-existing AWS stack.
+Cross-platform client (Expo React Native, TypeScript strict) for the
+**Bir Festival 2026 app** — one event, **21–23 November 2026** — visitor, partner
+and volunteer roles in one binary, shipping to Google Play, the App Store, and the
+direct-QR APK channel (the primary festival-week onboarding channel) on the
+existing AWS stack. Product life ends 30 November 2026 with close-out (CO-001).
 
 Read first: [CLAUDE.md](CLAUDE.md) → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) →
 [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) →

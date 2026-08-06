@@ -41,6 +41,11 @@ function parseKeys(body: unknown): EcJwk[] {
   return ec;
 }
 
+/** Seed the cache directly (demo mode / tests) — same shape refreshJwks writes. */
+export async function primeJwksCache(kv: KvStore, keys: EcJwk[], nowMs: number): Promise<void> {
+  await kv.set(JWKS_KEY, JSON.stringify({ fetchedAtMs: nowMs, keys } satisfies CachedJwks));
+}
+
 export async function getCachedJwks(kv: KvStore): Promise<CachedJwks | null> {
   const rawCache = await kv.get(JWKS_KEY);
   if (!rawCache) return null;

@@ -1,0 +1,907 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "competitions",
+      "title": "Competitions",
+      "titleHi": "प्रतियोगिताएँ",
+      "icon": "🏆",
+      "order": 1,
+      "kind": "competition"
+    },
+    {
+      "id": "cultural-nights",
+      "title": "Cultural Nights",
+      "titleHi": "सांस्कृतिक संध्याएँ",
+      "icon": "🎭",
+      "order": 2,
+      "kind": "agenda"
+    },
+    {
+      "id": "yoga-wellness",
+      "title": "Yoga & Wellness",
+      "titleHi": "योग और वेलनेस",
+      "icon": "🧘",
+      "order": 3,
+      "kind": "session"
+    },
+    {
+      "id": "pottery-art",
+      "title": "Pottery & Art",
+      "titleHi": "मिट्टी और कला",
+      "icon": "🏺",
+      "order": 4,
+      "kind": "session"
+    },
+    {
+      "id": "adventure",
+      "title": "Adventure",
+      "titleHi": "एडवेंचर",
+      "icon": "🪂",
+      "order": 5,
+      "kind": "adventure"
+    },
+    {
+      "id": "sightseeing",
+      "title": "Sightseeing",
+      "titleHi": "सैर-सपाटा",
+      "icon": "🗺️",
+      "order": 6,
+      "kind": "tour"
+    }
+  ],
+  "items": [
+    {
+      "id": "chef-local",
+      "categoryId": "competitions",
+      "title": "Chef of the Year — Local Food",
+      "titleHi": "शेफ़ ऑफ़ द ईयर — स्थानीय भोजन",
+      "summary": "Cook the valley: siddu, dham, babru — judged on taste, tradition and story.",
+      "summaryHi": "घाटी का स्वाद पकाइए: सिड्डू, धाम, बबरू — स्वाद, परंपरा और कहानी पर परख।",
+      "venue": "Food Street Arena",
+      "dates": ["2026-11-21", "2026-11-22"],
+      "media": [],
+      "rules": "Two rounds. Local ingredients only in round one. 90 minutes per round.",
+      "rulesHi": "दो राउंड। पहले राउंड में केवल स्थानीय सामग्री। प्रति राउंड 90 मिनट।",
+      "eligibility": "Open to home cooks and professionals, 16+.",
+      "eligibilityHi": "घरेलू और पेशेवर रसोइयों के लिए खुला, 16+।",
+      "fee": {
+        "amount": 200,
+        "currency": "INR"
+      },
+      "capacity": 40,
+      "remaining": 12,
+      "regMode": "register",
+      "gateChecked": true,
+      "roundsJudging": "Round 1 (Nov 21): local pantry basket. Round 2 (Nov 22): free style with one mandatory millet. Judged by three chefs + audience tasting score.",
+      "roundsJudgingHi": "राउंड 1 (21 नव॰): स्थानीय सामग्री की टोकरी। राउंड 2 (22 नव॰): एक अनिवार्य मिलेट के साथ मुक्त शैली। तीन शेफ़ और दर्शकों के स्वाद-स्कोर से निर्णय।",
+      "formSchema": [
+        {
+          "key": "dishName",
+          "label": "Signature dish",
+          "labelHi": "आपकी खास डिश",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "experience",
+          "label": "Cooking experience",
+          "labelHi": "खाना पकाने का अनुभव",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "home",
+              "label": "Home cook",
+              "labelHi": "घरेलू रसोइया"
+            },
+            {
+              "value": "pro",
+              "label": "Professional",
+              "labelHi": "पेशेवर"
+            }
+          ]
+        },
+        {
+          "key": "gender",
+          "label": "Gender (used only for lodging allocation)",
+          "labelHi": "लिंग (केवल आवास आवंटन के लिए)",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "female",
+              "label": "Female",
+              "labelHi": "महिला"
+            },
+            {
+              "value": "male",
+              "label": "Male",
+              "labelHi": "पुरुष"
+            },
+            {
+              "value": "other",
+              "label": "Other",
+              "labelHi": "अन्य"
+            },
+            {
+              "value": "undisclosed",
+              "label": "Prefer not to say",
+              "labelHi": "नहीं बताना चाहते"
+            }
+          ]
+        },
+        {
+          "key": "needsLodging",
+          "label": "Do you need festival accommodation?",
+          "labelHi": "क्या आपको महोत्सव आवास चाहिए?",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes",
+              "labelHi": "हाँ"
+            },
+            {
+              "value": "no",
+              "label": "No — self-arranged",
+              "labelHi": "नहीं — स्वयं व्यवस्था"
+            }
+          ]
+        },
+        {
+          "key": "coupleConsent",
+          "label": "Registering as a couple? (both partners must consent)",
+          "labelHi": "दंपति के रूप में पंजीकरण? (दोनों की सहमति ज़रूरी)",
+          "type": "select",
+          "required": false,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes, we consent to share a double room",
+              "labelHi": "हाँ, हम डबल कमरा साझा करने की सहमति देते हैं"
+            },
+            {
+              "value": "no",
+              "label": "No",
+              "labelHi": "नहीं"
+            }
+          ]
+        },
+        {
+          "key": "partnerRef",
+          "label": "Partner's registration ID or phone (couples only)",
+          "labelHi": "साथी की पंजीकरण आईडी या फ़ोन (केवल दंपति)",
+          "type": "text",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "chef-fusion",
+      "categoryId": "competitions",
+      "title": "Chef of the Year — Fusion",
+      "titleHi": "शेफ़ ऑफ़ द ईयर — फ़्यूज़न",
+      "summary": "Himachali roots, world technique — one plate that talks to both.",
+      "summaryHi": "हिमाचली जड़ें, विश्व तकनीक — एक थाली, दोनों की बात।",
+      "venue": "Food Street Arena",
+      "dates": ["2026-11-22", "2026-11-23"],
+      "media": [],
+      "rules": "Single 120-minute round plus plating presentation.",
+      "rulesHi": "एक 120-मिनट राउंड और प्लेटिंग प्रस्तुति।",
+      "eligibility": "Open, 16+.",
+      "eligibilityHi": "सबके लिए खुला, 16+।",
+      "fee": {
+        "amount": 200,
+        "currency": "INR"
+      },
+      "capacity": 30,
+      "remaining": 0,
+      "waitlist": true,
+      "regMode": "register",
+      "gateChecked": true,
+      "roundsJudging": "One round, three judges; 40% technique, 40% taste, 20% story.",
+      "roundsJudgingHi": "एक राउंड, तीन निर्णायक; 40% तकनीक, 40% स्वाद, 20% कहानी।",
+      "formSchema": [
+        {
+          "key": "dishName",
+          "label": "Planned fusion dish",
+          "labelHi": "प्रस्तावित फ़्यूज़न डिश",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "gender",
+          "label": "Gender (used only for lodging allocation)",
+          "labelHi": "लिंग (केवल आवास आवंटन के लिए)",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "female",
+              "label": "Female",
+              "labelHi": "महिला"
+            },
+            {
+              "value": "male",
+              "label": "Male",
+              "labelHi": "पुरुष"
+            },
+            {
+              "value": "other",
+              "label": "Other",
+              "labelHi": "अन्य"
+            },
+            {
+              "value": "undisclosed",
+              "label": "Prefer not to say",
+              "labelHi": "नहीं बताना चाहते"
+            }
+          ]
+        },
+        {
+          "key": "needsLodging",
+          "label": "Do you need festival accommodation?",
+          "labelHi": "क्या आपको महोत्सव आवास चाहिए?",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes",
+              "labelHi": "हाँ"
+            },
+            {
+              "value": "no",
+              "label": "No — self-arranged",
+              "labelHi": "नहीं — स्वयं व्यवस्था"
+            }
+          ]
+        },
+        {
+          "key": "coupleConsent",
+          "label": "Registering as a couple? (both partners must consent)",
+          "labelHi": "दंपति के रूप में पंजीकरण? (दोनों की सहमति ज़रूरी)",
+          "type": "select",
+          "required": false,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes, we consent to share a double room",
+              "labelHi": "हाँ, हम डबल कमरा साझा करने की सहमति देते हैं"
+            },
+            {
+              "value": "no",
+              "label": "No",
+              "labelHi": "नहीं"
+            }
+          ]
+        },
+        {
+          "key": "partnerRef",
+          "label": "Partner's registration ID or phone (couples only)",
+          "labelHi": "साथी की पंजीकरण आईडी या फ़ोन (केवल दंपति)",
+          "type": "text",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "him-prince-2026",
+      "categoryId": "competitions",
+      "title": "Himalayan Prince 2026",
+      "titleHi": "हिमालयन प्रिंस 2026",
+      "summary": "Personality, talent and mountain pride — the valley's stage is yours.",
+      "summaryHi": "व्यक्तित्व, प्रतिभा और पहाड़ी गौरव — घाटी का मंच आपका है।",
+      "venue": "Chogan Ground",
+      "dates": ["2026-11-22", "2026-11-23"],
+      "media": [],
+      "rules": "Three rounds: introduction, talent, Q&A. Finale on Nov 23.",
+      "rulesHi": "तीन राउंड: परिचय, प्रतिभा, प्रश्नोत्तर। फ़िनाले 23 नव॰।",
+      "eligibility": "18–30 years, Himachal residents.",
+      "eligibilityHi": "18–30 वर्ष, हिमाचल निवासी।",
+      "fee": {
+        "amount": 500,
+        "currency": "INR"
+      },
+      "capacity": 25,
+      "remaining": 7,
+      "regMode": "register",
+      "gateChecked": true,
+      "roundsJudging": "Judged by a celebrity panel; audience vote counts 25% in the finale (vote on Cultural Nights).",
+      "roundsJudgingHi": "सेलिब्रिटी पैनल का निर्णय; फ़िनाले में दर्शकों का वोट 25% (वोट सांस्कृतिक संध्या में)।",
+      "formSchema": [
+        {
+          "key": "age",
+          "label": "Age",
+          "labelHi": "आयु",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "talent",
+          "label": "Talent-round act",
+          "labelHi": "प्रतिभा राउंड की प्रस्तुति",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "gender",
+          "label": "Gender (used only for lodging allocation)",
+          "labelHi": "लिंग (केवल आवास आवंटन के लिए)",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "female",
+              "label": "Female",
+              "labelHi": "महिला"
+            },
+            {
+              "value": "male",
+              "label": "Male",
+              "labelHi": "पुरुष"
+            },
+            {
+              "value": "other",
+              "label": "Other",
+              "labelHi": "अन्य"
+            },
+            {
+              "value": "undisclosed",
+              "label": "Prefer not to say",
+              "labelHi": "नहीं बताना चाहते"
+            }
+          ]
+        },
+        {
+          "key": "needsLodging",
+          "label": "Do you need festival accommodation?",
+          "labelHi": "क्या आपको महोत्सव आवास चाहिए?",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes",
+              "labelHi": "हाँ"
+            },
+            {
+              "value": "no",
+              "label": "No — self-arranged",
+              "labelHi": "नहीं — स्वयं व्यवस्था"
+            }
+          ]
+        },
+        {
+          "key": "coupleConsent",
+          "label": "Registering as a couple? (both partners must consent)",
+          "labelHi": "दंपति के रूप में पंजीकरण? (दोनों की सहमति ज़रूरी)",
+          "type": "select",
+          "required": false,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes, we consent to share a double room",
+              "labelHi": "हाँ, हम डबल कमरा साझा करने की सहमति देते हैं"
+            },
+            {
+              "value": "no",
+              "label": "No",
+              "labelHi": "नहीं"
+            }
+          ]
+        },
+        {
+          "key": "partnerRef",
+          "label": "Partner's registration ID or phone (couples only)",
+          "labelHi": "साथी की पंजीकरण आईडी या फ़ोन (केवल दंपति)",
+          "type": "text",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "him-queen-2026",
+      "categoryId": "competitions",
+      "title": "Himalayan Queen 2026",
+      "titleHi": "हिमालयन क्वीन 2026",
+      "summary": "Personality, talent and mountain pride — the valley's stage is yours.",
+      "summaryHi": "व्यक्तित्व, प्रतिभा और पहाड़ी गौरव — घाटी का मंच आपका है।",
+      "venue": "Chogan Ground",
+      "dates": ["2026-11-22", "2026-11-23"],
+      "media": [],
+      "rules": "Three rounds: introduction, talent, Q&A. Finale on Nov 23.",
+      "rulesHi": "तीन राउंड: परिचय, प्रतिभा, प्रश्नोत्तर। फ़िनाले 23 नव॰।",
+      "eligibility": "18–30 years, Himachal residents.",
+      "eligibilityHi": "18–30 वर्ष, हिमाचल निवासी।",
+      "fee": {
+        "amount": 500,
+        "currency": "INR"
+      },
+      "capacity": 25,
+      "remaining": 11,
+      "regMode": "register",
+      "gateChecked": true,
+      "roundsJudging": "Judged by a celebrity panel; audience vote counts 25% in the finale (vote on Cultural Nights).",
+      "roundsJudgingHi": "सेलिब्रिटी पैनल का निर्णय; फ़िनाले में दर्शकों का वोट 25% (वोट सांस्कृतिक संध्या में)।",
+      "formSchema": [
+        {
+          "key": "age",
+          "label": "Age",
+          "labelHi": "आयु",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "talent",
+          "label": "Talent-round act",
+          "labelHi": "प्रतिभा राउंड की प्रस्तुति",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "gender",
+          "label": "Gender (used only for lodging allocation)",
+          "labelHi": "लिंग (केवल आवास आवंटन के लिए)",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "female",
+              "label": "Female",
+              "labelHi": "महिला"
+            },
+            {
+              "value": "male",
+              "label": "Male",
+              "labelHi": "पुरुष"
+            },
+            {
+              "value": "other",
+              "label": "Other",
+              "labelHi": "अन्य"
+            },
+            {
+              "value": "undisclosed",
+              "label": "Prefer not to say",
+              "labelHi": "नहीं बताना चाहते"
+            }
+          ]
+        },
+        {
+          "key": "needsLodging",
+          "label": "Do you need festival accommodation?",
+          "labelHi": "क्या आपको महोत्सव आवास चाहिए?",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes",
+              "labelHi": "हाँ"
+            },
+            {
+              "value": "no",
+              "label": "No — self-arranged",
+              "labelHi": "नहीं — स्वयं व्यवस्था"
+            }
+          ]
+        },
+        {
+          "key": "coupleConsent",
+          "label": "Registering as a couple? (both partners must consent)",
+          "labelHi": "दंपति के रूप में पंजीकरण? (दोनों की सहमति ज़रूरी)",
+          "type": "select",
+          "required": false,
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes, we consent to share a double room",
+              "labelHi": "हाँ, हम डबल कमरा साझा करने की सहमति देते हैं"
+            },
+            {
+              "value": "no",
+              "label": "No",
+              "labelHi": "नहीं"
+            }
+          ]
+        },
+        {
+          "key": "partnerRef",
+          "label": "Partner's registration ID or phone (couples only)",
+          "labelHi": "साथी की पंजीकरण आईडी या फ़ोन (केवल दंपति)",
+          "type": "text",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "night-21",
+      "categoryId": "cultural-nights",
+      "title": "Nov 21 — Agenda",
+      "titleHi": "21 नव॰ — कार्यक्रम",
+      "summary": "Opening night: folk music, traditional dance and storytelling under the stars.",
+      "summaryHi": "उद्घाटन संध्या: लोक संगीत, पारंपरिक नृत्य और तारों तले किस्सागोई।",
+      "venue": "Chogan Ground",
+      "dates": ["2026-11-21"],
+      "media": [],
+      "regMode": "register-participation",
+      "agenda": [
+        {
+          "timeSec": 1795284000,
+          "title": "Folk music of Kangra",
+          "titleHi": "कांगड़ा का लोक संगीत"
+        },
+        {
+          "timeSec": 1795288500,
+          "title": "Traditional dance showcase",
+          "titleHi": "पारंपरिक नृत्य प्रस्तुति"
+        },
+        {
+          "timeSec": 1795292100,
+          "title": "Storytelling under the stars",
+          "titleHi": "तारों तले किस्सागोई"
+        }
+      ],
+      "formSchema": [
+        {
+          "key": "act",
+          "label": "Your act / performance",
+          "labelHi": "आपकी प्रस्तुति",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "groupSize",
+          "label": "Group size",
+          "labelHi": "समूह का आकार",
+          "type": "number",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "night-22",
+      "categoryId": "cultural-nights",
+      "title": "Nov 22 — Agenda",
+      "titleHi": "22 नव॰ — कार्यक्रम",
+      "summary": "Live bands, comedy and the heritage showcase.",
+      "summaryHi": "लाइव बैंड, हास्य और विरासत प्रदर्शनी।",
+      "venue": "Chogan Ground",
+      "dates": ["2026-11-22"],
+      "media": [],
+      "regMode": "register-participation",
+      "agenda": [
+        {
+          "timeSec": 1795370400,
+          "title": "Live band evening",
+          "titleHi": "लाइव बैंड संध्या"
+        },
+        {
+          "timeSec": 1795376700,
+          "title": "Comedy & cultural night",
+          "titleHi": "हास्य और सांस्कृतिक रात"
+        },
+        {
+          "timeSec": 1795380300,
+          "title": "Heritage showcase",
+          "titleHi": "विरासत प्रदर्शनी"
+        }
+      ],
+      "formSchema": [
+        {
+          "key": "act",
+          "label": "Your act / performance",
+          "labelHi": "आपकी प्रस्तुति",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "groupSize",
+          "label": "Group size",
+          "labelHi": "समूह का आकार",
+          "type": "number",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "night-23",
+      "categoryId": "cultural-nights",
+      "title": "Nov 23 — Agenda",
+      "titleHi": "23 नव॰ — कार्यक्रम",
+      "summary": "Finale & award ceremony — audience favourites crowned. Agenda only; no participation registration.",
+      "summaryHi": "फ़िनाले और पुरस्कार समारोह — दर्शकों के पसंदीदा सम्मानित। केवल कार्यक्रम; भागीदारी पंजीकरण नहीं।",
+      "venue": "Chogan Ground",
+      "dates": ["2026-11-23"],
+      "media": [],
+      "regMode": "view-only",
+      "agenda": [
+        {
+          "timeSec": 1795456800,
+          "title": "Guest appearance",
+          "titleHi": "विशेष अतिथि"
+        },
+        {
+          "timeSec": 1795462200,
+          "title": "Award ceremony — audience favourites",
+          "titleHi": "पुरस्कार समारोह — दर्शकों के पसंदीदा"
+        }
+      ]
+    },
+    {
+      "id": "yoga-sunrise",
+      "categoryId": "yoga-wellness",
+      "title": "Sunrise Yoga at the Landing Site",
+      "titleHi": "लैंडिंग साइट पर सूर्योदय योग",
+      "summary": "75 minutes of asana and breath as gliders launch above you.",
+      "summaryHi": "75 मिनट आसन और प्राणायाम — ऊपर उड़ते ग्लाइडरों के साथ।",
+      "venue": "Bir Landing Site",
+      "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "media": [],
+      "capacity": 60,
+      "remaining": 24,
+      "regMode": "register",
+      "formSchema": [
+        {
+          "key": "level",
+          "label": "Experience level",
+          "labelHi": "अनुभव स्तर",
+          "type": "select",
+          "required": true,
+          "options": [
+            {
+              "value": "beginner",
+              "label": "Beginner",
+              "labelHi": "शुरुआती"
+            },
+            {
+              "value": "regular",
+              "label": "Regular practitioner",
+              "labelHi": "नियमित अभ्यासी"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "meditation-workshop",
+      "categoryId": "yoga-wellness",
+      "title": "Meditation Workshop — Deer Park",
+      "titleHi": "ध्यान कार्यशाला — डियर पार्क",
+      "summary": "Guided sitting in the Tibetan colony's Deer Park Institute garden.",
+      "summaryHi": "तिब्बती कॉलोनी के डियर पार्क बग़ीचे में निर्देशित ध्यान।",
+      "venue": "Deer Park Institute",
+      "dates": ["2026-11-22"],
+      "media": [],
+      "capacity": 40,
+      "remaining": 40,
+      "regMode": "register"
+    },
+    {
+      "id": "pottery-wheel",
+      "categoryId": "pottery-art",
+      "title": "Pottery Wheel Class",
+      "titleHi": "कुम्हार चाक कक्षा",
+      "summary": "Throw your first pot with Andretta-trained potters; take it home fired.",
+      "summaryHi": "अंद्रेटा-प्रशिक्षित कुम्हारों के साथ पहला बर्तन बनाइए; पका हुआ घर ले जाइए।",
+      "venue": "Craft Courtyard",
+      "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "media": [],
+      "fee": {
+        "amount": 350,
+        "currency": "INR"
+      },
+      "capacity": 16,
+      "remaining": 5,
+      "regMode": "register"
+    },
+    {
+      "id": "art-workshop",
+      "categoryId": "pottery-art",
+      "title": "Miniature Painting Workshop",
+      "titleHi": "लघु चित्रकला कार्यशाला",
+      "summary": "Kangra miniature techniques on handmade paper, all materials included.",
+      "summaryHi": "हस्तनिर्मित कागज़ पर कांगड़ा लघु शैली, सारी सामग्री शामिल।",
+      "venue": "Craft Courtyard",
+      "dates": ["2026-11-22", "2026-11-23"],
+      "media": [],
+      "fee": {
+        "amount": 250,
+        "currency": "INR"
+      },
+      "capacity": 20,
+      "remaining": 14,
+      "regMode": "register"
+    },
+    {
+      "id": "trekking",
+      "categoryId": "adventure",
+      "title": "Trekking",
+      "titleHi": "ट्रेकिंग",
+      "summary": "Guided day trek Bir–Billing ridge; moderate fitness required.",
+      "summaryHi": "बीड़–बिलिंग रिज पर निर्देशित डे-ट्रेक; सामान्य फ़िटनेस ज़रूरी।",
+      "venue": "Assembly: Chogan Gate 2",
+      "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "media": [],
+      "fee": {
+        "amount": 600,
+        "currency": "INR"
+      },
+      "capacity": 50,
+      "remaining": 31,
+      "regMode": "register",
+      "gateChecked": true,
+      "guardianRequired": true,
+      "eligibility": "12+; minors with guardian consent.",
+      "eligibilityHi": "12+; नाबालिगों के लिए अभिभावक सहमति।"
+    },
+    {
+      "id": "paragliding",
+      "categoryId": "adventure",
+      "title": "Paragliding",
+      "titleHi": "पैराग्लाइडिंग",
+      "summary": "Tandem flight from Billing (2,400 m) to the Bir landing site with licensed pilots.",
+      "summaryHi": "लाइसेंसी पायलटों के साथ बिलिंग (2,400 मी) से बीड़ लैंडिंग साइट तक टैंडम उड़ान।",
+      "venue": "Billing Take-off",
+      "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "media": [],
+      "fee": {
+        "amount": 2500,
+        "currency": "INR"
+      },
+      "regMode": "register",
+      "gateChecked": true,
+      "guardianRequired": true,
+      "weatherSensitive": true,
+      "eligibility": "15–90 kg; 14+; minors with guardian consent.",
+      "eligibilityHi": "15–90 किग्रा; 14+; नाबालिगों के लिए अभिभावक सहमति।",
+      "slots": [
+        {
+          "id": "pg-21-am",
+          "startsAtSec": 1795255200,
+          "label": "Nov 21 · 09:00 · Pilot group A",
+          "labelHi": "21 नव॰ · 09:00 · पायलट समूह A",
+          "capacity": 12,
+          "remaining": 4
+        },
+        {
+          "id": "pg-21-noon",
+          "startsAtSec": 1795266000,
+          "label": "Nov 21 · 12:00 · Pilot group B",
+          "labelHi": "21 नव॰ · 12:00 · पायलट समूह B",
+          "capacity": 12,
+          "remaining": 9
+        },
+        {
+          "id": "pg-22-am",
+          "startsAtSec": 1795341600,
+          "label": "Nov 22 · 09:00 · Pilot group A",
+          "labelHi": "22 नव॰ · 09:00 · पायलट समूह A",
+          "capacity": 12,
+          "remaining": 0
+        },
+        {
+          "id": "pg-22-noon",
+          "startsAtSec": 1795352400,
+          "label": "Nov 22 · 12:00 · Pilot group B",
+          "labelHi": "22 नव॰ · 12:00 · पायलट समूह B",
+          "capacity": 12,
+          "remaining": 7
+        }
+      ]
+    },
+    {
+      "id": "bungee",
+      "categoryId": "adventure",
+      "title": "Bungee Jumping",
+      "titleHi": "बंजी जंपिंग",
+      "summary": "55-metre crane jump over the river bend — certified rig and crew.",
+      "summaryHi": "नदी मोड़ पर 55 मीटर क्रेन जंप — प्रमाणित रिग और टीम।",
+      "venue": "River Bend Arena",
+      "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "media": [],
+      "fee": {
+        "amount": 1500,
+        "currency": "INR"
+      },
+      "capacity": 80,
+      "remaining": 22,
+      "regMode": "register",
+      "gateChecked": true,
+      "guardianRequired": true,
+      "eligibility": "40–110 kg; 16+; minors with guardian consent.",
+      "eligibilityHi": "40–110 किग्रा; 16+; नाबालिगों के लिए अभिभावक सहमति।"
+    },
+    {
+      "id": "sky-cycle",
+      "categoryId": "adventure",
+      "title": "Sky Cycle",
+      "titleHi": "स्काई साइकिल",
+      "summary": "Pedal a cable 60 feet above the tea gardens.",
+      "summaryHi": "चाय बाग़ानों से 60 फ़ीट ऊपर तार पर साइकिल चलाइए।",
+      "venue": "Tea Garden Rig",
+      "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "media": [],
+      "fee": {
+        "amount": 400,
+        "currency": "INR"
+      },
+      "capacity": 100,
+      "remaining": 58,
+      "regMode": "register",
+      "gateChecked": true
+    },
+    {
+      "id": "burma-bridge",
+      "categoryId": "adventure",
+      "title": "Burma Bridge",
+      "titleHi": "बर्मा ब्रिज",
+      "summary": "Rope-bridge crossing over the stream — harnessed, family friendly.",
+      "summaryHi": "धारा के ऊपर रस्सी-पुल — हार्नेस के साथ, परिवार के अनुकूल।",
+      "venue": "Adventure Zone",
+      "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "media": [],
+      "fee": {
+        "amount": 300,
+        "currency": "INR"
+      },
+      "capacity": 120,
+      "remaining": 96,
+      "regMode": "register",
+      "gateChecked": true
+    },
+    {
+      "id": "tours-around-bir",
+      "categoryId": "sightseeing",
+      "title": "Tours around Bir",
+      "titleHi": "बीड़ के आसपास के टूर",
+      "summary": "Guided circuit: Tibetan colony & monasteries, Sherab Ling, tea gardens, Gunehar waterfall.",
+      "summaryHi": "निर्देशित सैर: तिब्बती कॉलोनी और मठ, शेराब लिंग, चाय बाग़ान, गुनेहड़ झरना।",
+      "venue": "Departs: Chogan Gate 1",
+      "dates": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "media": [],
+      "fee": {
+        "amount": 450,
+        "currency": "INR"
+      },
+      "regMode": "register",
+      "slots": [
+        {
+          "id": "tour-21-am",
+          "startsAtSec": 1795248000,
+          "label": "Nov 21 · 07:00 departure",
+          "labelHi": "21 नव॰ · 07:00 प्रस्थान",
+          "capacity": 30,
+          "remaining": 18
+        },
+        {
+          "id": "tour-21-pm",
+          "startsAtSec": 1795273200,
+          "label": "Nov 21 · 14:00 departure",
+          "labelHi": "21 नव॰ · 14:00 प्रस्थान",
+          "capacity": 30,
+          "remaining": 26
+        },
+        {
+          "id": "tour-22-am",
+          "startsAtSec": 1795334400,
+          "label": "Nov 22 · 07:00 departure",
+          "labelHi": "22 नव॰ · 07:00 प्रस्थान",
+          "capacity": 30,
+          "remaining": 2
+        },
+        {
+          "id": "tour-23-am",
+          "startsAtSec": 1795420800,
+          "label": "Nov 23 · 07:00 departure",
+          "labelHi": "23 नव॰ · 07:00 प्रस्थान",
+          "capacity": 30,
+          "remaining": 30
+        }
+      ]
+    }
+  ]
+}

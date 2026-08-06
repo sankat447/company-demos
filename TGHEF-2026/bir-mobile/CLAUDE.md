@@ -44,6 +44,9 @@ passes, certificates and the public report remain viewable.
 - **AWS client:** **Amplify JS v6 libraries only** (`aws-amplify`), configured at runtime
   from `config/stack-outputs.json` — never from hardcoded IDs, never via `amplify pull`.
 - **Auth:** Cognito User Pool (OTP-first phone auth) + Identity Pool for scoped S3/AppSync access.
+  Role groups: visitor (default), partner, volunteer, organiser-lite, **admin-hospitality**
+  (CO-003 lodging & badges; organiser family — server must enforce the group on every
+  lodging/badge mutation, not just the client route gate).
 - **API:** AppSync GraphQL (codegen types in `src/api/generated/`) + REST via API Gateway
   for payment webhooks/callbacks. All AI features go through backend endpoints
   (API GW → Lambda → Bedrock). The app NEVER holds model keys or calls Bedrock directly.
@@ -104,10 +107,13 @@ app/                    # expo-router routes (visitor + partner + volunteer role
 src/
   api/                  # AppSync client, generated types, REST clients
   config/               # stack.ts (contract accessor), feature flags
-  features/             # feature modules: tickets/ cultural-nights/ experiences/
-                        #   stalls/ hospitality/ volunteers/ organiser-lite/
-                        #   ai-assistant/ flight-status/ shuttle/ sos/ lost-found/
-                        #   clean-metrics/
+  features/             # feature modules: tickets/ highlights/ lodging/ cultural-nights/
+                        #   experiences/ stalls/ hospitality/ volunteers/
+                        #   organiser-lite/ ai-assistant/ flight-status/ shuttle/
+                        #   sos/ lost-found/ clean-metrics/
+                        # highlights/ = CO-002 hub + ONE shared registration engine
+                        #   (catalog server-driven); cultural-nights/ keeps voting —
+                        #   Highlights links to it, never duplicates it
   offline/              # sqlite schema, outbox, sync engine, signed-pass verifier
   i18n/                 # en.json, hi.json (+ bo.json, pah audio manifest if capacity allows pre-festival)
   ui/                   # design system: tokens from docs/BRAND.md, components

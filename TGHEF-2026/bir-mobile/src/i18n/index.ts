@@ -30,6 +30,11 @@ export function currentLocale(): AppLocale {
   return i18n.language === 'hi' ? 'hi' : 'en';
 }
 
+/** Server-driven copy comes as EN+HI pairs; pick by active locale. */
+export function pickLang(en: string, hi?: string | null): string {
+  return currentLocale() === 'hi' && hi ? hi : en;
+}
+
 export function toggleLocale(): void {
   setLocale(currentLocale() === 'hi' ? 'en' : 'hi');
 }

@@ -46,6 +46,8 @@
   },
   "flags": {
     "festivalMode": true,
-    "experiencesMarketplace": true
+    "experiencesMarketplace": true,
+    "mockHighlights": true,
+    "mockLodging": true
   }
 }

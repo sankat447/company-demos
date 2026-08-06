@@ -20,8 +20,8 @@ export default function SignIn() {
     setBusy(true);
     try {
       const normalized = normalizePhone(phone);
-      await requestOtp(normalized);
-      router.push({ pathname: '/(auth)/otp', params: { phone: normalized } });
+      const mode = await requestOtp(normalized);
+      router.push({ pathname: '/(auth)/otp', params: { phone: normalized, mode } });
     } catch (e) {
       setError(
         e instanceof Error && e.message === 'invalid-phone'

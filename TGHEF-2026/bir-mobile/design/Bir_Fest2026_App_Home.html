@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Bir Festival 2026 — App Home</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Public+Sans:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@500;700&family=IBM+Plex+Mono:wght@500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #17232b;
+        --ink-2: #20313b;
+        --pine: #2e5e4e;
+        --pine-dk: #1f4237;
+        --slate: #3e6b8c;
+        --marigold: #e8a13d;
+        --marigold-soft: #f2c98a;
+        --flag: #b4482b;
+        --paper: #f7f8f5;
+        --card: #ffffff;
+        --line: #dce4e0;
+        --txt: #22323b;
+        --txt-soft: #5d6b74;
+        --ok: #2f7a5b;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        background: #0e171d;
+        font-family: 'Public Sans', system-ui, sans-serif;
+        color: var(--txt);
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      .hi {
+        font-family: 'Noto Sans Devanagari', 'Public Sans', sans-serif;
+      }
+      .mono {
+        font-family: 'IBM Plex Mono', monospace;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      /* Phone frame: fills real phones, shows as a device on desktop */
+      .phone {
+        width: 100%;
+        max-width: 414px;
+        min-height: 100dvh;
+        background: var(--paper);
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      @media (min-width: 520px) {
+        body {
+          padding: 32px 0;
+          align-items: center;
+        }
+        .phone {
+          min-height: 0;
+          height: 860px;
+          border-radius: 38px;
+          box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+          border: 8px solid #0b1216;
+        }
+      }
+      .scroll {
+        flex: 1;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding-bottom: 96px;
+        scrollbar-width: none;
+      }
+      .scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      /* ---------- HERO ---------- */
+      .hero {
+        position: relative;
+        color: #fff;
+        overflow: hidden;
+        background: linear-gradient(180deg, #0f1a21 0%, #1c2e38 55%, #24404a 100%);
+        padding: calc(env(safe-area-inset-top, 0px) + 18px) 20px 0;
+      }
+      .hero svg.scene {
+        display: block;
+        width: calc(100% + 40px);
+        margin: 6px -20px 0;
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .brand {
+        font-family: 'Fraunces', serif;
+        font-weight: 800;
+        font-size: 15px;
+        color: #fff;
+        letter-spacing: 0.02em;
+      }
+      .lang {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--marigold-soft);
+        border: 1px solid rgba(242, 201, 138, 0.45);
+        border-radius: 999px;
+        padding: 4px 12px;
+        background: rgba(232, 161, 61, 0.08);
+      }
+      .hero .date {
+        margin-top: 14px;
+        font-size: 11px;
+        color: var(--marigold-soft);
+      }
+      .hero h1 {
+        font-family: 'Fraunces', serif;
+        font-weight: 800;
+        font-size: 31px;
+        line-height: 1.08;
+        margin-top: 6px;
+      }
+      .hero .tag {
+        margin-top: 8px;
+        font-size: 14.5px;
+        color: #dce6de;
+        font-weight: 500;
+      }
+      .fly {
+        position: absolute;
+        right: 16px;
+        top: calc(env(safe-area-inset-top, 0px) + 58px);
+        background: rgba(23, 35, 43, 0.72);
+        backdrop-filter: blur(6px);
+        border: 1px solid rgba(95, 160, 131, 0.6);
+        border-radius: 14px;
+        padding: 8px 12px;
+        text-align: right;
+      }
+      .fly .q {
+        font-size: 10px;
+        color: #aec8bc;
+      }
+      .fly .a {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 700;
+        font-size: 13.5px;
+        color: #7fd6ac;
+        margin-top: 2px;
+      }
+      .fly .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4ecf93;
+        box-shadow: 0 0 0 4px rgba(78, 207, 147, 0.18);
+      }
+
+      /* ---------- BODY ---------- */
+      .section {
+        padding: 0 20px;
+      }
+      .welcome {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-top: 18px;
+      }
+      .welcome h2 {
+        font-family: 'Fraunces', serif;
+        font-weight: 600;
+        font-size: 20px;
+        color: var(--ink);
+      }
+      .welcome .sub {
+        font-size: 12.5px;
+        color: var(--txt-soft);
+        margin-top: 3px;
+      }
+      .pill {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--pine);
+        background: #e4eee8;
+        border-radius: 999px;
+        padding: 5px 11px;
+        white-space: nowrap;
+      }
+
+      /* pass card */
+      .pass {
+        margin-top: 14px;
+        border-radius: 20px;
+        padding: 16px 18px;
+        color: #fff;
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(135deg, var(--pine-dk) 0%, var(--pine) 78%);
+        box-shadow: 0 10px 26px rgba(31, 66, 55, 0.28);
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .pass .qr {
+        width: 64px;
+        height: 64px;
+        border-radius: 12px;
+        background: #fff;
+        display: grid;
+        place-items: center;
+        flex: none;
+      }
+      .pass .qr svg {
+        width: 48px;
+        height: 48px;
+      }
+      .pass .t1 {
+        font-size: 10.5px;
+        color: #bedccb;
+      }
+      .pass .t2 {
+        font-family: 'Fraunces', serif;
+        font-weight: 600;
+        font-size: 18px;
+        margin-top: 2px;
+      }
+      .pass .t3 {
+        font-size: 11.5px;
+        color: #cfe0d6;
+        margin-top: 4px;
+      }
+      .pass .go {
+        margin-left: auto;
+        flex: none;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: rgba(232, 161, 61, 0.95);
+        display: grid;
+        place-items: center;
+        color: var(--ink);
+        font-weight: 800;
+        font-size: 16px;
+      }
+      .pass::after {
+        content: '';
+        position: absolute;
+        right: -40px;
+        top: -40px;
+        width: 150px;
+        height: 150px;
+        border-radius: 50%;
+        border: 22px solid rgba(232, 161, 61, 0.14);
+      }
+
+      /* quick actions */
+      .qa-title {
+        margin-top: 22px;
+        font-size: 11px;
+        color: var(--flag);
+        font-weight: 700;
+      }
+      /* single Highlights entry button */
+      .hl-btn {
+        margin-top: 14px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        text-decoration: none;
+        background: linear-gradient(135deg, var(--ink) 0%, var(--ink-2) 70%);
+        border-radius: 18px;
+        padding: 16px 18px;
+        color: #fff;
+        box-shadow: 0 10px 26px rgba(14, 23, 29, 0.28);
+        border: 1px solid rgba(232, 161, 61, 0.35);
+        transition: transform 0.12s ease;
+      }
+      .hl-btn:active {
+        transform: scale(0.98);
+      }
+      .hl-btn .hic {
+        flex: none;
+        width: 50px;
+        height: 50px;
+        border-radius: 15px;
+        display: grid;
+        place-items: center;
+        font-size: 24px;
+        background: rgba(232, 161, 61, 0.16);
+        border: 1px solid rgba(232, 161, 61, 0.45);
+      }
+      .hl-btn .t {
+        font-family: 'Fraunces', serif;
+        font-weight: 600;
+        font-size: 19px;
+        color: #fff;
+      }
+      .hl-btn .s {
+        font-size: 11.5px;
+        color: #c9d6ce;
+        margin-top: 3px;
+        line-height: 1.4;
+      }
+      .hl-btn .chev {
+        margin-left: auto;
+        flex: none;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: var(--marigold);
+        color: var(--ink);
+        display: grid;
+        place-items: center;
+        font-weight: 800;
+        font-size: 17px;
+      }
+
+      /* about strip inside quick actions */
+      .about {
+        margin-top: 12px;
+        background: linear-gradient(120deg, #eaf3ee 0%, #f3f6f1 100%);
+        border: 1px solid #d3e2d8;
+        border-radius: 16px;
+        padding: 13px 15px;
+      }
+      .about .en {
+        font-size: 12.5px;
+        color: #27423a;
+        line-height: 1.5;
+        font-weight: 500;
+      }
+      .about .en b {
+        color: var(--pine);
+      }
+      .about .hi {
+        font-size: 12px;
+        color: #4e6157;
+        margin-top: 5px;
+      }
+
+      /* mission banner (from handout) */
+      .mission {
+        margin: 22px 0 8px;
+        border-radius: 18px;
+        background: var(--pine-dk);
+        color: #fff;
+        padding: 16px 18px;
+        text-align: center;
+      }
+      .mission .hi {
+        font-weight: 700;
+        font-size: 15.5px;
+        line-height: 1.5;
+      }
+      .mission .en {
+        font-size: 11.5px;
+        color: #c4d7cb;
+        margin-top: 5px;
+      }
+
+      /* SOS */
+      .sos {
+        margin-top: 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: #fbefea;
+        border: 1px solid #ebcdc2;
+        border-radius: 16px;
+        padding: 12px 14px;
+      }
+      .sos .b {
+        flex: none;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--flag);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-weight: 800;
+        font-size: 12px;
+        box-shadow: 0 6px 14px rgba(180, 72, 43, 0.35);
+      }
+      .sos .t {
+        font-size: 12px;
+        color: #7a4030;
+        line-height: 1.35;
+      }
+      .sos .t b {
+        color: var(--flag);
+      }
+
+      /* ---------- BOTTOM NAV ---------- */
+      .nav {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(10px);
+        border-top: 1px solid var(--line);
+        display: flex;
+        justify-content: space-around;
+        padding: 8px 6px calc(env(safe-area-inset-bottom, 0px) + 8px);
+      }
+      .nav a {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        text-decoration: none;
+        color: #8a98a0;
+        font-size: 9.5px;
+        font-weight: 600;
+        min-width: 56px;
+      }
+      .nav a.on {
+        color: var(--pine);
+      }
+      .nav .nic {
+        font-size: 18px;
+        line-height: 1;
+      }
+      .nav a.on .nic {
+        filter: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="phone">
+      <div class="scroll">
+        <!-- ============ HERO ============ -->
+        <header class="hero">
+          <div class="topbar">
+            <div class="brand">BIR FESTIVAL <span style="color: var(--marigold)">2026</span></div>
+            <div class="lang hi">हिंदी</div>
+          </div>
+
+          <div class="fly">
+            <div class="q mono">CAN I FLY TODAY?</div>
+            <div class="a"><span class="dot"></span> Flying open · 09:40</div>
+          </div>
+
+          <div class="date mono">21 – 23 NOVEMBER · BIR–BILLING · KANGRA</div>
+          <h1>Three days.<br />One valley.<br />One app.</h1>
+          <div class="tag hi">संस्कृति · उड़ान · स्वाद · अनुभव</div>
+
+          <!-- alpine scene with flight line & glider -->
+          <svg
+            class="scene"
+            viewBox="0 0 414 150"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <defs>
+              <linearGradient id="sn" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#DFEAF1" />
+                <stop offset="1" stop-color="#9DB3C0" />
+              </linearGradient>
+            </defs>
+            <!-- prayer flags -->
+            <g transform="translate(18,4)">
+              <path d="M0 8 Q60 26 120 10" fill="none" stroke="#8FA3AD" stroke-width="1.3" />
+              <rect
+                x="6"
+                y="6"
+                width="13"
+                height="10"
+                rx="1.5"
+                fill="#3E6B8C"
+                transform="rotate(5 12 11)"
+              />
+              <rect
+                x="28"
+                y="11"
+                width="13"
+                height="10"
+                rx="1.5"
+                fill="#F7F8F5"
+                transform="rotate(3 34 16)"
+              />
+              <rect x="50" y="14" width="13" height="10" rx="1.5" fill="#B4482B" />
+              <rect
+                x="72"
+                y="13"
+                width="13"
+                height="10"
+                rx="1.5"
+                fill="#2E5E4E"
+                transform="rotate(-3 78 18)"
+              />
+              <rect
+                x="94"
+                y="9"
+                width="13"
+                height="10"
+                rx="1.5"
+                fill="#E8A13D"
+                transform="rotate(-5 100 14)"
+              />
+            </g>
+            <!-- ridges -->
+            <path
+              d="M0 96 L48 58 L84 84 L128 44 L166 76 L210 40 L254 74 L296 52 L338 82 L376 60 L414 84 L414 150 L0 150 Z"
+              fill="url(#sn)"
+            />
+            <path
+              d="M0 118 L70 100 L150 118 L240 98 L330 120 L414 104 L414 150 L0 150 Z"
+              fill="#3A6D5B"
+            />
+            <path d="M0 138 L110 126 L230 140 L340 128 L414 138 L414 150 L0 150 Z" fill="#1F4237" />
+            <!-- flight line -->
+            <path
+              id="fl"
+              d="M40 34 C 150 52, 280 86, 396 122"
+              fill="none"
+              stroke="#E8734D"
+              stroke-width="1.8"
+              stroke-dasharray="1 8"
+              stroke-linecap="round"
+            />
+            <circle cx="40" cy="34" r="3.4" fill="#E8734D" />
+            <circle cx="396" cy="122" r="3.4" fill="#E8734D" />
+            <!-- glider -->
+            <g id="gl">
+              <g transform="rotate(12)">
+                <path
+                  d="M-16 0 C -8 -8, 8 -8, 16 0"
+                  fill="none"
+                  stroke="#E8A13D"
+                  stroke-width="3.4"
+                  stroke-linecap="round"
+                />
+                <line x1="-13" y1="-1" x2="0" y2="9" stroke="#F7F8F5" stroke-width="1" />
+                <line x1="13" y1="-1" x2="0" y2="9" stroke="#F7F8F5" stroke-width="1" />
+                <circle cx="0" cy="10.5" r="2.4" fill="#F7F8F5" />
+              </g>
+              <animateMotion dur="16s" repeatCount="indefinite" rotate="auto">
+                <mpath href="#fl" />
+              </animateMotion>
+            </g>
+            <text
+              x="40"
+              y="22"
+              font-family="IBM Plex Mono, monospace"
+              font-size="7.5"
+              fill="#C9DAE3"
+              letter-spacing="1"
+            >
+              BILLING 2,400m
+            </text>
+            <text
+              x="398"
+              y="112"
+              text-anchor="end"
+              font-family="IBM Plex Mono, monospace"
+              font-size="7.5"
+              fill="#DCE6DE"
+              letter-spacing="1"
+            >
+              BIR 1,525m
+            </text>
+          </svg>
+        </header>
+
+        <!-- ============ WELCOME ============ -->
+        <div class="section">
+          <div class="welcome">
+            <div>
+              <h2>Namaste, Traveller 👋</h2>
+              <div class="sub hi">बीर में आपका स्वागत है — आज का दिन शानदार है!</div>
+            </div>
+            <div class="pill">Day 1 of 3</div>
+          </div>
+
+          <!-- My pass -->
+          <div class="pass" role="button" aria-label="Open my festival pass">
+            <div class="qr" aria-hidden="true">
+              <svg viewBox="0 0 48 48">
+                <g fill="#17232B">
+                  <rect x="2" y="2" width="14" height="14" rx="2" />
+                  <rect x="6" y="6" width="6" height="6" fill="#fff" />
+                  <rect x="32" y="2" width="14" height="14" rx="2" />
+                  <rect x="36" y="6" width="6" height="6" fill="#fff" />
+                  <rect x="2" y="32" width="14" height="14" rx="2" />
+                  <rect x="6" y="36" width="6" height="6" fill="#fff" />
+                  <rect x="22" y="4" width="4" height="4" />
+                  <rect x="22" y="12" width="4" height="4" />
+                  <rect x="20" y="20" width="6" height="6" />
+                  <rect x="30" y="22" width="4" height="4" />
+                  <rect x="38" y="20" width="6" height="4" />
+                  <rect x="22" y="30" width="4" height="6" />
+                  <rect x="30" y="32" width="6" height="6" />
+                  <rect x="40" y="30" width="4" height="4" />
+                  <rect x="32" y="42" width="4" height="4" />
+                  <rect x="42" y="38" width="4" height="8" />
+                  <rect x="4" y="22" width="4" height="4" />
+                  <rect x="12" y="22" width="4" height="4" />
+                </g>
+              </svg>
+            </div>
+            <div>
+              <div class="t1 mono">MY FESTIVAL PASS</div>
+              <div class="t2">3-Day Visitor · Zone A</div>
+              <div class="t3 hi">ऑफ़लाइन भी चलेगा — नेटवर्क की ज़रूरत नहीं</div>
+            </div>
+            <div class="go">›</div>
+          </div>
+
+          <!-- highlights entry point: everything lives one tap deeper -->
+          <div class="qa-title mono">FESTIVAL AT YOUR FINGERTIPS</div>
+          <div class="about">
+            <div class="en">
+              <b>Bir Festival 2026</b> is three days of the valley at full brightness —
+              <b>culture</b> on stage every evening, <b>tandem flight</b> in Bir's best flying
+              window, a managed <b>food street</b> of local &amp; SHG kitchens, and
+              <b>bookable experiences</b> hosted by residents. Community-run, one app, 21–23
+              November.
+            </div>
+            <div class="hi">संस्कृति · उड़ान · स्वाद · अनुभव — सब कुछ यहीं, एक ही ऐप में।</div>
+          </div>
+          <a class="hl-btn" href="#" aria-label="Open festival highlights">
+            <div class="hic">🏆</div>
+            <div class="ht">
+              <div class="t">Highlights</div>
+              <div class="s hi">मुख्य आकर्षण — शेड्यूल, उड़ान, अनुभव, स्वाद और बहुत कुछ</div>
+            </div>
+            <div class="chev">›</div>
+          </a>
+
+          <!-- SOS -->
+          <div class="sos" role="button" aria-label="Emergency SOS and medical posts">
+            <div class="b">SOS</div>
+            <div class="t">
+              <b>Emergency?</b> One tap alerts the medical grid — posts at Billing, Chogan &amp;
+              Main Venue. <span class="hi">मदद बस एक टैप दूर है।</span>
+            </div>
+          </div>
+
+          <!-- mission -->
+          <div class="mission">
+            <div class="hi">हर विज़िटर ट्रैवलर · हर निवासी होस्ट · हर परंपरा अनुभव</div>
+            <div class="en">A festival by the valley, for the valley — Bir Festival 2026</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ BOTTOM NAV ============ -->
+      <nav class="nav" aria-label="Main">
+        <a class="on" href="#"><span class="nic">🏠</span>Home</a>
+        <a href="#"><span class="nic">🗓️</span>Schedule</a>
+        <a href="#"><span class="nic">🎫</span>My Pass</a>
+        <a href="#"><span class="nic">🧭</span>Explore</a>
+        <a href="#"><span class="nic">☰</span>More</a>
+      </nav>
+    </div>
+  </body>
+</html>
