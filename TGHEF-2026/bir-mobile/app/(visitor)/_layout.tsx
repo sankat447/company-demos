@@ -8,7 +8,7 @@ import { registerPushIfPossible } from '@/features/notifications/register';
 import { color } from '@/ui/tokens';
 
 function TabIcon({ glyph, focused }: { glyph: string; focused: boolean }) {
-  return <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.5 }}>{glyph}</Text>;
+  return <Text style={{ fontSize: 18, opacity: focused ? 1 : 0.5 }}>{glyph}</Text>;
 }
 
 export default function VisitorLayout() {
@@ -27,21 +27,15 @@ export default function VisitorLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: color.primary,
-        tabBarInactiveTintColor: color.textMuted,
+        tabBarInactiveTintColor: '#8A98A0',
+        tabBarLabelStyle: { fontSize: 9.5, fontWeight: '600' },
       }}
     >
       <Tabs.Screen
         name="home"
         options={{
           title: t('tabs.home'),
-          tabBarIcon: ({ focused }) => <TabIcon glyph="🏔️" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="tickets"
-        options={{
-          title: t('tabs.tickets'),
-          tabBarIcon: ({ focused }) => <TabIcon glyph="🎫" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon glyph="🏠" focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -52,10 +46,24 @@ export default function VisitorLayout() {
         }}
       />
       <Tabs.Screen
+        name="tickets"
+        options={{
+          title: t('tabs.myPass'),
+          tabBarIcon: ({ focused }) => <TabIcon glyph="🎫" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
         name="assistant"
         options={{
-          title: t('tabs.assistant'),
-          tabBarIcon: ({ focused }) => <TabIcon glyph="💬" focused={focused} />,
+          title: t('tabs.explore'),
+          tabBarIcon: ({ focused }) => <TabIcon glyph="🧭" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: t('tabs.more'),
+          tabBarIcon: ({ focused }) => <TabIcon glyph="☰" focused={focused} />,
         }}
       />
     </Tabs>

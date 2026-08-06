@@ -32,7 +32,10 @@
     "stalls": "My Stall",
     "hospitality": "Rooms",
     "roster": "My Roster",
-    "scanner": "Scanner"
+    "scanner": "Scanner",
+    "myPass": "My Pass",
+    "explore": "Explore",
+    "more": "More"
   },
   "home": {
     "todayAtFestival": "Today at the festival",
@@ -43,7 +46,29 @@
     "feedEmpty": "Today's programme arrives soon — check the Schedule tab.",
     "sos": "SOS",
     "sosConfirm": "Tap again: call the emergency desk & share your location once",
-    "sosDone": "Emergency desk called. Your location was shared once and will sync if you're offline."
+    "sosDone": "Emergency desk called. Your location was shared once and will sync if you're offline.",
+    "heroDates": "21 – 23 NOVEMBER · BIR–BILLING · KANGRA",
+    "heroTitle": "Three days.\nOne valley.\nOne app.",
+    "heroTag": "संस्कृति · उड़ान · स्वाद · अनुभव",
+    "flyQ": "CAN I FLY TODAY?",
+    "flyChipOpen": "Flying open",
+    "flyChipHold": "On hold",
+    "flyChipClosed": "Closed",
+    "namaste": "Namaste, Traveller 👋",
+    "welcomeSub": "बीर में आपका स्वागत है — आज का दिन शानदार है!",
+    "dayPill": "Day {{n}} of 3",
+    "dayPillSoon": "21–23 Nov",
+    "myPassLabel": "MY FESTIVAL PASS",
+    "passOfflineShort": "ऑफ़लाइन भी चलेगा — नेटवर्क की ज़रूरत नहीं",
+    "getPassTitle": "Get your festival pass",
+    "fingertips": "FESTIVAL AT YOUR FINGERTIPS",
+    "aboutEn": "Bir Festival 2026 is three days of the valley at full brightness — culture on stage every evening, tandem flight in Bir's best flying window, a managed food street of local & SHG kitchens, and bookable experiences hosted by residents. Community-run, one app, 21–23 November.",
+    "aboutHi": "संस्कृति · उड़ान · स्वाद · अनुभव — सब कुछ यहीं, एक ही ऐप में।",
+    "highlights": "Highlights",
+    "highlightsSub": "मुख्य आकर्षण — शेड्यूल, उड़ान, अनुभव, स्वाद और बहुत कुछ",
+    "sosStrip": "Emergency? One tap alerts the medical grid — posts at Billing, Chogan & Main Venue. मदद बस एक टैप दूर है।",
+    "missionHi": "हर विज़िटर ट्रैवलर · हर निवासी होस्ट · हर परंपरा अनुभव",
+    "missionEn": "A festival by the valley, for the valley — Bir Festival 2026"
   },
   "settings": {
     "title": "Notification settings",
