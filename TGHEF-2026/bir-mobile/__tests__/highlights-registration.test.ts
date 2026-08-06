@@ -40,9 +40,20 @@ describe('validateForm (server-driven schema + consents)', () => {
       ]),
     );
 
-    const chef = byId('chef-local'); // formSchema with 2 required fields
-    const errors = validateForm(chef, { answers: { dishName: 'Siddu' }, consent: true });
+    // chef-local: dishName/experience + CO-003 lodging fields (gender,
+    // needsLodging required; coupleConsent/partnerRef optional)
+    const chef = byId('chef-local');
+    const errors = validateForm(chef, {
+      answers: { dishName: 'Siddu', gender: 'female', needsLodging: 'yes' },
+      consent: true,
+    });
     expect(errors).toEqual([{ field: 'experience', error: 'required' }]);
+    expect(validateForm(chef, { answers: { dishName: 'Siddu' }, consent: true })).toEqual(
+      expect.arrayContaining([
+        { field: 'gender', error: 'required' },
+        { field: 'needsLodging', error: 'required' },
+      ]),
+    );
 
     const paragliding = byId('paragliding'); // slots → slot required
     const slotErrors = validateForm(
