@@ -104,10 +104,13 @@ app/                    # expo-router routes (visitor + partner + volunteer role
 src/
   api/                  # AppSync client, generated types, REST clients
   config/               # stack.ts (contract accessor), feature flags
-  features/             # feature modules: tickets/ cultural-nights/ experiences/
-                        #   stalls/ hospitality/ volunteers/ organiser-lite/
-                        #   ai-assistant/ flight-status/ shuttle/ sos/ lost-found/
-                        #   clean-metrics/
+  features/             # feature modules: tickets/ highlights/ cultural-nights/
+                        #   experiences/ stalls/ hospitality/ volunteers/
+                        #   organiser-lite/ ai-assistant/ flight-status/ shuttle/
+                        #   sos/ lost-found/ clean-metrics/
+                        # highlights/ = CO-002 hub + ONE shared registration engine
+                        #   (catalog server-driven); cultural-nights/ keeps voting —
+                        #   Highlights links to it, never duplicates it
   offline/              # sqlite schema, outbox, sync engine, signed-pass verifier
   i18n/                 # en.json, hi.json (+ bo.json, pah audio manifest if capacity allows pre-festival)
   ui/                   # design system: tokens from docs/BRAND.md, components
