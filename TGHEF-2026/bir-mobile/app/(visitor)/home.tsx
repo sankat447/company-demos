@@ -90,6 +90,11 @@ export default function Home() {
 
   return (
     <Screen title={t('home.todayAtFestival')}>
+      {auth.demo ? (
+        <View style={styles.demoBanner}>
+          <Text style={styles.demoText}>{t('common.demoNotice')}</Text>
+        </View>
+      ) : null}
       {flyStatus ? (
         <View style={[styles.flyBanner, { backgroundColor: FLY_STYLE[flyStatus.state].bg }]}>
           <Text style={styles.flyText}>{t(FLY_STYLE[flyStatus.state].key)}</Text>
@@ -170,6 +175,13 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
+  demoBanner: {
+    backgroundColor: palette.ink,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  demoText: { ...typeScale.caption, color: color.textInverse, textAlign: 'center' },
   flyBanner: {
     borderRadius: radius.md,
     padding: spacing.md,

@@ -10,9 +10,11 @@
     "confirm": "पुष्टि करें",
     "offlineBanner": "आप ऑफ़लाइन हैं — सहेजा गया डेटा दिख रहा है। बदलाव अपने आप सिंक होंगे।",
     "directChannelNotice": "आप डायरेक्ट-डाउनलोड चैनल पर हैं; अपडेट get.bir.example या Google Play से मिलेंगे।",
-    "languageSwitch": "Language: English"
+    "languageSwitch": "Language: English",
+    "demoNotice": "डेमो बिल्ड — नमूना महोत्सव डेटा, भुगतान बंद। यह जारी किया गया ऐप नहीं है।"
   },
   "auth": {
+    "demoHint": "डेमो बिल्ड: SMS अभी जुड़ा नहीं है — नमूना डेटा के साथ देखने के लिए OTP 123456 डालें।",
     "phoneTitle": "अपने फ़ोन से साइन इन करें",
     "phonePlaceholder": "10 अंकों का मोबाइल नंबर",
     "sendOtp": "OTP भेजें",

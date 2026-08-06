@@ -12,22 +12,32 @@ export function normalizePhone(input: string): string {
   throw new Error('invalid-phone');
 }
 
-/** Step 1: start custom auth — backend sends the OTP SMS. */
-export async function requestOtp(phone: string): Promise<void> {
+/**
+ * Step 1: start custom auth — backend sends the OTP SMS. Returns 'sms' when
+ * the real flow started, 'demo-fallback' when Cognito is unreachable or
+ * unconfigured (example stack outputs) — the OTP screen then accepts only
+ * the demo code (see src/demo/demo.ts).
+ */
+export async function requestOtp(phone: string): Promise<'sms' | 'demo-fallback'> {
   const username = normalizePhone(phone);
   // A stale session makes signIn throw UserAlreadyAuthenticatedException.
   try {
     await getCurrentUser();
-    return; // already signed in
+    return 'sms'; // already signed in
   } catch {
     // not signed in — proceed
   }
-  const result = await signIn({
-    username,
-    options: { authFlowType: 'CUSTOM_WITHOUT_SRP' },
-  });
-  if (result.nextStep.signInStep !== 'CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE') {
-    throw new Error(`unexpected sign-in step: ${result.nextStep.signInStep}`);
+  try {
+    const result = await signIn({
+      username,
+      options: { authFlowType: 'CUSTOM_WITHOUT_SRP' },
+    });
+    if (result.nextStep.signInStep !== 'CONFIRM_SIGN_IN_WITH_CUSTOM_CHALLENGE') {
+      throw new Error(`unexpected sign-in step: ${result.nextStep.signInStep}`);
+    }
+    return 'sms';
+  } catch {
+    return 'demo-fallback';
   }
 }
 
@@ -38,5 +48,8 @@ export async function submitOtp(code: string): Promise<boolean> {
 }
 
 export async function signOutEverywhere(): Promise<void> {
+  const { disableDemoSession } = await import('@/demo/demo');
+  const { kvStore } = await import('@/offline/db');
+  await disableDemoSession(kvStore).catch(() => {});
   await signOut();
 }

@@ -10,9 +10,11 @@
     "confirm": "Confirm",
     "offlineBanner": "You're offline — showing saved data. Changes will sync automatically.",
     "directChannelNotice": "You're on the direct-download channel; updates arrive via get.bir.example or Google Play.",
-    "languageSwitch": "भाषा: हिन्दी"
+    "languageSwitch": "भाषा: हिन्दी",
+    "demoNotice": "DEMO BUILD — sample festival data, payments disabled. Not the released app."
   },
   "auth": {
+    "demoHint": "Demo build: SMS is not connected yet — enter OTP 123456 to explore with sample data.",
     "phoneTitle": "Sign in with your phone",
     "phonePlaceholder": "10-digit mobile number",
     "sendOtp": "Send OTP",

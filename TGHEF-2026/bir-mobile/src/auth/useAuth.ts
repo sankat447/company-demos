@@ -6,16 +6,28 @@ import { fetchAuthSession } from 'aws-amplify/auth';
 import { Hub } from 'aws-amplify/utils';
 import { useEffect, useState } from 'react';
 
+import { isDemoSession } from '@/demo/demo';
+import { kvStore } from '@/offline/db';
+
 export type Role = 'visitor' | 'partner' | 'volunteer' | 'organiser-lite';
 
 export interface AuthState {
   status: 'loading' | 'signedOut' | 'signedIn';
   roles: Role[];
+  demo?: boolean;
 }
 
 const KNOWN_ROLES: Role[] = ['visitor', 'partner', 'volunteer', 'organiser-lite'];
 
 export async function resolveAuthState(): Promise<AuthState> {
+  // Demo session first: evaluation builds run without any backend.
+  try {
+    if (await isDemoSession(kvStore)) {
+      return { status: 'signedIn', roles: ['visitor'], demo: true };
+    }
+  } catch {
+    // kv unavailable → fall through to the real session check
+  }
   try {
     const session = await fetchAuthSession();
     if (!session.tokens?.idToken) return { status: 'signedOut', roles: [] };
