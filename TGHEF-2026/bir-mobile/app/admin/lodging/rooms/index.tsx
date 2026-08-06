@@ -39,6 +39,24 @@ export default function Rooms() {
       >
         <Text style={styles.addText}>{t('lodging.addRoom')}</Text>
       </Pressable>
+      <View style={styles.navRow}>
+        <Pressable
+          style={styles.navBtn}
+          onPress={() => router.push('/admin/lodging/allocate')}
+          accessibilityRole="button"
+          accessibilityLabel={t('lodging.allocate')}
+        >
+          <Text style={styles.navBtnText}>{t('lodging.allocate')}</Text>
+        </Pressable>
+        <Pressable
+          style={styles.navBtn}
+          onPress={() => router.push('/admin/lodging/occupancy')}
+          accessibilityRole="button"
+          accessibilityLabel={t('lodging.occupancy')}
+        >
+          <Text style={styles.navBtnText}>{t('lodging.occupancy')}</Text>
+        </Pressable>
+      </View>
       <TextInput
         style={styles.search}
         value={search}
@@ -111,6 +129,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   addText: { ...typeScale.body, color: palette.marigold, fontWeight: '700' },
+  navRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  navBtn: {
+    flex: 1,
+    minHeight: MIN_TOUCH_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: palette.pine,
+    backgroundColor: '#FFFFFF',
+  },
+  navBtnText: { ...typeScale.body, color: palette.pine, fontWeight: '600' },
   search: {
     borderWidth: 1,
     borderColor: color.cardBorder,

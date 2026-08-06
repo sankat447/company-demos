@@ -10,6 +10,8 @@ import { addToDeviceCalendar, eventWindow } from '@/features/highlights/calendar
 import { findItem, loadCatalog } from '@/features/highlights/catalog';
 import { cancelRegistration, kvRegistrationStore } from '@/features/highlights/registration';
 import type { RegistrationStatus } from '@/features/highlights/types';
+import { loadAllocation, loadPool, lodgingCardFor } from '@/features/lodging/allocation';
+import { kvRoomStore } from '@/features/lodging/rooms';
 import { pickLang } from '@/i18n';
 import { kvStore } from '@/offline/db';
 import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
@@ -42,6 +44,22 @@ export default function MyRegistrations() {
   const catalog = useQuery({
     queryKey: ['highlights', 'catalog'],
     queryFn: () => loadCatalog(kvStore, Date.now()),
+    networkMode: 'always',
+  });
+  // CO-003: the lodging card appears once the hospitality desk commits.
+  const allocation = useQuery({
+    queryKey: ['lodging', 'allocation'],
+    queryFn: () => loadAllocation(kvStore),
+    networkMode: 'always',
+  });
+  const lodgingRooms = useQuery({
+    queryKey: ['lodging', 'rooms'],
+    queryFn: () => kvRoomStore(kvStore).list(),
+    networkMode: 'always',
+  });
+  const lodgingPool = useQuery({
+    queryKey: ['lodging', 'pool'],
+    queryFn: () => loadPool().catch(() => []),
     networkMode: 'always',
   });
 
@@ -79,6 +97,27 @@ export default function MyRegistrations() {
               {reg.status === 'pending-sync' ? (
                 <Text style={styles.pendingNote}>{t('highlights.queuedBody')}</Text>
               ) : null}
+              {(() => {
+                const lodging = lodgingCardFor(
+                  reg.id,
+                  allocation.data ?? null,
+                  lodgingRooms.data ?? [],
+                  lodgingPool.data ?? [],
+                );
+                return lodging ? (
+                  <View style={styles.lodgingCard}>
+                    <Text style={styles.lodgingTitle}>{t('lodging.yourStay')}</Text>
+                    <Text style={styles.lodgingBody}>
+                      {lodging.hotelName} · {lodging.roomLabel} ·{' '}
+                      {t(`lodging.type_${lodging.sharingType as 'twin'}`)}
+                    </Text>
+                    <Text style={styles.lodgingMeta}>
+                      {t('lodging.checkInNote')}
+                      {lodging.contactPhone ? ` · ${lodging.contactPhone}` : ''}
+                    </Text>
+                  </View>
+                ) : null;
+              })()}
               {reg.qrPassJti ? (
                 <Pressable
                   style={styles.passLink}
@@ -180,4 +219,14 @@ const styles = StyleSheet.create({
   },
   actionText: { ...typeScale.caption, color: color.text, fontWeight: '600' },
   calendarNote: { ...typeScale.caption, color: color.textMuted, textAlign: 'center', padding: 8 },
+  lodgingCard: {
+    marginTop: spacing.xs,
+    backgroundColor: '#EAF3EE',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    gap: 2,
+  },
+  lodgingTitle: { fontSize: 10.5, fontWeight: '700', color: palette.pine, letterSpacing: 0.5 },
+  lodgingBody: { ...typeScale.caption, color: color.text, fontWeight: '600' },
+  lodgingMeta: { fontSize: 11, color: color.textMuted },
 });

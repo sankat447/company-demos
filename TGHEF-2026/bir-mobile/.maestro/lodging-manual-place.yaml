@@ -1,0 +1,17 @@
+# Gate 6 (CO-003): the undisclosed participant lands in the manual queue and
+# is placed by an explicit, noted admin decision — never auto-placed.
+appId: org.birfestival.app
+---
+- launchApp
+- tapOn: 'More|और'
+- tapOn: 'Participant lodging|प्रतिभागी आवास'
+- tapOn: 'Allocate participants|प्रतिभागी आवंटित करें'
+- tapOn: 'Auto-allocate (suggest)|स्वतः-आवंटन (सुझाव)'
+- assertVisible: 'Manual placement|मैनुअल प्लेसमेंट'
+- assertVisible: 'Sam Dorje'
+# open the room picker for the manual-queue participant and place them
+- tapOn: 'Move|बदलें'
+- tapOn: 'Hotel Surya Classic · 102'
+- inputText: 'Solo room per participant request'
+- tapOn: 'Commit allocation|आवंटन कमिट करें'
+- assertVisible: 'Committed|कमिट हो गया'

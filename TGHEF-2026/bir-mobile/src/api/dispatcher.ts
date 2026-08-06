@@ -7,6 +7,7 @@ import type { OutboxRecord } from '@/offline/outbox';
 
 import {
   CANCEL_REGISTRATION,
+  COMMIT_ALLOCATION,
   CAST_VOTE,
   CREATE_REGISTRATION,
   gqlClient,
@@ -17,6 +18,7 @@ import {
 
 const DOCUMENTS: Record<string, string> = {
   cancelRegistration: CANCEL_REGISTRATION,
+  commitAllocation: COMMIT_ALLOCATION,
   castVote: CAST_VOTE,
   createRegistration: CREATE_REGISTRATION,
   recordScan: RECORD_SCAN,

@@ -128,6 +128,18 @@ export const CREATE_REGISTRATION = /* GraphQL */ `
   }
 `;
 
+// Lodging allocation commit (CO-003, ASK #29): server re-validates the §3
+// hard constraints, audit-logs (actorNote on overrides), notifies participants.
+export const COMMIT_ALLOCATION = /* GraphQL */ `
+  mutation CommitAllocation($input: CommitAllocationInput!) {
+    commitAllocation(input: $input) {
+      version
+      accepted
+      violations
+    }
+  }
+`;
+
 // Cancel where policy allows (CO-002, ASK #24); response carries refund state.
 export const CANCEL_REGISTRATION = /* GraphQL */ `
   mutation CancelRegistration($input: CancelRegistrationInput!) {
