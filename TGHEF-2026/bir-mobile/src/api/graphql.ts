@@ -78,6 +78,17 @@ export const REVOCATIONS_DELTA = /* GraphQL */ `
   }
 `;
 
+// Audience-favourite voting (P3.2) — votes power the award ceremonies;
+// backend dedupes on idempotencyKey (one vote per user per event).
+export const CAST_VOTE = /* GraphQL */ `
+  mutation CastVote($input: CastVoteInput!) {
+    castVote(input: $input) {
+      eventId
+      accepted
+    }
+  }
+`;
+
 export const TICKET_TIERS = /* GraphQL */ `
   query TicketTiers {
     ticketTiers {

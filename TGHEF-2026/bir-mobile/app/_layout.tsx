@@ -6,6 +6,7 @@ import React, { useEffect } from 'react';
 
 import { configureAmplify } from '@/config/amplify';
 import '@/i18n';
+import { startOutboxAutoDrain } from '@/offline/drain';
 import { color } from '@/ui/tokens';
 
 configureAmplify();
@@ -27,6 +28,11 @@ export default function RootLayout() {
   useEffect(() => {
     if (fontsLoaded) void SplashScreen.hideAsync();
   }, [fontsLoaded]);
+
+  // Queued mutations (votes, scans) ship whenever connectivity returns.
+  useEffect(() => {
+    startOutboxAutoDrain();
+  }, []);
 
   if (!fontsLoaded) return null;
 

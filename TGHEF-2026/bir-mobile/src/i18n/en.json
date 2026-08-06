@@ -38,6 +38,20 @@
     "sos": "SOS",
     "sosConfirm": "Call the emergency desk and share your location once?"
   },
+  "schedule": {
+    "title": "Cultural nights",
+    "day1": "21 Nov",
+    "day2": "22 Nov",
+    "day3": "23 Nov",
+    "vote": "Vote",
+    "voted": "Voted ✓",
+    "voteHint": "Your vote powers the award ceremony — it syncs even if you're offline right now.",
+    "remind": "Remind me",
+    "reminded": "Reminder set",
+    "venuesMap": "Venues",
+    "empty": "The programme for this evening arrives soon.",
+    "timeRange": "{{start}} – {{end}}"
+  },
   "buy": {
     "title": "Choose your pass",
     "pay": "Pay",

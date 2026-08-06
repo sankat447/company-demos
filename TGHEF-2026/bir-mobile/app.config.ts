@@ -39,6 +39,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: '#17232B',
     },
     permissions: ['android.permission.CAMERA'],
+    config: {
+      // Injected via EAS secret at build time; venue-map pins fall back to
+      // Apple Maps on iOS (no key needed).
+      googleMaps: { apiKey: process.env.GOOGLE_MAPS_API_KEY ?? '' },
+    },
   },
   plugins: [
     'expo-router',

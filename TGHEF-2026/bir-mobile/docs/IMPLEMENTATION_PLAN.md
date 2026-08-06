@@ -56,7 +56,7 @@ test: verifier accepts valid pass, rejects revoked one from cached list.
 - [x] **P3.1** Tickets: browse tiers → payment (order via REST, provider SDK, webhook-
       confirmed via subscription) → pass stored → **QR pass screen** (brightness bump,
       wallet-style card, works offline).
-- [ ] **P3.2** Cultural nights: day tabs, venue map pins, reminders (local notifications),
+- [x] **P3.2** Cultural nights: day tabs, venue map pins, reminders (local notifications),
       seat reservation (where applicable) + **audience-favourite voting** — votes power
       the award ceremonies and must be outbox-safe offline.
 - [ ] **P3.3** Home: "today at the festival" feed, **official fly-status banner +
