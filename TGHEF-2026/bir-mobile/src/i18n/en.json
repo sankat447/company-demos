@@ -108,7 +108,12 @@
     "stPendingSync": "Will confirm when online",
     "stConfirmed": "Confirmed",
     "stWaitlisted": "Waitlisted",
-    "stCancelled": "Cancelled"
+    "stCancelled": "Cancelled",
+    "pickSlot": "Pick a slot",
+    "addToCalendar": "Add to calendar",
+    "calendarAdded": "Added to your calendar.",
+    "calendarFailed": "Couldn't add — check calendar permission.",
+    "cancel": "Cancel registration"
   },
   "settings": {
     "title": "Notification settings",
@@ -154,7 +159,8 @@
     "typeVolunteerAttendance": "Volunteer attendance pass",
     "typeSeatEntry": "Seat reservation pass",
     "typeStall": "Stall pass",
-    "typeRoom": "Room pass"
+    "typeRoom": "Room pass",
+    "typeActivity": "Activity pass"
   },
   "scanner": {
     "title": "Gate scanner",

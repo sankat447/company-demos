@@ -6,7 +6,10 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
+import { issueDemoActivityPass } from '@/demo/demo';
+import { getFlyStatus } from '@/features/flight-status/flyStatus';
 import { awaitOrderConfirmation, ingestPassTokens } from '@/features/tickets/purchase';
+import { savePass } from '@/features/tickets/passStore';
 import { findItem, loadCatalog } from '@/features/highlights/catalog';
 import {
   beginPaidRegistration,
@@ -16,6 +19,7 @@ import {
   requiresPayment,
   submitFreeRegistration,
   validateForm,
+  weatherBlocked,
   type FormError,
 } from '@/features/highlights/registration';
 import type { FormField, HighlightItem } from '@/features/highlights/types';
@@ -113,6 +117,14 @@ export default function Register() {
     return unsubscribe;
   }, []);
 
+  // CO-002 paragliding delta: the official hold gates weather-sensitive CTAs.
+  const fly = useQuery({
+    queryKey: ['flyStatus'],
+    queryFn: () => getFlyStatus(kvStore),
+    networkMode: 'always',
+    staleTime: 30_000,
+  });
+
   if (!item) {
     return (
       <Screen title={t('highlights.title')}>
@@ -124,6 +136,7 @@ export default function Register() {
   const paid = requiresPayment(item);
   const mockMode = isEnabled('mockHighlights');
   const paidBlocked = paid && (!online || mockMode);
+  const weatherHold = weatherBlocked(item, fly.data?.state ?? null);
 
   const submit = async (target: HighlightItem) => {
     const input = { answers, consent, guardianConsent };
@@ -137,11 +150,21 @@ export default function Register() {
       const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'demo-user');
 
       if (!paid) {
-        await submitFreeRegistration(
+        const registration = await submitFreeRegistration(
           { outbox, store, mockMode },
           { sub, item: target, slotId, answers },
           Date.now(),
         );
+        // Demo-only: mock-confirmed gate-checked items get a locally-signed
+        // activity pass so the wallet + verifier path demos end-to-end.
+        if (mockMode && target.gateChecked) {
+          const jti = await issueDemoActivityPass(
+            { kv: kvStore, savePass },
+            { itemId: target.id, slotId, sub },
+            Date.now(),
+          );
+          if (jti) await markRegistration(store, registration.id, 'confirmed', jti);
+        }
         setState(online ? 'done' : 'queued');
       } else {
         // Webhook-confirmed order pattern — never faked, never offline.
@@ -219,7 +242,45 @@ export default function Register() {
               />
             ))}
 
-            {/* Slot picker lands with PR-4 (P5.10); slotted items prompt then. */}
+            {/* CO-002 slot mechanism: paragliding pilot windows, tour departures */}
+            {item.slots?.length ? (
+              <View style={styles.fieldWrap}>
+                <Text style={[styles.fieldLabel, hasError('_slot') && styles.errorText]}>
+                  {t('highlights.pickSlot')}
+                </Text>
+                <View style={styles.options}>
+                  {item.slots.map((slot) => {
+                    const full = (slot.remaining ?? 1) <= 0;
+                    return (
+                      <Pressable
+                        key={slot.id}
+                        style={[
+                          styles.option,
+                          slotId === slot.id && styles.optionOn,
+                          full && styles.optionOff,
+                        ]}
+                        disabled={full}
+                        onPress={() => setSlotId(slot.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={pickLang(slot.label ?? slot.id, slot.labelHi)}
+                        accessibilityState={{ selected: slotId === slot.id, disabled: full }}
+                      >
+                        <Text
+                          style={[styles.optionText, slotId === slot.id && styles.optionTextOn]}
+                        >
+                          {pickLang(slot.label ?? slot.id, slot.labelHi)}
+                          {full
+                            ? ` · ${t('highlights.capFull')}`
+                            : slot.remaining !== undefined
+                              ? ` · ${t('highlights.capLeft', { n: slot.remaining })}`
+                              : ''}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
 
             <View style={styles.consentRow}>
               <Switch
@@ -258,6 +319,13 @@ export default function Register() {
                 </Text>
               </View>
             ) : null}
+            {weatherHold ? (
+              <View style={styles.blocker}>
+                <Text style={styles.blockerText}>
+                  {t('home.flyHold')} {t('home.flyRefundAuto')}
+                </Text>
+              </View>
+            ) : null}
             {state === 'failed' ? <Text style={styles.errorText}>{t('buy.failed')}</Text> : null}
             {errors.length ? (
               <Text style={styles.errorText}>{t('highlights.formErrors')}</Text>
@@ -266,10 +334,12 @@ export default function Register() {
             <Pressable
               style={[
                 styles.cta,
-                (state === 'submitting' || state === 'confirming' || paidBlocked) &&
+                (state === 'submitting' || state === 'confirming' || paidBlocked || weatherHold) &&
                   styles.ctaDisabled,
               ]}
-              disabled={state === 'submitting' || state === 'confirming' || paidBlocked}
+              disabled={
+                state === 'submitting' || state === 'confirming' || paidBlocked || weatherHold
+              }
               onPress={() => submit(item)}
               accessibilityRole="button"
               accessibilityLabel={ctaLabel}
@@ -314,6 +384,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   optionOn: { borderColor: palette.pine, backgroundColor: '#E4EEE8' },
+  optionOff: { opacity: 0.45 },
   optionText: { ...typeScale.body, color: color.text },
   optionTextOn: { color: palette.pine, fontWeight: '600' },
   consentRow: {

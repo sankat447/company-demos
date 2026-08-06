@@ -108,7 +108,12 @@
     "stPendingSync": "ऑनलाइन होते ही पुष्टि",
     "stConfirmed": "पुष्ट",
     "stWaitlisted": "प्रतीक्षा सूची में",
-    "stCancelled": "रद्द"
+    "stCancelled": "रद्द",
+    "pickSlot": "स्लॉट चुनें",
+    "addToCalendar": "कैलेंडर में जोड़ें",
+    "calendarAdded": "आपके कैलेंडर में जुड़ गया।",
+    "calendarFailed": "जोड़ नहीं सका — कैलेंडर अनुमति जाँचें।",
+    "cancel": "पंजीकरण रद्द करें"
   },
   "settings": {
     "title": "सूचना सेटिंग्स",
@@ -154,7 +159,8 @@
     "typeVolunteerAttendance": "स्वयंसेवक उपस्थिति पास",
     "typeSeatEntry": "सीट आरक्षण पास",
     "typeStall": "स्टॉल पास",
-    "typeRoom": "कमरा पास"
+    "typeRoom": "कमरा पास",
+    "typeActivity": "गतिविधि पास"
   },
   "scanner": {
     "title": "गेट स्कैनर",

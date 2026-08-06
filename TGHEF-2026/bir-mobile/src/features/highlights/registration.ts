@@ -45,6 +45,19 @@ export function requiresPayment(item: HighlightItem): boolean {
   return (item.fee?.amount ?? 0) > 0;
 }
 
+/**
+ * CO-002 paragliding delta: a weather-sensitive item cannot take
+ * registrations while the safety officer's hold/closure is active. Unknown
+ * status does NOT block (this gates bookings, not flights — the officer's
+ * live call gates the flight itself).
+ */
+export function weatherBlocked(
+  item: HighlightItem,
+  flyState: 'flying' | 'hold' | 'closed' | null,
+): boolean {
+  return item.weatherSensitive === true && flyState !== null && flyState !== 'flying';
+}
+
 /** One registration per user+item+slot — retries and drains reconcile on it. */
 export function registrationKey(sub: string, itemId: string, slotId?: string): string {
   return `reg:${sub}:${itemId}:${slotId ?? 'na'}`;
@@ -171,6 +184,30 @@ export async function markRegistration(
   const existing = all.find((r) => r.id === id);
   if (!existing) return;
   await store.upsert({ ...existing, status, qrPassJti: qrPassJti ?? existing.qrPassJti });
+}
+
+/**
+ * Cancel (P5.9, ASK #24). Queues the mutation (policy + refund state are the
+ * backend's call — the app renders only) and marks the local record
+ * cancelled so the UI reflects intent immediately.
+ */
+export async function cancelRegistration(
+  deps: SubmitDeps,
+  input: { sub: string; registrationId: string },
+  nowMs: number,
+): Promise<void> {
+  if (!deps.mockMode) {
+    await deps.outbox.enqueue(
+      {
+        aggregate: `registrations:${input.sub}`,
+        mutation: 'cancelRegistration',
+        variables: { registrationId: input.registrationId },
+        idempotencyKey: `cancel:${input.registrationId}`,
+      },
+      nowMs,
+    );
+  }
+  await markRegistration(deps.store, input.registrationId, 'cancelled');
 }
 
 // ---------- helpers for the form renderer ----------

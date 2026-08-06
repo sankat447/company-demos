@@ -1,0 +1,18 @@
+# Gate 5 (CO-002): PAID registration follows the webhook-confirmed order
+# pattern (sandbox provider in the device-cloud config); confirmation carries
+# the activity QR into the wallet. Requires the live backend (ASKs #21/#22).
+appId: org.birfestival.app
+---
+- launchApp
+- tapOn: 'Highlights|मुख्य आकर्षण'
+- tapOn: 'Pottery & Art|मिट्टी और कला'
+- tapOn: 'Pottery Wheel Class|कुम्हार चाक कक्षा'
+- tapOn: 'Register|पंजीकरण करें'
+- tapOn: '.*consent.*|.*सहमति.*'
+- tapOn: 'Register|पंजीकरण करें'
+# provider sandbox sheet handled by the UPI stub in cloud config
+- extendedWaitUntil:
+    visible: 'Registered!|पंजीकरण हो गया!'
+    timeout: 30000
+- tapOn: 'My Registrations|मेरे पंजीकरण'
+- assertVisible: 'Confirmed|पुष्ट'

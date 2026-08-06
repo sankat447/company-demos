@@ -1,18 +1,23 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import { router } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { isEnabled } from '@/config/flags';
+import { addToDeviceCalendar, eventWindow } from '@/features/highlights/calendar';
 import { findItem, loadCatalog } from '@/features/highlights/catalog';
-import { kvRegistrationStore } from '@/features/highlights/registration';
+import { cancelRegistration, kvRegistrationStore } from '@/features/highlights/registration';
 import type { RegistrationStatus } from '@/features/highlights/types';
 import { pickLang } from '@/i18n';
 import { kvStore } from '@/offline/db';
+import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
 import { Screen } from '@/ui/Screen';
 import { color, palette, radius, spacing, typeScale } from '@/ui/tokens';
 
 const store = kvRegistrationStore(kvStore);
+const outbox = new SqliteOutboxStore();
 
 const STATUS_KEY: Record<RegistrationStatus, string> = {
   draft: 'highlights.stDraft',
@@ -27,6 +32,8 @@ const STATUS_KEY: Record<RegistrationStatus, string> = {
  *  gate-checked entries link to their QR pass in the shared wallet. */
 export default function MyRegistrations() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [calendarNote, setCalendarNote] = useState<'added' | 'failed' | null>(null);
   const registrations = useQuery({
     queryKey: ['registrations'],
     queryFn: () => store.list(),
@@ -84,10 +91,56 @@ export default function MyRegistrations() {
                   <Text style={styles.passLinkText}>{t('highlights.openPass')} ›</Text>
                 </Pressable>
               ) : null}
+              {(reg.status === 'confirmed' || reg.status === 'waitlisted') && item ? (
+                <View style={styles.actions}>
+                  <Pressable
+                    style={styles.action}
+                    onPress={async () => {
+                      const window = eventWindow(item, slot);
+                      if (!window) return;
+                      const ok = await addToDeviceCalendar({
+                        title: pickLang(item.title, item.titleHi),
+                        startDate: window.start,
+                        endDate: window.end,
+                        location: item.venue,
+                      });
+                      setCalendarNote(ok ? 'added' : 'failed');
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('highlights.addToCalendar')}
+                  >
+                    <Text style={styles.actionText}>{t('highlights.addToCalendar')}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.action}
+                    onPress={async () => {
+                      const session = await fetchAuthSession().catch(() => null);
+                      const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'demo-user');
+                      await cancelRegistration(
+                        { outbox, store, mockMode: isEnabled('mockHighlights') },
+                        { sub, registrationId: reg.id },
+                        Date.now(),
+                      );
+                      await queryClient.invalidateQueries({ queryKey: ['registrations'] });
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('highlights.cancel')}
+                  >
+                    <Text style={styles.actionText}>{t('highlights.cancel')}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
           );
         }}
       />
+      {calendarNote ? (
+        <Text style={styles.calendarNote}>
+          {calendarNote === 'added'
+            ? t('highlights.calendarAdded')
+            : t('highlights.calendarFailed')}
+        </Text>
+      ) : null}
     </Screen>
   );
 }
@@ -114,4 +167,17 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 10.5, fontWeight: '700', color: color.text },
   passLink: { marginTop: spacing.xs, minHeight: 32, justifyContent: 'center' },
   passLinkText: { ...typeScale.body, color: color.info, fontWeight: '600' },
+  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  action: {
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: color.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  actionText: { ...typeScale.caption, color: color.text, fontWeight: '600' },
+  calendarNote: { ...typeScale.caption, color: color.textMuted, textAlign: 'center', padding: 8 },
 });

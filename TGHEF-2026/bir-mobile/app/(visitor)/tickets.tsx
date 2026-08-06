@@ -18,6 +18,7 @@ const TYPE_KEY: Record<string, string> = {
   'seat-entry': 'tickets.typeSeatEntry',
   stall: 'tickets.typeStall',
   room: 'tickets.typeRoom',
+  activity: 'tickets.typeActivity',
 };
 
 export default function Tickets() {

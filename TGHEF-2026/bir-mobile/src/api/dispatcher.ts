@@ -6,6 +6,7 @@
 import type { OutboxRecord } from '@/offline/outbox';
 
 import {
+  CANCEL_REGISTRATION,
   CAST_VOTE,
   CREATE_REGISTRATION,
   gqlClient,
@@ -15,6 +16,7 @@ import {
 } from './graphql';
 
 const DOCUMENTS: Record<string, string> = {
+  cancelRegistration: CANCEL_REGISTRATION,
   castVote: CAST_VOTE,
   createRegistration: CREATE_REGISTRATION,
   recordScan: RECORD_SCAN,

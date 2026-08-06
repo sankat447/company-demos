@@ -16,10 +16,10 @@ export interface EcJwk {
   y: string;
 }
 
-// Full `typ` claim list per ARCHITECTURE.md §6 (CO-001: adds
-// volunteer-attendance and seat-entry).
+// Full `typ` claim list per ARCHITECTURE.md §6 (CO-001 adds
+// volunteer-attendance/seat-entry; CO-002 adds activity — ASK #25).
 export type PassType =
-  'ticket' | 'volunteer' | 'volunteer-attendance' | 'seat-entry' | 'stall' | 'room';
+  'ticket' | 'volunteer' | 'volunteer-attendance' | 'seat-entry' | 'stall' | 'room' | 'activity';
 
 export interface PassClaims {
   jti: string;

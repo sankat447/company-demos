@@ -12,7 +12,7 @@
 import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
 
-import { bytesToB64url, stringToUtf8 } from '@/offline/encoding';
+import { bytesToB64url, bytesToHex, hexToBytes, stringToUtf8 } from '@/offline/encoding';
 import type { KvStore } from '@/offline/jwks';
 import type { EcJwk, PassClaims } from '@/offline/verifier';
 
@@ -20,6 +20,7 @@ export const DEMO_OTP = '123456';
 
 const SESSION_KEY = 'demo.session';
 const SEEDED_KEY = 'demo.seeded';
+const SIGNING_KEY = 'demo.signingKey';
 
 /** Must match the contract's pinned issuer kid so the JWKS cache is accepted. */
 const DEMO_KID = 'bir-2026-01';
@@ -172,6 +173,10 @@ export async function enableDemoSession(deps: DemoSeedDeps, nowMs: number): Prom
     y: bytesToB64url(pubKey.slice(33, 65)),
   };
   await deps.primeJwks(deps.kv, [jwk], nowMs);
+  // Kept ONLY in demo sessions: lets mock-confirmed gate-checked registrations
+  // sign an activity pass locally (CO-002 PR-4). Real passes come from the
+  // backend webhook; this key never exists outside a demo install.
+  await deps.kv.set(SIGNING_KEY, bytesToHex(privKey));
 
   const nowSec = Math.floor(nowMs / 1000);
   const expSec = Math.floor(new Date('2026-12-01T00:00:00+05:30').getTime() / 1000);
@@ -258,4 +263,32 @@ export async function tryDemoOtp(
   if (code.trim() !== DEMO_OTP) return false;
   await enableDemoSession(deps, nowMs);
   return true;
+}
+
+/**
+ * CO-002 PR-4 (demo sessions only): a mock-confirmed, gate-checked
+ * registration gets a locally-signed `typ:'activity'` pass into the same
+ * wallet, so the QR + offline verifier path demos end-to-end. Returns the
+ * pass jti, or null when no demo signing key exists (non-demo install).
+ */
+export async function issueDemoActivityPass(
+  deps: { kv: KvStore; savePass(token: string, claims: PassClaims, nowMs: number): Promise<void> },
+  input: { itemId: string; slotId?: string; sub: string },
+  nowMs: number,
+): Promise<string | null> {
+  const hex = await deps.kv.get(SIGNING_KEY);
+  if (!hex) return null;
+  const nowSec = Math.floor(nowMs / 1000);
+  const claims: PassClaims = {
+    jti: `demo-act-${input.itemId}-${input.slotId ?? 'na'}`,
+    typ: 'activity',
+    sub: input.sub,
+    evt: 'bir-festival-2026',
+    zones: ['activity'],
+    nbf: nowSec - 3600,
+    exp: Math.floor(new Date('2026-12-01T00:00:00+05:30').getTime() / 1000),
+  };
+  const token = signDemoPass(hexToBytes(hex), claims);
+  await deps.savePass(token, claims, nowMs);
+  return claims.jti;
 }

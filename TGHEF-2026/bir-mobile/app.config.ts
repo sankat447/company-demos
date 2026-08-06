@@ -51,6 +51,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-sqlite',
     'expo-localization',
     [
+      'expo-calendar',
+      {
+        calendarPermission:
+          'Add your festival registrations to your calendar. / अपने महोत्सव पंजीकरण कैलेंडर में जोड़ें।',
+      },
+    ],
+    [
       'expo-font',
       {
         fonts: ['node_modules/@expo-google-fonts/fraunces/Fraunces_600SemiBold.ttf'],

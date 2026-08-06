@@ -4,8 +4,9 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { getFlyStatus } from '@/features/flight-status/flyStatus';
 import { capacityState, findItem, loadCatalog } from '@/features/highlights/catalog';
-import { requiresPayment } from '@/features/highlights/registration';
+import { requiresPayment, weatherBlocked } from '@/features/highlights/registration';
 import { pickLang } from '@/i18n';
 import { kvStore } from '@/offline/db';
 import { ParagliderSpinner } from '@/ui/ParagliderSpinner';
@@ -36,6 +37,12 @@ export default function ItemDetail() {
     networkMode: 'always',
   });
   const item = catalog.data ? findItem(catalog.data, id) : null;
+  const fly = useQuery({
+    queryKey: ['flyStatus'],
+    queryFn: () => getFlyStatus(kvStore),
+    networkMode: 'always',
+    staleTime: 30_000,
+  });
 
   if (catalog.isPending) {
     return (
@@ -136,7 +143,18 @@ export default function ItemDetail() {
           </Section>
         ) : null}
 
-        {item.regMode !== 'view-only' ? (
+        {/* Paragliding delta: an active hold disables the CTA with the
+            official status message + refund-queue copy */}
+        {item.regMode !== 'view-only' && weatherBlocked(item, fly.data?.state ?? null) ? (
+          <View style={styles.weatherBlock}>
+            <Text style={styles.weatherBlockText}>
+              {t('home.flyHold')} {t('home.flyRefundAuto')}
+            </Text>
+            <View style={[styles.cta, styles.ctaDisabled]}>
+              <Text style={styles.ctaText}>{ctaLabel}</Text>
+            </View>
+          </View>
+        ) : item.regMode !== 'view-only' ? (
           <Pressable
             style={styles.cta}
             onPress={() =>
@@ -198,6 +216,16 @@ const styles = StyleSheet.create({
     borderColor: palette.marigold,
   },
   ctaText: { ...typeScale.body, color: palette.marigold, fontWeight: '700' },
+  ctaDisabled: { opacity: 0.5, marginTop: 0 },
+  weatherBlock: { marginTop: spacing.xl, gap: spacing.sm },
+  weatherBlockText: {
+    ...typeScale.caption,
+    color: color.text,
+    backgroundColor: '#FCF3E3',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    lineHeight: 17,
+  },
   viewOnly: {
     marginTop: spacing.xl,
     backgroundColor: '#ECEFF1',

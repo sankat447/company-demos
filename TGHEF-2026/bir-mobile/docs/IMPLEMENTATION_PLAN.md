@@ -95,19 +95,19 @@ dupes server-side; incident with photo syncs after reconnect.
       deposit-return rules surfaced in-app; daily waste figures rendered from the
       Cleanliness dashboard feed.
 - [ ] **P5.5** Deposit-return points map (visitor-facing return-point locations).
-- [ ] **P5.6** Highlights hub & catalog cache (CO-002): category hub + item lists rendered
+- [x] **P5.6** Highlights hub & catalog cache (CO-002): category hub + item lists rendered
       from the server-driven catalog (`highlights.catalogPath`, kv-cached offline; local
       mock fixture behind `flags.mockHighlights` until ASK #21 lands).
-- [ ] **P5.7** Standard registration flow (CO-002): one shared engine — server-driven
+- [x] **P5.7** Standard registration flow (CO-002): one shared engine — server-driven
       form schema + DPDP consent (+ guardian consent when flagged), free path queues in
       the outbox offline, paid path follows the webhook-confirmed order pattern
       (connectivity required; never fake a payment).
-- [ ] **P5.8** Activity QR passes in wallet (CO-002): gate-checked confirmations deliver
+- [x] **P5.8** Activity QR passes in wallet (CO-002): gate-checked confirmations deliver
       ES256 passes `typ:'activity'` into the existing offline wallet; verifier +
       revocation sync reused unchanged.
-- [ ] **P5.9** My Registrations (CO-002): status chips (confirmed/waitlisted/pending),
+- [x] **P5.9** My Registrations (CO-002): status chips (confirmed/waitlisted/pending),
       cancel where policy allows, add-to-calendar, offline QR passes.
-- [ ] **P5.10** Category deltas (CO-002): slot picker (paragliding pilots, tour
+- [x] **P5.10** Category deltas (CO-002): slot picker (paragliding pilots, tour
       departures), weather-hold gate on paragliding CTA (official status + refund copy),
       Nov 23 view-only agenda, competitions "Rounds & judging" + voting link.
 

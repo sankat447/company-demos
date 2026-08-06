@@ -128,6 +128,17 @@ export const CREATE_REGISTRATION = /* GraphQL */ `
   }
 `;
 
+// Cancel where policy allows (CO-002, ASK #24); response carries refund state.
+export const CANCEL_REGISTRATION = /* GraphQL */ `
+  mutation CancelRegistration($input: CancelRegistrationInput!) {
+    cancelRegistration(input: $input) {
+      registrationId
+      status
+      refundState
+    }
+  }
+`;
+
 export const REGISTER_DEVICE = /* GraphQL */ `
   mutation RegisterDevice($input: RegisterDeviceInput!) {
     registerDevice(input: $input) {
