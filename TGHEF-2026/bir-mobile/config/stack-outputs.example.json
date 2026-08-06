@@ -47,6 +47,7 @@
   "flags": {
     "festivalMode": true,
     "experiencesMarketplace": true,
-    "mockHighlights": true
+    "mockHighlights": true,
+    "mockLodging": true
   }
 }

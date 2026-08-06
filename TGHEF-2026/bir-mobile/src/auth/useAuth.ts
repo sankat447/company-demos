@@ -9,7 +9,9 @@ import { useEffect, useState } from 'react';
 import { isDemoSession } from '@/demo/demo';
 import { kvStore } from '@/offline/db';
 
-export type Role = 'visitor' | 'partner' | 'volunteer' | 'organiser-lite';
+// admin-hospitality (CO-003): organiser family — the client gate is UX only;
+// the server enforces the group on every lodging/badge mutation (ASK #27).
+export type Role = 'visitor' | 'partner' | 'volunteer' | 'organiser-lite' | 'admin-hospitality';
 
 export interface AuthState {
   status: 'loading' | 'signedOut' | 'signedIn';
@@ -17,13 +19,21 @@ export interface AuthState {
   demo?: boolean;
 }
 
-const KNOWN_ROLES: Role[] = ['visitor', 'partner', 'volunteer', 'organiser-lite'];
+const KNOWN_ROLES: Role[] = [
+  'visitor',
+  'partner',
+  'volunteer',
+  'organiser-lite',
+  'admin-hospitality',
+];
 
 export async function resolveAuthState(): Promise<AuthState> {
   // Demo session first: evaluation builds run without any backend.
   try {
     if (await isDemoSession(kvStore)) {
-      return { status: 'signedIn', roles: ['visitor'], demo: true };
+      // Demo sessions include admin-hospitality so the CO-003 lodging flow
+      // is evaluable end-to-end without a backend (mock fixtures).
+      return { status: 'signedIn', roles: ['visitor', 'admin-hospitality'], demo: true };
     }
   } catch {
     // kv unavailable → fall through to the real session check

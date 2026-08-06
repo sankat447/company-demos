@@ -40,6 +40,9 @@ export default function More() {
       {hasRole(auth, 'partner') ? (
         <Row label={t('tabs.stalls')} onPress={() => router.push('/(partner)/stalls')} />
       ) : null}
+      {hasRole(auth, 'admin-hospitality') ? (
+        <Row label={t('lodging.title')} onPress={() => router.push('/admin/lodging/rooms')} />
+      ) : null}
       <Row
         label={t('auth.signOut')}
         onPress={() => {
