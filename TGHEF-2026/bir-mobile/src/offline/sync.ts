@@ -87,6 +87,16 @@ export async function pullRevocationsDelta(): Promise<number> {
   return delta.items.length;
 }
 
+/**
+ * Load all revoked jtis into a Set for synchronous checks during a scan
+ * burst (the verdict path must not await per-scan). Bounded per festival.
+ */
+export async function loadRevokedSet(): Promise<Set<string>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ jti: string }>('SELECT jti FROM revocations');
+  return new Set(rows.map((r) => r.jti));
+}
+
 export async function isRevoked(jti: string): Promise<boolean> {
   const db = await getDb();
   const row = await db.getFirstAsync<{ jti: string }>('SELECT jti FROM revocations WHERE jti = ?', [

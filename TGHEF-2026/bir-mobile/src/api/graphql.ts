@@ -151,6 +151,34 @@ export const CANCEL_REGISTRATION = /* GraphQL */ `
   }
 `;
 
+export const SET_FLY_STATUS = /* GraphQL */ `
+  mutation SetFlyStatus($input: SetFlyStatusInput!) {
+    setFlyStatus(input: $input) {
+      state
+      accepted
+    }
+  }
+`;
+
+export const RECORD_ATTENDANCE = /* GraphQL */ `
+  mutation RecordAttendance($input: RecordAttendanceInput!) {
+    recordAttendance(input: $input) {
+      shiftId
+      kind
+      accepted
+    }
+  }
+`;
+
+export const REPORT_INCIDENT = /* GraphQL */ `
+  mutation ReportIncident($input: ReportIncidentInput!) {
+    reportIncident(input: $input) {
+      incidentId
+      accepted
+    }
+  }
+`;
+
 export const REGISTER_DEVICE = /* GraphQL */ `
   mutation RegisterDevice($input: RegisterDeviceInput!) {
     registerDevice(input: $input) {

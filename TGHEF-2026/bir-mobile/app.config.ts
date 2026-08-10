@@ -51,6 +51,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-sqlite',
     'expo-localization',
     [
+      'expo-camera',
+      {
+        cameraPermission: 'Scan festival passes at the gate. / गेट पर महोत्सव पास स्कैन करें।',
+      },
+    ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'Attach a photo to an incident report. / घटना रिपोर्ट में फ़ोटो जोड़ें।',
+      },
+    ],
+    [
       'expo-calendar',
       {
         calendarPermission:

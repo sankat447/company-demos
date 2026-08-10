@@ -43,6 +43,9 @@ export default function More() {
       {hasRole(auth, 'admin-hospitality') ? (
         <Row label={t('lodging.title')} onPress={() => router.push('/admin/lodging/rooms')} />
       ) : null}
+      {hasRole(auth, 'organiser-lite') || hasRole(auth, 'safety-officer') ? (
+        <Row label={t('ops.title')} onPress={() => router.push('/admin/ops')} />
+      ) : null}
       <Row
         label={t('auth.signOut')}
         onPress={() => {

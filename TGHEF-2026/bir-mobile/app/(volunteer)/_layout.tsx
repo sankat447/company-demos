@@ -26,6 +26,8 @@ export default function VolunteerLayout() {
     >
       <Tabs.Screen name="roster" options={{ title: t('tabs.roster') }} />
       <Tabs.Screen name="scanner" options={{ title: t('tabs.scanner') }} />
+      {/* pushed from roster, not a tab */}
+      <Tabs.Screen name="incident" options={{ href: null }} />
     </Tabs>
   );
 }

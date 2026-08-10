@@ -73,11 +73,11 @@ installed on a physical device via the QR page; push received with app backgroun
 
 ## Phase 4 — Gate & volunteer operations
 
-- [ ] **P4.1** Scanner screen (vision-camera): torch, haptic, <300 ms verdict, verdict
+- [x] **P4.1** Scanner screen (vision-camera): torch, haptic, <300 ms verdict, verdict
       reasons (expired/revoked/wrong-zone/duplicate), offline queue counter badge.
-- [ ] **P4.2** Volunteer module: my roster, QR check-in/out (self + supervised), incident
+- [x] **P4.2** Volunteer module: my roster, QR check-in/out (self + supervised), incident
       report (photo + category + offline-safe), certificate wallet.
-- [ ] **P4.3** Gate-mode kiosk toggle (organiser-lite role): pinned scanner, screen-awake,
+- [x] **P4.3** Gate-mode kiosk toggle (organiser-lite role): pinned scanner, screen-awake,
       battery saver hints.
 
 **Gate 4:** field-sim test script: 200 mixed scans offline then sync — zero loss, zero
@@ -87,9 +87,9 @@ dupes server-side; incident with photo syncs after reconnect.
 
 - [ ] **P5.1** Experiences: browse/filter, detail, slots, book+pay, reviews
       (verified-booking only), host view for partners.
-- [ ] **P5.2** Food/stalls: visitor food trail map + live wait chips (`ai.queuePredictPath`);
+- [x] **P5.2** Food/stalls: visitor food trail map + live wait chips (`ai.queuePredictPath`);
       partner stall console: application status, payments, daily analytics cards.
-- [ ] **P5.3** Hospitality partner: allocations list, check-in flow, occupancy board
+- [x] **P5.3** Hospitality partner: allocations list, check-in flow, occupancy board
       (offline-render from cache).
 - [ ] **P5.4** Food-street rules & clean-metrics screens: single-use-plastic-free and
       deposit-return rules surfaced in-app; daily waste figures rendered from the

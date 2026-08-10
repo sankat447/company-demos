@@ -11,7 +11,8 @@ import { kvStore } from '@/offline/db';
 
 // admin-hospitality (CO-003): organiser family — the client gate is UX only;
 // the server enforces the group on every lodging/badge mutation (ASK #27).
-export type Role = 'visitor' | 'partner' | 'volunteer' | 'organiser-lite' | 'admin-hospitality';
+export type Role =
+  'visitor' | 'partner' | 'volunteer' | 'organiser-lite' | 'admin-hospitality' | 'safety-officer';
 
 export interface AuthState {
   status: 'loading' | 'signedOut' | 'signedIn';
@@ -25,6 +26,7 @@ const KNOWN_ROLES: Role[] = [
   'volunteer',
   'organiser-lite',
   'admin-hospitality',
+  'safety-officer',
 ];
 
 export async function resolveAuthState(): Promise<AuthState> {
@@ -33,7 +35,18 @@ export async function resolveAuthState(): Promise<AuthState> {
     if (await isDemoSession(kvStore)) {
       // Demo sessions include admin-hospitality so the CO-003 lodging flow
       // is evaluable end-to-end without a backend (mock fixtures).
-      return { status: 'signedIn', roles: ['visitor', 'admin-hospitality'], demo: true };
+      return {
+        status: 'signedIn',
+        roles: [
+          'visitor',
+          'partner',
+          'volunteer',
+          'organiser-lite',
+          'admin-hospitality',
+          'safety-officer',
+        ],
+        demo: true,
+      };
     }
   } catch {
     // kv unavailable → fall through to the real session check

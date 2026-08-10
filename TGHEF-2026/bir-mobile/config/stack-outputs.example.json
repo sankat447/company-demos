@@ -48,6 +48,8 @@
     "festivalMode": true,
     "experiencesMarketplace": true,
     "mockHighlights": true,
-    "mockLodging": true
+    "mockLodging": true,
+    "mockVolunteer": true,
+    "mockPartner": true
   }
 }

@@ -1,0 +1,28 @@
+{
+  "hotelName": "Deodar Homestay (demo)",
+  "tier": "11+ rooms → two complimentary twin-sharing rooms, two nights",
+  "complimentaryRooms": 2,
+  "allocations": [
+    {
+      "regId": "reg:p1:him-queen-2026:na",
+      "guestName": "Anita Thakur",
+      "roomLabel": "Deodar Cottage 2",
+      "nights": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "checkedIn": false
+    },
+    {
+      "regId": "reg:p4:him-prince-2026:na",
+      "guestName": "Rohan Katoch",
+      "roomLabel": "Cedar Room 1",
+      "nights": ["2026-11-21", "2026-11-22", "2026-11-23"],
+      "checkedIn": false
+    },
+    {
+      "regId": "reg:p6:chef-local:na",
+      "guestName": "Karan Verma",
+      "roomLabel": "Pine Suite",
+      "nights": ["2026-11-20", "2026-11-21", "2026-11-22"],
+      "checkedIn": true
+    }
+  ]
+}
