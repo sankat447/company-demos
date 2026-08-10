@@ -1,0 +1,94 @@
+# Bir Festival 2026 — AppSync SDL.
+# Mirrors the documents the mobile app hand-wrote in src/api/graphql.ts so
+# `npm run codegen` in the app can generate types once this is published
+# (BACKEND_ASKS #3). Privileged mutations are @aws_cognito_user_pools-guarded
+# AND re-checked server-side in the resolver against the Cognito group.
+
+type Query {
+  ticketTiers: TicketTierConnection
+  getOrder(orderId: ID!): Order
+  scheduleDelta(since: AWSTimestamp): ScheduleConnection
+  revocationsDelta(since: AWSTimestamp): RevocationConnection
+  flyStatus: FlyStatus
+  # Highlights (CO-002)
+  highlightsCatalog: Catalog
+  myRegistrations: [Registration!]!
+  # Lodging (CO-003) — admin-hospitality guarded
+  lodgingPool: [PoolParticipant!]!
+  lodgingOccupancy(hotelName: String!): [OccupancyCell!]!
+  # Volunteer (CO-004)
+  volunteerRoster: VolunteerProfile
+  # Partner (CO-004)
+  stallConsole: StallConsole
+  hospitalityConsole: HospitalityConsole
+}
+
+type Mutation {
+  createRegistration(input: CreateRegistrationInput!): Registration
+  cancelRegistration(input: CancelRegistrationInput!): Registration
+  castVote(input: CastVoteInput!): VoteResult
+  recordScan(input: RecordScanInput!): ScanResult
+  reportSos(input: ReportSosInput!): Ack
+  registerDevice(input: RegisterDeviceInput!): Ack
+  # Lodging + badges (CO-003) — admin-hospitality guarded, server re-validates §3
+  commitAllocation(input: CommitAllocationInput!): CommitResult
+  issueBadge(input: IssueBadgeInput!): BadgeResult
+  # Ops (CO-004)
+  setFlyStatus(input: SetFlyStatusInput!): FlyStatus # safety-officer guarded
+  recordAttendance(input: RecordAttendanceInput!): Ack
+  reportIncident(input: ReportIncidentInput!): IncidentResult
+}
+
+type Subscription {
+  onOrderConfirmed(orderId: ID!): Order @aws_subscribe(mutations: ["recordScan"])
+  onFlyStatusChanged: FlyStatus @aws_subscribe(mutations: ["setFlyStatus"])
+}
+
+# --- payments / passes ---
+type Order { orderId: ID! status: String! passTokens: [String!] }
+type TicketTier { id: ID! titleEn: String! titleHi: String priceInr: Int! description: String }
+type TicketTierConnection { items: [TicketTier!]! }
+type ScanResult { jti: ID! gate: String! accepted: Boolean! }
+input RecordScanInput { jti: ID! gate: String! ts: AWSTimestamp! idempotencyKey: String! }
+
+# --- schedule / revocations ---
+type ScheduleItem { id: ID! day: String! venue: String startsAt: AWSTimestamp endsAt: AWSTimestamp titleEn: String titleHi: String data: AWSJSON }
+type ScheduleConnection { items: [ScheduleItem!]! cursor: AWSTimestamp }
+type Revocation { jti: ID! revokedAt: AWSTimestamp! }
+type RevocationConnection { items: [Revocation!]! cursor: AWSTimestamp }
+
+# --- fly-status (CO-001 E3 / CO-004) ---
+type FlyStatus { state: String! reasonEn: String reasonHi: String updatedAt: AWSTimestamp! refundsAutoQueued: Boolean! }
+input SetFlyStatusInput { state: String! reasonEn: String reasonHi: String declaredBy: String! idempotencyKey: String! }
+
+# --- highlights / registrations (CO-002) ---
+type Catalog { version: Int! categories: AWSJSON! items: AWSJSON! }
+type Registration { id: ID! itemId: ID! slotId: ID status: String! qrPassJti: ID answers: AWSJSON }
+input CreateRegistrationInput { itemId: ID! slotId: ID answers: AWSJSON idempotencyKey: String! }
+input CancelRegistrationInput { registrationId: ID! idempotencyKey: String! }
+type VoteResult { eventId: ID! accepted: Boolean! }
+input CastVoteInput { eventId: ID! category: String idempotencyKey: String! }
+
+# --- lodging + badges (CO-003) ---
+type PoolParticipant { regId: ID! name: String! competitionId: ID! gender: String! coupleGroupId: String nights: [String!]! needsLodging: Boolean! }
+type OccupancyCell { roomId: ID! night: String! occupied: Int! capacity: Int! }
+input CommitAllocationInput { assignments: AWSJSON! version: Int! actorNote: String idempotencyKey: String! }
+type CommitResult { version: Int! accepted: Boolean! violations: [String!] }
+input IssueBadgeInput { regId: ID! idempotencyKey: String! }
+type BadgeResult { jti: ID! passToken: String! }
+
+# --- volunteer (CO-004) ---
+type Shift { id: ID! date: String! zone: String! role: String! startsAtSec: AWSTimestamp! endsAtSec: AWSTimestamp! }
+type VolunteerProfile { sub: ID! name: String! team: String! idVerified: Boolean! shifts: [Shift!]! certificateJti: ID }
+input RecordAttendanceInput { shiftId: ID! kind: String! ts: AWSTimestamp! idempotencyKey: String! }
+type IncidentResult { incidentId: ID! accepted: Boolean! }
+input ReportIncidentInput { category: String! note: String! photoUri: String zone: String ts: AWSTimestamp! idempotencyKey: String! }
+
+# --- partner (CO-004) ---
+type StallConsole { stallName: String! category: String! stage: String! allocationLabel: String feeInr: Int paid: Boolean! analytics: AWSJSON! rules: [String!]! rulesHi: [String!]! }
+type HospitalityConsole { hotelName: String! tier: String! complimentaryRooms: Int! allocations: AWSJSON! }
+
+# --- shared ---
+type Ack { accepted: Boolean! }
+input ReportSosInput { lat: Float! lng: Float! ts: AWSTimestamp! idempotencyKey: String! }
+input RegisterDeviceInput { token: String! platform: String! locale: String! roles: [String!]! quietStartHour: Int quietEndHour: Int idempotencyKey: String! }

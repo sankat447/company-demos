@@ -1,0 +1,23 @@
+{
+  "name": "bir-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bir Festival 2026 — AWS backend (CDK). Produces exactly the stack contract the mobile app consumes.",
+  "bin": { "bir-backend": "bin/app.js" },
+  "scripts": {
+    "build": "tsc",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy --outputs-file cdk-outputs.json",
+    "emit-contract": "node scripts/emit-stack-outputs.mjs",
+    "destroy": "cdk destroy"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.180.0",
+    "@types/node": "^22.13.0",
+    "typescript": "~5.8.3"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.180.0",
+    "constructs": "^10.4.0"
+  }
+}
