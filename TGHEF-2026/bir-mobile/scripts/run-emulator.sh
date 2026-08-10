@@ -7,9 +7,10 @@
 #  Rebuild the APK first with:  ./scripts/build-eval-apk.sh   (or see docs)
 #
 #  Notes:
-#   - Uses -gpu swiftshader_indirect (software rendering). On macOS 26 the
-#     default host-OpenGL path shows a BLACK emulator window (Apple deprecated
-#     OpenGL); software rendering paints reliably.
+#   - Uses -gpu angle_indirect (ANGLE over Vulkan). On macOS 26 the default
+#     host-OpenGL path shows a BLACK window (Apple deprecated OpenGL), and
+#     plain swiftshader_indirect crashed with a color-buffer error here;
+#     ANGLE renders complex SVG/graphics reliably and stays up.
 #   - The AVD keeps its state, so the installed app + demo session persist
 #     across restarts. Sign in with ANY 10-digit number + OTP 123456.
 # =============================================================================
@@ -37,7 +38,7 @@ fi
 if ! adb devices | grep -q "emulator-.*device"; then
   echo "Booting emulator ${AVD} (software GPU)..."
   nohup "$ANDROID_HOME/emulator/emulator" @"$AVD" \
-    -no-boot-anim -no-snapshot -gpu swiftshader_indirect >/tmp/bir-emulator.log 2>&1 &
+    -no-boot-anim -no-snapshot -gpu angle_indirect >/tmp/bir-emulator.log 2>&1 &
 fi
 
 # 3. Wait for full boot.
