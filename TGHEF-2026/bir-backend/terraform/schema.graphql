@@ -37,10 +37,16 @@ type Mutation {
   setFlyStatus(input: SetFlyStatusInput!): FlyStatus # safety-officer guarded
   recordAttendance(input: RecordAttendanceInput!): Ack
   reportIncident(input: ReportIncidentInput!): IncidentResult
+  # Server-only: the payment webhook (IAM) calls this after HMAC-verifying the
+  # gateway callback, which fans out to the onOrderConfirmed subscription. NEVER
+  # callable by a client — the resolver (TODO) enforces IAM. The client callback
+  # is advisory only. Its return type MUST equal the subscription's (Order).
+  confirmOrder(orderId: ID!, status: String!, passTokens: [String!]): Order
 }
 
 type Subscription {
-  onOrderConfirmed(orderId: ID!): Order @aws_subscribe(mutations: ["recordScan"])
+  # A subscription's output type must match its trigger mutation's return type.
+  onOrderConfirmed(orderId: ID!): Order @aws_subscribe(mutations: ["confirmOrder"])
   onFlyStatusChanged: FlyStatus @aws_subscribe(mutations: ["setFlyStatus"])
 }
 

@@ -6,9 +6,11 @@
 
 # ---------- Identity: Cognito ----------
 resource "aws_cognito_user_pool" "main" {
-  name                     = "${local.name}-users"
-  username_attributes      = ["phone_number"]
-  auto_verified_attributes = ["phone_number"]
+  name                = "${local.name}-users"
+  username_attributes = ["phone_number"]
+  # No auto_verified_attributes: verification is done by the custom-auth OTP
+  # Lambda (create/verify challenge), NOT Cognito's built-in SMS. Setting
+  # auto-verify on phone_number would force an SMS/SNS caller config we don't use.
 
   schema {
     name                = "phone_number"
@@ -26,10 +28,12 @@ resource "aws_cognito_user_pool" "main" {
 }
 
 resource "aws_cognito_user_pool_client" "app" {
-  name                          = "${local.name}-app"
-  user_pool_id                  = aws_cognito_user_pool.main.id
-  generate_secret               = false
-  explicit_auth_flows           = ["CUSTOM_AUTH_FLOW_ONLY", "ALLOW_CUSTOM_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+  name            = "${local.name}-app"
+  user_pool_id    = aws_cognito_user_pool.main.id
+  generate_secret = false
+  # Modern flow names only — mixing the legacy CUSTOM_AUTH_FLOW_ONLY with ALLOW_*
+  # is rejected. ALLOW_CUSTOM_AUTH is the OTP path; refresh for token renewal.
+  explicit_auth_flows           = ["ALLOW_CUSTOM_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
   prevent_user_existence_errors = "ENABLED"
 }
 
