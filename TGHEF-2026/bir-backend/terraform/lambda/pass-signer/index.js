@@ -1,0 +1,52 @@
+/**
+ * ES256 pass/badge issuer + revocation (ARCHITECTURE §6). Signs the JWTs the
+ * app verifies OFFLINE against the pinned JWKS. Private key from SSM SecureString
+ * at PRIVATE_KEY_PARAM; public JWKS published to the media CDN.
+ * NEVER return the private key.
+ */
+'use strict';
+const { createSign } = require('node:crypto');
+const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
+
+const KID = process.env.ISSUER_KID || 'bir-2026-01';
+const ssm = new SSMClient({});
+let cachedKey = null;
+
+function b64url(x) {
+  return Buffer.from(x).toString('base64url');
+}
+
+async function privateKeyPem() {
+  if (cachedKey) return cachedKey;
+  const out = await ssm.send(
+    new GetParameterCommand({ Name: process.env.PRIVATE_KEY_PARAM, WithDecryption: true }),
+  );
+  cachedKey = out.Parameter.Value;
+  return cachedKey;
+}
+
+async function signPass(claims) {
+  const header = b64url(JSON.stringify({ alg: 'ES256', kid: KID }));
+  const jti = claims.jti || `${claims.typ}-${claims.sub}-${claims.nbf}`;
+  const payload = b64url(JSON.stringify({ ...claims, jti }));
+  const signer = createSign('SHA256');
+  signer.update(`${header}.${payload}`);
+  const sig = signer.sign({ key: await privateKeyPem(), dsaEncoding: 'ieee-p1363' });
+  return { jti, token: `${header}.${payload}.${b64url(sig)}` };
+}
+
+exports.handler = async (event) => {
+  const field = event.field || (event.info && event.info.fieldName);
+  // Health probe path so the deployed function is verifiable immediately.
+  if (!field) return { ok: true, kid: KID };
+  switch (field) {
+    case 'issueBadge':
+      // TODO(prod): enforce confirmed+lodging-resolved, then:
+      // return signPass({ typ:'participant', sub, evt:'bir-festival-2026', ... });
+      throw new Error('issueBadge: business logic pending');
+    default:
+      throw new Error(`pass-signer: unknown field ${field}`);
+  }
+};
+
+exports.signPass = signPass; // reused by the payment webhook
