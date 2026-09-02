@@ -34,11 +34,16 @@ if ! avdmanager list avd 2>/dev/null | grep -q "Name: ${AVD}\$"; then
   echo "no" | avdmanager create avd -n "$AVD" -k "$IMAGE" -d "pixel_5" --force
 fi
 
-# 2. Boot it (software GPU) unless one is already attached.
+# 2. Boot it (ANGLE) unless one is already attached. Fully detach it
+# (own session via setsid if available, </dev/null, nohup, disown) so it
+# survives after this script — and the launching shell — exits.
 if ! adb devices | grep -q "emulator-.*device"; then
-  echo "Booting emulator ${AVD} (software GPU)..."
-  nohup "$ANDROID_HOME/emulator/emulator" @"$AVD" \
-    -no-boot-anim -no-snapshot -gpu angle_indirect >/tmp/bir-emulator.log 2>&1 &
+  echo "Booting emulator ${AVD} (ANGLE)..."
+  DETACH=""; command -v setsid >/dev/null 2>&1 && DETACH="setsid"
+  $DETACH nohup "$ANDROID_HOME/emulator/emulator" @"$AVD" \
+    -no-boot-anim -no-snapshot -gpu angle_indirect \
+    </dev/null >/tmp/bir-emulator.log 2>&1 &
+  disown 2>/dev/null || true
 fi
 
 # 3. Wait for full boot.
