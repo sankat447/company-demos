@@ -95,6 +95,7 @@
     "feeNote": "Fee: ₹{{amount}} — payment is confirmed by the provider's webhook, never by this device.",
     "paidOffline": "You're offline. Paid registrations need a connection — we never fake a payment. Your form is kept; try again when you're back online.",
     "paidMockBlocked": "Payments are disabled in this demo build. Free registrations work end-to-end.",
+    "regFailed": "We couldn't save your registration just now — no payment is needed for this event. Please try again.",
     "formErrors": "Please fill the marked fields and consents.",
     "doneTitle": "Registered!",
     "doneBody": "You're in. Find it under My Registrations — gate-checked activities carry a QR pass in your wallet.",

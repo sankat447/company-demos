@@ -326,7 +326,11 @@ export default function Register() {
                 </Text>
               </View>
             ) : null}
-            {state === 'failed' ? <Text style={styles.errorText}>{t('buy.failed')}</Text> : null}
+            {state === 'failed' ? (
+              <Text style={styles.errorText}>
+                {paid ? t('buy.failed') : t('highlights.regFailed')}
+              </Text>
+            ) : null}
             {errors.length ? (
               <Text style={styles.errorText}>{t('highlights.formErrors')}</Text>
             ) : null}
