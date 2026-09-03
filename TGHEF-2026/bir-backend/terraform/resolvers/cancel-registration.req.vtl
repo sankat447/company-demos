@@ -1,0 +1,19 @@
+## B1: cancelRegistration → mark the REG item cancelled. registrationId is the
+## sort key. if_not_exists keeps registrationId populated even if the row was
+## never created here, so the non-null RegistrationAck.registrationId holds.
+{
+  "version": "2018-05-29",
+  "operation": "UpdateItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("REG"),
+    "sk": $util.dynamodb.toDynamoDBJson($ctx.args.input.registrationId)
+  },
+  "update": {
+    "expression": "SET #s = :cancelled, registrationId = if_not_exists(registrationId, :rid)",
+    "expressionNames": { "#s": "status" },
+    "expressionValues": {
+      ":cancelled": $util.dynamodb.toDynamoDBJson("cancelled"),
+      ":rid": $util.dynamodb.toDynamoDBJson($ctx.args.input.registrationId)
+    }
+  }
+}

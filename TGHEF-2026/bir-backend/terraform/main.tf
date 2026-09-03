@@ -280,8 +280,28 @@ resource "aws_appsync_datasource" "ddb" {
   service_role_arn = aws_iam_role.appsync_ddb.arn
   dynamodb_config { table_name = aws_dynamodb_table.main.name }
 }
-# TODO(backend): attach resolvers per operation in schema.graphql. Privileged
-# mutations run through Lambda data sources that re-check the Cognito group.
+# ---------- Resolvers ----------
+# B1 (Highlights writes): createRegistration / cancelRegistration → DynamoDB.
+# VTL unit resolvers on the DDB datasource; the app's idempotencyKey is the REG
+# sort key so drains/replays reconcile. Privileged domains (lodging/ops) will
+# use Lambda data sources that re-check the Cognito group — TODO in B2/B10.
+resource "aws_appsync_resolver" "create_registration" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "createRegistration"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/create-registration.req.vtl")
+  response_template = file("${path.module}/resolvers/create-registration.res.vtl")
+}
+
+resource "aws_appsync_resolver" "cancel_registration" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "cancelRegistration"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/cancel-registration.req.vtl")
+  response_template = file("${path.module}/resolvers/cancel-registration.res.vtl")
+}
 
 # ---------- SSM: ops params + pass signing key placeholder ----------
 resource "aws_ssm_parameter" "fly_status_topic" {

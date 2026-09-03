@@ -24,8 +24,12 @@ type Query {
 }
 
 type Mutation {
-  createRegistration(input: CreateRegistrationInput!): Registration
-  cancelRegistration(input: CancelRegistrationInput!): Registration
+  createRegistration(input: CreateRegistrationInput!): RegistrationAck
+    @aws_cognito_user_pools
+    @aws_iam
+  cancelRegistration(input: CancelRegistrationInput!): RegistrationAck
+    @aws_cognito_user_pools
+    @aws_iam
   castVote(input: CastVoteInput!): VoteResult
   recordScan(input: RecordScanInput!): ScanResult
   reportSos(input: ReportSosInput!): Ack
@@ -70,6 +74,14 @@ input SetFlyStatusInput { state: String! reasonEn: String reasonHi: String decla
 # --- highlights / registrations (CO-002) ---
 type Catalog { version: Int! categories: AWSJSON! items: AWSJSON! }
 type Registration { id: ID! itemId: ID! slotId: ID status: String! qrPassJti: ID answers: AWSJSON }
+# What create/cancelRegistration return — matches the app's hand-written selection
+# sets exactly (registrationId/status/refundState). Reachable by a signed-in visitor
+# (Cognito) AND server-side callers (IAM), so it carries both auth directives.
+type RegistrationAck @aws_cognito_user_pools @aws_iam {
+  registrationId: ID!
+  status: String!
+  refundState: String
+}
 input CreateRegistrationInput { itemId: ID! slotId: ID answers: AWSJSON idempotencyKey: String! }
 input CancelRegistrationInput { registrationId: ID! idempotencyKey: String! }
 type VoteResult { eventId: ID! accepted: Boolean! }

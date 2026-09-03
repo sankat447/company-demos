@@ -1,0 +1,23 @@
+## B1: createRegistration → REG item. The app's idempotencyKey IS the
+## registration id (reg:<sub>:<itemId>:<slot>), so it is the sort key — a
+## re-drain of the same queued mutation upserts the same row (idempotent).
+{
+  "version": "2018-05-29",
+  "operation": "PutItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("REG"),
+    "sk": $util.dynamodb.toDynamoDBJson($ctx.args.input.idempotencyKey)
+  },
+  "attributeValues": {
+    "registrationId": $util.dynamodb.toDynamoDBJson($ctx.args.input.idempotencyKey),
+    "itemId": $util.dynamodb.toDynamoDBJson($ctx.args.input.itemId),
+#if($ctx.args.input.slotId)
+    "slotId": $util.dynamodb.toDynamoDBJson($ctx.args.input.slotId),
+#end
+#if($ctx.args.input.answers)
+    "answers": $util.dynamodb.toDynamoDBJson($ctx.args.input.answers),
+#end
+    "status": $util.dynamodb.toDynamoDBJson("confirmed"),
+    "createdAt": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds())
+  }
+}
