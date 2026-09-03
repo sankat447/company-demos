@@ -320,6 +320,7 @@
     "cat_lost-found": "Lost & found",
     "cat_safety": "Safety",
     "cat_other": "Other",
+    "zone": "Zone",
     "note": "What happened?",
     "noteHint": "Describe the incident briefly…",
     "addPhoto": "Add photo",
@@ -359,6 +360,7 @@
     "footfall": "footfall {{n}}",
     "foodRules": "Food-street rules",
     "checkedInCount": "{{done}} / {{total}} guests checked in",
+    "complimentary": "{{n}} complimentary rooms",
     "checkIn": "Check in",
     "checkedIn": "Checked in ✓"
   },

@@ -23,6 +23,7 @@ type Query {
   # Partner (CO-004)
   stallConsole: StallConsole
   hospitalityConsole: HospitalityConsole
+  partnerCheckIns: [PartnerCheckIn!]!
 }
 
 type Mutation {
@@ -47,6 +48,7 @@ type Mutation {
   setFlyStatus(input: SetFlyStatusInput!): FlyStatus # safety-officer guarded
   recordAttendance(input: RecordAttendanceInput!): Ack
   reportIncident(input: ReportIncidentInput!): IncidentResult
+  partnerCheckIn(input: PartnerCheckInInput!): Ack
   # Server-only: the payment webhook (IAM) calls this after HMAC-verifying the
   # gateway callback, which fans out to the onOrderConfirmed subscription. NEVER
   # callable by a client — the resolver (TODO) enforces IAM. The client callback
@@ -126,6 +128,9 @@ input ReportIncidentInput { category: String! note: String! photoUri: String zon
 # --- partner (CO-004) ---
 type StallConsole { stallName: String! category: String! stage: String! allocationLabel: String feeInr: Int paid: Boolean! analytics: AWSJSON! rules: [String!]! rulesHi: [String!]! }
 type HospitalityConsole { hotelName: String! tier: String! complimentaryRooms: Int! allocations: AWSJSON! }
+# B4 GUI: a hospitality partner's per-guest check-in state (own guests only).
+type PartnerCheckIn { regId: ID! checkedIn: Boolean! }
+input PartnerCheckInInput { regId: ID! checkedIn: Boolean! idempotencyKey: String! }
 
 # --- shared ---
 type Ack { accepted: Boolean! }

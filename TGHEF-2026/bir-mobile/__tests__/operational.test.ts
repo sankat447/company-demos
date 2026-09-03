@@ -1,8 +1,11 @@
 import { fileIncident, markAttendance, recordedAttendance } from '@/features/volunteers/volunteer';
 import { declareFlyStatus } from '@/features/flight-status/setFlyStatus';
 import {
+  checkInGuest,
+  mergeCheckIns,
   occupancySummary,
   stallProgress,
+  type Allocation,
   type HospitalityConsole,
 } from '@/features/partner/partner';
 import type { KvStore } from '@/offline/jwks';
@@ -112,5 +115,28 @@ describe('CO-004 partner consoles (P5.2 / P5.3)', () => {
       ],
     };
     expect(occupancySummary(c)).toEqual({ checkedIn: 1, total: 2 });
+  });
+
+  it('guest check-in queues partnerCheckIn (outbox) and toggles are distinct writes', async () => {
+    const outbox = new MemoryOutboxStore();
+    await checkInGuest(outbox, { sub: 'h1', regId: 'a', checkedIn: true }, NOW);
+    await checkInGuest(outbox, { sub: 'h1', regId: 'a', checkedIn: false }, NOW + 1);
+    const heads = await outbox.dueHeads(NOW + 2);
+    // same aggregate (FIFO), one head due; both are queued (distinct keys)
+    expect(await outbox.pendingCount()).toBe(2);
+    expect(heads[0].mutation).toBe('partnerCheckIn');
+    expect(heads[0].variables).toEqual({ regId: 'a', checkedIn: true });
+  });
+
+  it('mergeCheckIns overlays server state per guest (server wins)', () => {
+    const allocations: Allocation[] = [
+      { regId: 'a', guestName: 'A', roomLabel: '1', nights: [], checkedIn: false },
+      { regId: 'b', guestName: 'B', roomLabel: '2', nights: [], checkedIn: true },
+    ];
+    const merged = mergeCheckIns(allocations, [
+      { regId: 'a', checkedIn: true },
+      { regId: 'b', checkedIn: false },
+    ]);
+    expect(merged.map((m) => m.checkedIn)).toEqual([true, false]);
   });
 });

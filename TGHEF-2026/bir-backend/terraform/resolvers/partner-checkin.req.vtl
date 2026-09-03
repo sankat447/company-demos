@@ -1,0 +1,25 @@
+## B4 GUI: partnerCheckIn — a hospitality partner marks one of THEIR OWN guests
+## checked-in / out. Partner-group guarded; stored under CHKIN#<partner sub> so a
+## partner can only ever touch their own guests. regId is the sort key, so a
+## re-drain of the queued mutation upserts the same row (last state wins).
+#set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+#if(!$groups.contains("partner"))
+  $util.unauthorized()
+#end
+#set($sub = $ctx.identity.sub)
+#if($util.isNullOrEmpty($sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "PutItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("CHKIN#$sub"),
+    "sk": $util.dynamodb.toDynamoDBJson($ctx.args.input.regId)
+  },
+  "attributeValues": {
+    "regId": $util.dynamodb.toDynamoDBJson($ctx.args.input.regId),
+    "checkedIn": $util.dynamodb.toDynamoDBJson($ctx.args.input.checkedIn),
+    "at": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds())
+  }
+}

@@ -20,6 +20,7 @@ import type { OutboxRecord } from '@/offline/outbox';
 import {
   CANCEL_REGISTRATION,
   COMMIT_ALLOCATION,
+  PARTNER_CHECK_IN,
   RECORD_ATTENDANCE,
   RETIRE_ROOM,
   SAVE_ROOM,
@@ -36,6 +37,7 @@ import {
 const DOCUMENTS: Record<string, string> = {
   cancelRegistration: CANCEL_REGISTRATION,
   commitAllocation: COMMIT_ALLOCATION,
+  partnerCheckIn: PARTNER_CHECK_IN,
   recordAttendance: RECORD_ATTENDANCE,
   saveRoom: SAVE_ROOM,
   retireRoom: RETIRE_ROOM,

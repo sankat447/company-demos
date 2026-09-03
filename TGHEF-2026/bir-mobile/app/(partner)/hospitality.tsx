@@ -1,28 +1,34 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { loadHospitalityConsole } from '@/features/partner/console';
-import { occupancySummary, type Allocation } from '@/features/partner/partner';
+import { checkInGuest, occupancySummary, type Allocation } from '@/features/partner/partner';
+import { kvStore } from '@/offline/db';
+import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
 
+const outbox = new SqliteOutboxStore();
+
 /** P5.3 hospitality partner console: allocations, check-in flow, occupancy
- *  board — renders offline from cache (ARCHITECTURE §3). Check-in is local
- *  UI state here; the mutation lands with the backend allocations API. */
+ *  board — renders offline from cache (ARCHITECTURE §3). Check-in persists via
+ *  the outbox (partnerCheckIn) and merges back on load, so it survives reload
+ *  and other devices; local overrides give immediate feedback meanwhile. */
 export default function Hospitality() {
   const { t } = useTranslation();
-  const queryClient = useQueryClient();
   const console_ = useQuery({
     queryKey: ['partner', 'hospitality'],
     queryFn: loadHospitalityConsole,
     networkMode: 'always',
   });
-  const [checkedIn, setCheckedIn] = useState<Set<string>>(new Set());
+  // regId -> intended checkedIn (overrides the server value until the next load).
+  const [override, setOverride] = useState<Map<string, boolean>>(new Map());
 
   const c = console_.data;
-  const isIn = (a: Allocation) => a.checkedIn || checkedIn.has(a.regId);
+  const isIn = (a: Allocation) => (override.has(a.regId) ? override.get(a.regId)! : a.checkedIn);
   const summary = c
     ? occupancySummary({
         ...c,
@@ -30,11 +36,14 @@ export default function Hospitality() {
       })
     : null;
 
-  const toggle = (regId: string) => {
-    const next = new Set(checkedIn);
-    next.has(regId) ? next.delete(regId) : next.add(regId);
-    setCheckedIn(next);
-    void queryClient.invalidateQueries({ queryKey: ['partner', 'hospitality'] });
+  const toggle = async (a: Allocation) => {
+    const target = !isIn(a);
+    const next = new Map(override);
+    next.set(a.regId, target);
+    setOverride(next);
+    const session = await fetchAuthSession().catch(() => null);
+    const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'demo-user');
+    await checkInGuest(outbox, { sub, regId: a.regId, checkedIn: target }, Date.now());
   };
 
   return (
@@ -47,6 +56,9 @@ export default function Hospitality() {
             <View style={styles.board}>
               <Text style={styles.boardText}>
                 {t('partner.checkedInCount', { done: summary.checkedIn, total: summary.total })}
+              </Text>
+              <Text style={styles.boardSub}>
+                {t('partner.complimentary', { n: c.complimentaryRooms })}
               </Text>
             </View>
           ) : null}
@@ -63,7 +75,7 @@ export default function Hospitality() {
                 </View>
                 <Pressable
                   style={[styles.checkBtn, isIn(item) && styles.checkBtnDone]}
-                  onPress={() => toggle(item.regId)}
+                  onPress={() => void toggle(item)}
                   accessibilityRole="button"
                   accessibilityLabel={isIn(item) ? t('partner.checkedIn') : t('partner.checkIn')}
                 >
@@ -93,6 +105,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   boardText: { ...typeScale.body, color: palette.marigold, fontWeight: '700', textAlign: 'center' },
+  boardSub: { ...typeScale.caption, color: '#C6DDCB', textAlign: 'center', marginTop: 2 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

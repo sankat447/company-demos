@@ -471,6 +471,26 @@ resource "aws_appsync_resolver" "hospitality_console" {
   response_template = file("${path.module}/resolvers/hospitality-console.res.vtl")
 }
 
+# B4 GUI: hospitality guest check-in persistence — write (idempotent PutItem to
+# CHKIN#<sub>) + read-back (Query the partition), so the board survives reload
+# and other devices. Partner-group guarded.
+resource "aws_appsync_resolver" "partner_checkin" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "partnerCheckIn"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/partner-checkin.req.vtl")
+  response_template = file("${path.module}/resolvers/partner-checkin.res.vtl")
+}
+resource "aws_appsync_resolver" "partner_checkins" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "partnerCheckIns"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/partner-checkins.req.vtl")
+  response_template = file("${path.module}/resolvers/partner-checkins.res.vtl")
+}
+
 # B2c: occupancy board + participant badge — Lambda-backed (compute / ES256 sign).
 resource "aws_appsync_datasource" "occupancy_lambda" {
   api_id           = aws_appsync_graphql_api.main.id

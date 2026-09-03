@@ -286,6 +286,24 @@ export const HOSPITALITY_CONSOLE = /* GraphQL */ `
   }
 `;
 
+// B4 GUI: persist + read-back hospitality guest check-in (own guests only).
+export const PARTNER_CHECKINS = /* GraphQL */ `
+  query PartnerCheckIns {
+    partnerCheckIns {
+      regId
+      checkedIn
+    }
+  }
+`;
+
+export const PARTNER_CHECK_IN = /* GraphQL */ `
+  mutation PartnerCheckIn($input: PartnerCheckInInput!) {
+    partnerCheckIn(input: $input) {
+      accepted
+    }
+  }
+`;
+
 // Volunteer roster (CO-004, B3): the signed-in volunteer's own profile + shifts.
 export const VOLUNTEER_ROSTER = /* GraphQL */ `
   query VolunteerRoster {

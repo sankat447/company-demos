@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -5,6 +6,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { loadRoster } from '@/features/volunteers/roster';
 import {
   fileIncident,
   INCIDENT_CATEGORIES,
@@ -25,8 +27,18 @@ export default function Incident() {
   const { t } = useTranslation();
   const [category, setCategory] = useState<IncidentCategory>('safety');
   const [note, setNote] = useState('');
+  const [zone, setZone] = useState<string | undefined>();
   const [photoUri, setPhotoUri] = useState<string | undefined>();
   const [done, setDone] = useState(false);
+
+  // Offer the volunteer's own shift zones so an incident is tagged to a place
+  // the ops desk can route on (reportIncident stores zone).
+  const roster = useQuery({
+    queryKey: ['volunteer', 'roster'],
+    queryFn: loadRoster,
+    networkMode: 'always',
+  });
+  const zones = [...new Set((roster.data?.shifts ?? []).map((s) => s.zone))];
 
   const pickPhoto = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -38,7 +50,7 @@ export default function Incident() {
   const submit = async () => {
     const session = await fetchAuthSession().catch(() => null);
     const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'demo-user');
-    await fileIncident(outbox, { sub, category, note, photoUri }, Date.now());
+    await fileIncident(outbox, { sub, category, note, photoUri, zone }, Date.now());
     setDone(true);
   };
 
@@ -79,6 +91,26 @@ export default function Incident() {
             </Pressable>
           ))}
         </View>
+
+        {zones.length ? (
+          <>
+            <Text style={styles.label}>{t('volunteer.zone')}</Text>
+            <View style={styles.chips}>
+              {zones.map((z) => (
+                <Pressable
+                  key={z}
+                  style={[styles.chip, zone === z && styles.chipOn]}
+                  onPress={() => setZone(zone === z ? undefined : z)}
+                  accessibilityRole="button"
+                  accessibilityLabel={z}
+                  accessibilityState={{ selected: zone === z }}
+                >
+                  <Text style={[styles.chipText, zone === z && styles.chipTextOn]}>{z}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : null}
 
         <Text style={styles.label}>{t('volunteer.note')}</Text>
         <TextInput

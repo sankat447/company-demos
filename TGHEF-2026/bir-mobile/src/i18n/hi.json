@@ -320,6 +320,7 @@
     "cat_lost-found": "खोया-पाया",
     "cat_safety": "सुरक्षा",
     "cat_other": "अन्य",
+    "zone": "क्षेत्र",
     "note": "क्या हुआ?",
     "noteHint": "घटना का संक्षेप में वर्णन करें…",
     "addPhoto": "फ़ोटो जोड़ें",
@@ -359,6 +360,7 @@
     "footfall": "फ़ुटफ़ॉल {{n}}",
     "foodRules": "फ़ूड-स्ट्रीट नियम",
     "checkedInCount": "{{done}} / {{total}} अतिथि चेक-इन",
+    "complimentary": "{{n}} निःशुल्क कमरे",
     "checkIn": "चेक इन",
     "checkedIn": "चेक इन ✓"
   },

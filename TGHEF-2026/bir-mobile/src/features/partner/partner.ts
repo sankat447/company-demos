@@ -4,6 +4,7 @@
  * rooms/allocations for hospitality). Types + pure helpers live here (kept
  * Amplify-free for unit tests); the GraphQL fetchers live in console.ts.
  */
+import type { OutboxStore } from '@/offline/outbox';
 
 // ---- food stall console ----
 export type StallStage =
@@ -57,4 +58,38 @@ export function occupancySummary(c: HospitalityConsole): { checkedIn: number; to
     checkedIn: c.allocations.filter((a) => a.checkedIn).length,
     total: c.allocations.length,
   };
+}
+
+// ---- guest check-in (B4 GUI: persisted, offline-safe) ----
+export interface GuestCheckIn {
+  regId: string;
+  checkedIn: boolean;
+}
+
+/**
+ * Queue a hospitality guest check-in / out. Rides the outbox so a check-in at a
+ * dead-signal front desk still syncs. The key carries nowMs so each tap is its
+ * own write (a toggle isn't deduped); the server row is keyed by regId, so the
+ * last write drained wins. A re-drain of one record replays the same key.
+ */
+export async function checkInGuest(
+  outbox: OutboxStore,
+  input: { sub: string; regId: string; checkedIn: boolean },
+  nowMs: number,
+): Promise<void> {
+  await outbox.enqueue(
+    {
+      aggregate: `checkin:${input.sub}`,
+      mutation: 'partnerCheckIn',
+      variables: { regId: input.regId, checkedIn: input.checkedIn },
+      idempotencyKey: `chkin:${input.sub}:${input.regId}:${nowMs}`,
+    },
+    nowMs,
+  );
+}
+
+/** Overlay server check-in state onto the allocations (server wins per guest). */
+export function mergeCheckIns(allocations: Allocation[], checkins: GuestCheckIn[]): Allocation[] {
+  const map = new Map(checkins.map((c) => [c.regId, c.checkedIn]));
+  return allocations.map((a) => (map.has(a.regId) ? { ...a, checkedIn: map.get(a.regId)! } : a));
 }
