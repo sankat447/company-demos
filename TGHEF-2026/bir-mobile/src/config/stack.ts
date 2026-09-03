@@ -31,7 +31,12 @@ export interface StackContract {
     translatePath: string;
     queuePredictPath: string;
   };
-  payments: { provider: 'razorpay' | 'cashfree'; orderPath: string; webhookVerified: true };
+  payments: {
+    provider: 'razorpay' | 'cashfree' | 'paytm';
+    orderPath: string;
+    webhookVerified: true;
+    paytm?: { environment: 'staging' | 'prod' };
+  };
   passes: { issuerKid: string; jwksPath: string; alg: 'ES256' };
   realtime: { alertTopicArnParam: string };
   geo: { geofenceCollection: string; shuttleTrackerName: string };

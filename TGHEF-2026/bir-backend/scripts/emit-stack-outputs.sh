@@ -3,6 +3,7 @@
 # The ONLY place the two projects touch; the app validates the result.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
+REST_BASE="${REST_BASE:-$(tfout payments_rest_base)}"
 REST_BASE="${REST_BASE:-https://REPLACE.execute-api.${AWS_REGION}.amazonaws.com/v1}"
 
 cat > "${MOBILE_DIR}/config/stack-outputs.json" <<JSON
@@ -32,7 +33,7 @@ cat > "${MOBILE_DIR}/config/stack-outputs.json" <<JSON
     "translatePath": "/ai/translate",
     "queuePredictPath": "/ai/queue"
   },
-  "payments": { "provider": "razorpay", "orderPath": "/pay/order", "webhookVerified": true },
+  "payments": { "provider": "paytm", "orderPath": "/pay/order", "webhookVerified": true, "paytm": { "environment": "staging" } },
   "passes": {
     "issuerKid": "$(tfout passes_issuer_kid)",
     "jwksPath": "/.well-known/bir-passes/jwks.json",

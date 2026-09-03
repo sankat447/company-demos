@@ -221,9 +221,16 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       stored as native lists, coerced to AWSJSON on output and parsed client-side). Deployed + verified end-to-end with a real partner-group token (both consoles return; AWSJSON
       round-trips; a non-partner token is rejected `Unauthorized`). `mockPartner` stays on
       for the offline demo/eval build; flip off in the live contract for on-device runs.
-- [ ] **B5** Payments path end-to-end: REST API Gateway `payments.orderPath` +
-      `createOrder`/`getOrder`; `payment-webhook` marks the order CONFIRMED and mints pass
-      tokens via `pass-signer`; `onOrderConfirmed` subscription verified (ASKs #14, #15).
+- [x] **B5** Payments path end-to-end on **Paytm** (UPI/cards/netbanking/wallet): HTTP API
+      `POST /pay/order` (`create-order` Lambda, Cognito-authorized, server-side pricing →
+      Paytm Initiate Transaction → txnToken) + `getOrder`/`confirmOrder` resolvers;
+      `payment-webhook` verifies the Paytm checksum, re-checks the Order Status API, mints
+      passes via `pass-signer` (`issuePass`), and invokes server-only `confirmOrder` →
+      `onOrderConfirmed`. Client: `paytmProvider` (All-in-One SDK) behind the provider seam,
+      contract `payments.provider=paytm`. Deployed + verified (auth/pricing/503-creds-gate,
+      getOrder owner-scope, confirmOrder IAM-only fan-out, checksum round-trip). **Merchant
+      key/MID are provisioned by the operator in SSM** — see docs/PAYMENTS_PAYTM.md; real
+      Paytm calls + a paid txn await that. Supersedes the Razorpay ASKs #14/#15.
 - [ ] **B6** Auth + pass Lambda bodies: `custom-auth` real random OTP over SNS SMS;
       `pass-signer` `issuePass`/`issueBadge`/`revoke`; revocations delta feed.
 - [ ] **B7** Data importer: `bir-backend/data-collection` workbook → DynamoDB seed rows

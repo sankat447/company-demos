@@ -1,29 +1,114 @@
 /**
- * Razorpay payment webhook (ARCHITECTURE §5) — the ONLY payment authority.
- * Verifies the HMAC signature, then (TODO) marks the order CONFIRMED and mints
- * pass tokens so onOrderConfirmed delivers them. The app never self-confirms.
+ * B5: Paytm payment callback — the ONLY payment authority (ARCHITECTURE §5).
+ * Verifies the Paytm checksum, RE-checks the transaction with Paytm's Order
+ * Status API (never trusts the callback alone), then on success mints the pass
+ * tokens (pass-signer) and invokes the server-only confirmOrder mutation, which
+ * fans out onOrderConfirmed to the waiting app. The app never self-confirms.
+ * Finally redirects the browser back into the app via a deep link.
  */
 'use strict';
-const { createHmac, timingSafeEqual } = require('node:crypto');
+const querystring = require('node:querystring');
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, GetCommand } = require('@aws-sdk/lib-dynamodb');
+const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
+const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 
-function verify(body, signature, secret) {
-  if (!secret || !signature) return false;
-  const expected = createHmac('sha256', secret).update(body).digest('hex');
-  const a = Buffer.from(expected);
-  const b = Buffer.from(signature);
-  return a.length === b.length && timingSafeEqual(a, b);
+const { generateSignature, verifySignature, paramsToString } = require('./paytm');
+const { appsyncGraphql } = require('./sigv4');
+
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const ssm = new SSMClient({});
+const lambda = new LambdaClient({});
+const TABLE = process.env.TABLE;
+const REGION = process.env.AWS_REGION;
+const ENV = process.env.PAYTM_ENV === 'prod' ? 'prod' : 'staging';
+const HOST = ENV === 'prod' ? 'securegw.paytm.in' : 'securegw-stage.paytm.in';
+
+let creds = null;
+async function paytmCreds() {
+  if (creds) return creds;
+  const [mid, key] = await Promise.all([
+    ssm.send(new GetParameterCommand({ Name: process.env.PAYTM_MID_PARAM })).then((o) => o.Parameter.Value.trim()),
+    ssm
+      .send(new GetParameterCommand({ Name: process.env.PAYTM_KEY_PARAM, WithDecryption: true }))
+      .then((o) => o.Parameter.Value.trim()),
+  ]);
+  creds = { mid, key };
+  return creds;
+}
+
+/** Paytm Order Status API — authoritative txn state. */
+async function orderStatus(mid, key, orderId) {
+  const body = { mid, orderId };
+  const signature = generateSignature(JSON.stringify(body), key);
+  const resp = await fetch(`https://${HOST}/v3/order/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body, head: { signature } }),
+  });
+  const data = await resp.json();
+  return (data && data.body) || {};
+}
+
+function redirect(orderId, status) {
+  const base = process.env.APP_RETURN_URL || 'bir://pay/return';
+  return {
+    statusCode: 302,
+    headers: { Location: `${base}?orderId=${encodeURIComponent(orderId || '')}&status=${status}` },
+    body: '',
+  };
 }
 
 exports.handler = async (event) => {
-  // Function URL / API GW proxy shape.
-  const body = event.body || '';
-  const sig = (event.headers && (event.headers['x-razorpay-signature'] || event.headers['X-Razorpay-Signature'])) || '';
-  const secret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
+  const raw = event.body
+    ? event.isBase64Encoded
+      ? Buffer.from(event.body, 'base64').toString('utf8')
+      : event.body
+    : '';
+  if (!raw) return { statusCode: 200, body: JSON.stringify({ ok: true, note: 'health' }) };
 
-  if (!body) return { statusCode: 200, body: JSON.stringify({ ok: true, note: 'health' }) };
-  if (!verify(body, sig, secret)) return { statusCode: 400, body: 'invalid signature' };
+  // Paytm posts application/x-www-form-urlencoded from the browser.
+  const params = querystring.parse(raw);
+  const orderId = params.ORDERID;
+  const { mid, key } = await paytmCreds();
+  if (!mid || !key || mid.startsWith('REPLACE')) return redirect(orderId, 'unconfigured');
 
-  // TODO(prod): parse order_id, mark CONFIRMED (idempotent), invoke pass-signer,
-  // write passTokens onto the order row for onOrderConfirmed.
-  return { statusCode: 200, body: 'ok' };
+  // 1. Verify the callback checksum.
+  if (!verifySignature(paramsToString(params), key, params.CHECKSUMHASH)) {
+    return redirect(orderId, 'bad_checksum');
+  }
+  // 2. RE-verify authoritatively with Paytm (never trust the callback alone).
+  const st = await orderStatus(mid, key, orderId);
+  if (st.resultInfo && st.resultInfo.resultStatus === 'TXN_SUCCESS') {
+    const order = await ddb.send(new GetCommand({ TableName: TABLE, Key: { pk: 'ORDER', sk: orderId } }));
+    if (!order.Item) return redirect(orderId, 'unknown_order');
+    if (order.Item.status !== 'CONFIRMED') {
+      // 3. Mint the signed pass token(s).
+      const signed = await lambda.send(
+        new InvokeCommand({
+          FunctionName: process.env.PASS_SIGNER_FN,
+          Payload: Buffer.from(
+            JSON.stringify({
+              field: 'issuePass',
+              sub: order.Item.sub,
+              kind: order.Item.kind,
+              itemId: order.Item.itemId,
+              orderId,
+              quantity: order.Item.quantity || 1,
+            }),
+          ),
+        }),
+      );
+      const out = JSON.parse(Buffer.from(signed.Payload).toString('utf8'));
+      const passTokens = (out && out.passTokens) || [];
+      // 4. Fan out via confirmOrder (triggers onOrderConfirmed).
+      await appsyncGraphql(process.env.APPSYNC_ENDPOINT, REGION, {
+        query:
+          'mutation C($orderId: ID!, $status: String!, $passTokens: [String!]) { confirmOrder(orderId: $orderId, status: $status, passTokens: $passTokens) { orderId status } }',
+        variables: { orderId, status: 'CONFIRMED', passTokens },
+      });
+    }
+    return redirect(orderId, 'success');
+  }
+  return redirect(orderId, 'failed');
 };

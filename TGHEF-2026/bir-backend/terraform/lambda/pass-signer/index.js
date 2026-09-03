@@ -44,6 +44,30 @@ exports.handler = async (event) => {
       // TODO(prod): enforce confirmed+lodging-resolved, then:
       // return signPass({ typ:'participant', sub, evt:'bir-festival-2026', ... });
       throw new Error('issueBadge: business logic pending');
+    case 'issuePass': {
+      // B5: mint the pass token(s) for a webhook-confirmed order. Called only by
+      // the payment webhook (which has already re-verified the txn with Paytm).
+      const nbf = Math.floor(Date.now() / 1000);
+      const exp = 1795564800; // 2026-11-24 end of festival window
+      const typ = event.kind === 'ticket' ? 'entry' : 'activity';
+      const quantity = Math.max(1, Number(event.quantity) || 1);
+      const passTokens = [];
+      for (let i = 0; i < quantity; i++) {
+        const { token } = await signPass({
+          typ,
+          sub: event.sub,
+          evt: 'bir-festival-2026',
+          item: event.itemId,
+          ord: event.orderId,
+          seq: i,
+          jti: `${typ}-${event.orderId}-${i}`,
+          nbf,
+          exp,
+        });
+        passTokens.push(token);
+      }
+      return { passTokens };
+    }
     default:
       throw new Error(`pass-signer: unknown field ${field}`);
   }

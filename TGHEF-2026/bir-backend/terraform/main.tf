@@ -193,7 +193,12 @@ resource "aws_iam_role_policy" "lambda" {
     Statement = [
       { Effect = "Allow", Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"], Resource = "arn:aws:logs:*:*:*" },
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:BatchWriteItem"], Resource = [aws_dynamodb_table.main.arn, "${aws_dynamodb_table.main.arn}/index/*"] },
-      { Effect = "Allow", Action = ["ssm:GetParameter"], Resource = aws_ssm_parameter.pass_private_key.arn },
+      # pass-signer key + Paytm merchant credentials (B5) live under /${local.name}/
+      { Effect = "Allow", Action = ["ssm:GetParameter"], Resource = "arn:aws:ssm:*:*:parameter/${local.name}/*" },
+      # B5: the payment webhook mints passes (invoke pass-signer) and fans out via
+      # the server-only confirmOrder mutation (AppSync IAM).
+      { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = "arn:aws:lambda:*:*:function:${local.name}-pass-signer" },
+      { Effect = "Allow", Action = ["appsync:GraphQL"], Resource = "${aws_appsync_graphql_api.main.arn}/*" },
       { Effect = "Allow", Action = ["sns:Publish"], Resource = "*" }
     ]
   })
@@ -228,8 +233,43 @@ resource "aws_lambda_function" "payment_webhook" {
   handler          = "index.handler"
   filename         = data.archive_file.payment_webhook.output_path
   source_code_hash = data.archive_file.payment_webhook.output_base64sha256
-  timeout          = 10
-  environment { variables = { TABLE = aws_dynamodb_table.main.name } }
+  timeout          = 15
+  environment {
+    variables = {
+      TABLE            = aws_dynamodb_table.main.name
+      PAYTM_MID_PARAM  = aws_ssm_parameter.paytm_mid.name
+      PAYTM_KEY_PARAM  = aws_ssm_parameter.paytm_key.name
+      PAYTM_ENV        = var.paytm_env
+      APPSYNC_ENDPOINT = aws_appsync_graphql_api.main.uris["GRAPHQL"]
+      PASS_SIGNER_FN   = aws_lambda_function.pass_signer.function_name
+      APP_RETURN_URL   = "bir://pay/return"
+    }
+  }
+}
+
+# B5: createOrder — prices server-side + calls Paytm Initiate Transaction.
+data "archive_file" "create_order" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/create-order"
+  output_path = "${path.module}/.build/create-order.zip"
+}
+resource "aws_lambda_function" "create_order" {
+  function_name    = "${local.name}-create-order"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.create_order.output_path
+  source_code_hash = data.archive_file.create_order.output_base64sha256
+  timeout          = 15
+  environment {
+    variables = {
+      TABLE           = aws_dynamodb_table.main.name
+      PAYTM_MID_PARAM = aws_ssm_parameter.paytm_mid.name
+      PAYTM_KEY_PARAM = aws_ssm_parameter.paytm_key.name
+      PAYTM_ENV       = var.paytm_env
+      CALLBACK_URL    = "${aws_apigatewayv2_stage.pay.invoke_url}/pay/webhook"
+    }
+  }
 }
 
 resource "aws_lambda_function" "health" {
@@ -537,4 +577,111 @@ resource "aws_ssm_parameter" "pass_private_key" {
   type  = "SecureString"
   value = "PLACEHOLDER_ROTATE_ON_DEPLOY"
   lifecycle { ignore_changes = [value] } # deploy.sh owns the real value
+}
+
+# =====================================================================
+# B5: Payments — Paytm gateway, order REST API, order resolvers.
+# =====================================================================
+
+# Merchant credentials. Placeholders — set the real values out-of-band:
+#   aws ssm put-parameter --name /<name>/payments/paytm-mid  --type String       --overwrite --value <MID>
+#   aws ssm put-parameter --name /<name>/payments/paytm-key  --type SecureString --overwrite --value <MERCHANT_KEY>
+# The merchant key NEVER lives in the repo, contract, or client.
+resource "aws_ssm_parameter" "paytm_mid" {
+  name  = "/${local.name}/payments/paytm-mid"
+  type  = "String"
+  value = "REPLACE_PAYTM_MID"
+  lifecycle { ignore_changes = [value] }
+}
+resource "aws_ssm_parameter" "paytm_key" {
+  name  = "/${local.name}/payments/paytm-key"
+  type  = "SecureString"
+  value = "REPLACE_PAYTM_MERCHANT_KEY"
+  lifecycle { ignore_changes = [value] }
+}
+
+# HTTP API for the payment REST paths (payments.orderPath = /pay/order).
+resource "aws_apigatewayv2_api" "pay" {
+  name          = "${local.name}-pay"
+  protocol_type = "HTTP"
+}
+
+# Cognito JWT authorizer — the app sends its ID token (aud = app client id).
+resource "aws_apigatewayv2_authorizer" "cognito" {
+  api_id           = aws_apigatewayv2_api.pay.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  name             = "cognito"
+  jwt_configuration {
+    audience = [aws_cognito_user_pool_client.app.id]
+    issuer   = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}"
+  }
+}
+
+resource "aws_apigatewayv2_integration" "create_order" {
+  api_id                 = aws_apigatewayv2_api.pay.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.create_order.invoke_arn
+  payload_format_version = "2.0"
+}
+resource "aws_apigatewayv2_integration" "pay_webhook" {
+  api_id                 = aws_apigatewayv2_api.pay.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.payment_webhook.invoke_arn
+  payload_format_version = "2.0"
+}
+
+# POST /pay/order — Cognito-authorized (the buyer creates their own order).
+resource "aws_apigatewayv2_route" "create_order" {
+  api_id             = aws_apigatewayv2_api.pay.id
+  route_key          = "POST /pay/order"
+  target             = "integrations/${aws_apigatewayv2_integration.create_order.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+# POST /pay/webhook — public (Paytm's server-to-server callback; verified by checksum).
+resource "aws_apigatewayv2_route" "pay_webhook" {
+  api_id    = aws_apigatewayv2_api.pay.id
+  route_key = "POST /pay/webhook"
+  target    = "integrations/${aws_apigatewayv2_integration.pay_webhook.id}"
+}
+
+resource "aws_apigatewayv2_stage" "pay" {
+  api_id      = aws_apigatewayv2_api.pay.id
+  name        = "v1"
+  auto_deploy = true
+}
+
+resource "aws_lambda_permission" "apigw_create_order" {
+  statement_id  = "AllowApiGwCreateOrder"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.create_order.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.pay.execution_arn}/*/*"
+}
+resource "aws_lambda_permission" "apigw_pay_webhook" {
+  statement_id  = "AllowApiGwPayWebhook"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.payment_webhook.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.pay.execution_arn}/*/*"
+}
+
+# Order resolvers (VTL-direct). getOrder = owner read; confirmOrder = server-only
+# fan-out (IAM), the @aws_subscribe trigger for onOrderConfirmed.
+resource "aws_appsync_resolver" "get_order" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "getOrder"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/get-order.req.vtl")
+  response_template = file("${path.module}/resolvers/get-order.res.vtl")
+}
+resource "aws_appsync_resolver" "confirm_order" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "confirmOrder"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/confirm-order.req.vtl")
+  response_template = file("${path.module}/resolvers/confirm-order.res.vtl")
 }

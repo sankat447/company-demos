@@ -26,3 +26,4 @@ output "health_function_name" { value = aws_lambda_function.health.function_name
 output "payment_webhook_url" { value = aws_lambda_function_url.payment_webhook.function_url }
 output "passes_issuer_kid" { value = var.issuer_kid }
 output "pass_private_key_param" { value = aws_ssm_parameter.pass_private_key.name }
+output "payments_rest_base" { value = aws_apigatewayv2_stage.pay.invoke_url }

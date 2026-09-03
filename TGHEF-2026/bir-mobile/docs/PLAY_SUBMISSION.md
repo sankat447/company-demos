@@ -2,10 +2,10 @@
 
 Two Android artifacts are produced by this repo:
 
-| Artifact | Script | Contract | Signing | Purpose |
-| --- | --- | --- | --- | --- |
-| **Eval APK** (`app-release.apk`) | `scripts/build-eval-apk.sh` | `stack-outputs.example.json` (mocks on, OTP `123456`, payments off) | debug key | Self-contained demo, sideloaded from the S3 QR page. **Not** for Play. |
-| **Store AAB** (`app-release.aab`) | `scripts/build-store-aab.sh` | `config/stack-outputs.json` (live backend, mocks off) | **upload key** in `credentials/` | Google Play upload. |
+| Artifact                          | Script                       | Contract                                                            | Signing                          | Purpose                                                                |
+| --------------------------------- | ---------------------------- | ------------------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------------- |
+| **Eval APK** (`app-release.apk`)  | `scripts/build-eval-apk.sh`  | `stack-outputs.example.json` (mocks on, OTP `123456`, payments off) | debug key                        | Self-contained demo, sideloaded from the S3 QR page. **Not** for Play. |
+| **Store AAB** (`app-release.aab`) | `scripts/build-store-aab.sh` | `config/stack-outputs.json` (live backend, mocks off)               | **upload key** in `credentials/` | Google Play upload.                                                    |
 
 ## The upload keystore (read this)
 
@@ -14,7 +14,7 @@ once; RSA 2048, 10 000-day validity). Its passwords are in
 `credentials/keystore.env`. **Both are gitignored — back them up somewhere safe
 and private.**
 
-Under **Play App Signing** (the default for new apps) this is the *upload key*,
+Under **Play App Signing** (the default for new apps) this is the _upload key_,
 not the final app-signing key: Google holds the app-signing key, and if the
 upload key is ever lost you can reset it from the Play Console. So keep it safe,
 but it is recoverable. The repo convention (CLAUDE.md hard-rule 4) is that

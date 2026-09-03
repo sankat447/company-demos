@@ -6,7 +6,7 @@
 
 type Query {
   ticketTiers: TicketTierConnection
-  getOrder(orderId: ID!): Order
+  getOrder(orderId: ID!): Order @aws_cognito_user_pools @aws_iam
   scheduleDelta(since: AWSTimestamp): ScheduleConnection
   revocationsDelta(since: AWSTimestamp): RevocationConnection
   flyStatus: FlyStatus
@@ -53,7 +53,7 @@ type Mutation {
   # gateway callback, which fans out to the onOrderConfirmed subscription. NEVER
   # callable by a client — the resolver (TODO) enforces IAM. The client callback
   # is advisory only. Its return type MUST equal the subscription's (Order).
-  confirmOrder(orderId: ID!, status: String!, passTokens: [String!]): Order
+  confirmOrder(orderId: ID!, status: String!, passTokens: [String!]): Order @aws_cognito_user_pools @aws_iam
 }
 
 type Subscription {
@@ -63,7 +63,7 @@ type Subscription {
 }
 
 # --- payments / passes ---
-type Order { orderId: ID! status: String! passTokens: [String!] }
+type Order @aws_cognito_user_pools @aws_iam { orderId: ID! status: String! passTokens: [String!] }
 type TicketTier { id: ID! titleEn: String! titleHi: String priceInr: Int! description: String }
 type TicketTierConnection { items: [TicketTier!]! }
 type ScanResult { jti: ID! gate: String! accepted: Boolean! }

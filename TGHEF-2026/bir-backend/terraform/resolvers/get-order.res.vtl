@@ -1,0 +1,13 @@
+## Return the caller's OWN order only. A Cognito caller (has a sub) may read
+## only an order whose stored sub matches; IAM/server callers are unrestricted.
+## A missing order returns null (getOrder is nullable).
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+#if($util.isNull($ctx.result))
+  #return
+#end
+#if(!$util.isNullOrEmpty($ctx.identity.sub) && $ctx.result.sub != $ctx.identity.sub)
+  $util.unauthorized()
+#end
+$util.toJson($ctx.result)

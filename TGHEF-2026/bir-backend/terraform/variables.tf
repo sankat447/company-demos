@@ -39,3 +39,9 @@ variable "log_retention_days" {
   type        = number
   default     = 14
 }
+
+variable "paytm_env" {
+  description = "Paytm gateway environment: staging (securegw-stage) or prod (securegw)."
+  type        = string
+  default     = "staging"
+}

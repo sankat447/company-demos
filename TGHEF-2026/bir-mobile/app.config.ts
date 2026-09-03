@@ -47,6 +47,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-sqlite',
     'expo-localization',
     [
+      // B5: the Paytm All-in-One SDK pulls com.paytm.appinvokesdk from Paytm's
+      // Maven repo; Expo's centralized dependency resolution needs it declared
+      // at the project level (the module's own repositories block is ignored).
+      'expo-build-properties',
+      {
+        android: {
+          extraMavenRepos: ['https://artifactory.paytm.in/libs-release-local'],
+        },
+      },
+    ],
+    [
       // Native splash. On Android 12+ the OS shows only this icon centred on
       // the background (the legacy full-bleed image is ignored there), so we
       // give it a properly-sized paraglider on ink — which then hands off to
