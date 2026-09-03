@@ -127,18 +127,22 @@ export function LaunchSplash({ onDone }: { onDone: () => void }) {
         <Path d="M0 150 L0 132 L120 120 L260 138 L340 124 L340 150 Z" fill="#20473B" />
       </Svg>
 
-      <Animated.View style={[styles.center, { opacity: intro }]}>
+      <View style={styles.center}>
+        {/* The glider is visible from the first frame so it lands exactly where
+            the OS splash left it — no fade-in seam. */}
         <Animated.View
           style={{ transform: [{ translateY }, { scale }, { rotate }], opacity: gliderFade }}
         >
           <GliderMark size={92} />
         </Animated.View>
-        <Animated.View style={{ opacity: textFade, alignItems: 'center' }}>
+        <Animated.View
+          style={{ opacity: Animated.multiply(intro, textFade), alignItems: 'center' }}
+        >
           <Text style={styles.word}>Bir</Text>
           <Text style={styles.slogan}>Feel the Bir</Text>
           <Text style={styles.sub}>FESTIVAL 2026 · 21–23 NOV</Text>
         </Animated.View>
-      </Animated.View>
+      </View>
 
       {/* marigold engulf */}
       <Animated.View pointerEvents="none" style={[styles.veil, { opacity: veil }]} />

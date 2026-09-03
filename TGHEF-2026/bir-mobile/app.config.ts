@@ -10,17 +10,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'Bir',
   slug: 'bir-app',
-  version: '0.4.4',
+  version: '0.4.5',
   scheme: 'bir',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
-  splash: {
-    image: './assets/splash.png',
-    resizeMode: 'contain',
-    backgroundColor: '#17232B',
-  },
   ios: {
     bundleIdentifier: 'org.birfestival.app',
     supportsTablet: false,
@@ -34,7 +29,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'org.birfestival.app',
-    versionCode: 6,
+    versionCode: 7,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#17232B',
@@ -51,6 +46,20 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-secure-store',
     'expo-sqlite',
     'expo-localization',
+    [
+      // Native splash. On Android 12+ the OS shows only this icon centred on
+      // the background (the legacy full-bleed image is ignored there), so we
+      // give it a properly-sized paraglider on ink — which then hands off to
+      // the in-app animated LaunchSplash (same ink bg) with no visible seam.
+      'expo-splash-screen',
+      {
+        backgroundColor: '#17232B',
+        image: './assets/splash-icon.png',
+        imageWidth: 240,
+        resizeMode: 'contain',
+        dark: { backgroundColor: '#17232B', image: './assets/splash-icon.png', imageWidth: 240 },
+      },
+    ],
     [
       'expo-camera',
       {
