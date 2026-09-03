@@ -4,6 +4,7 @@
  * Commit rides the outbox (idempotent); the backend re-validates §3 and
  * audit-logs (ASK #29) — actorNote accompanies every manual override.
  */
+import { gqlClient, LODGING_POOL } from '@/api/graphql';
 import { isEnabled } from '@/config/flags';
 import type { KvStore } from '@/offline/jwks';
 import type { OutboxStore } from '@/offline/outbox';
@@ -13,9 +14,13 @@ import type { Assignment, Participant, Room } from './types';
 
 const ALLOC_KEY = 'lodging.allocations';
 
+/** The allocation pool (B2a). admin-hospitality-guarded server-side. */
 export async function loadPool(): Promise<Participant[]> {
   if (isEnabled('mockLodging')) return poolFixture.participants as Participant[];
-  throw new Error('lodging pool unavailable — lodging.poolQuery pending (ASK #28)');
+  const res = (await gqlClient().graphql({ query: LODGING_POOL })) as {
+    data?: { lodgingPool?: Participant[] };
+  };
+  return res.data?.lodgingPool ?? [];
 }
 
 export interface CommittedAllocation {

@@ -303,6 +303,17 @@ resource "aws_appsync_resolver" "cancel_registration" {
   response_template = file("${path.module}/resolvers/cancel-registration.res.vtl")
 }
 
+# B2a (Lodging read): lodgingPool — admin-hospitality-guarded VTL query. The
+# request template re-checks the Cognito group (IAM callers trusted).
+resource "aws_appsync_resolver" "lodging_pool" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "lodgingPool"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/lodging-pool.req.vtl")
+  response_template = file("${path.module}/resolvers/lodging-pool.res.vtl")
+}
+
 # ---------- SSM: ops params + pass signing key placeholder ----------
 resource "aws_ssm_parameter" "fly_status_topic" {
   name  = "/${local.name}/ops/flyStatusTopic"

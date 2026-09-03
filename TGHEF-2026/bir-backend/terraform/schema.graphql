@@ -13,8 +13,9 @@ type Query {
   # Highlights (CO-002)
   highlightsCatalog: Catalog
   myRegistrations: [Registration!]!
-  # Lodging (CO-003) — admin-hospitality guarded
-  lodgingPool: [PoolParticipant!]!
+  # Lodging (CO-003) — admin-hospitality guarded (resolver re-checks the group;
+  # IAM callers are trusted server/admin). Reachable by both auth modes.
+  lodgingPool: [PoolParticipant!]! @aws_cognito_user_pools @aws_iam
   lodgingOccupancy(hotelName: String!): [OccupancyCell!]!
   # Volunteer (CO-004)
   volunteerRoster: VolunteerProfile
@@ -88,7 +89,7 @@ type VoteResult { eventId: ID! accepted: Boolean! }
 input CastVoteInput { eventId: ID! category: String idempotencyKey: String! }
 
 # --- lodging + badges (CO-003) ---
-type PoolParticipant { regId: ID! name: String! competitionId: ID! gender: String! coupleGroupId: String nights: [String!]! needsLodging: Boolean! }
+type PoolParticipant @aws_cognito_user_pools @aws_iam { regId: ID! name: String! competitionId: ID! gender: String! coupleGroupId: String nights: [String!]! needsLodging: Boolean! }
 type OccupancyCell { roomId: ID! night: String! occupied: Int! capacity: Int! }
 input CommitAllocationInput { assignments: AWSJSON! version: Int! actorNote: String idempotencyKey: String! }
 type CommitResult { version: Int! accepted: Boolean! violations: [String!] }

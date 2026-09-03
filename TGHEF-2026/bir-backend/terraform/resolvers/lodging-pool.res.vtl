@@ -1,0 +1,19 @@
+## Map REG items → PoolParticipant. Gender/needsLodging are top-level (promoted
+## from the registration answers on create); nights defaults to [] until the
+## importer/real intake supplies them. regId is the sort key.
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+#set($out = [])
+#foreach($it in $ctx.result.items)
+  #set($p = {})
+  $util.qr($p.put("regId", $it.sk))
+  $util.qr($p.put("name", $util.defaultIfNull($it.name, "")))
+  $util.qr($p.put("competitionId", $util.defaultIfNull($it.competitionId, $util.defaultIfNull($it.itemId, ""))))
+  $util.qr($p.put("gender", $util.defaultIfNull($it.gender, "undisclosed")))
+  $util.qr($p.put("coupleGroupId", $it.coupleGroupId))
+  $util.qr($p.put("nights", $util.defaultIfNull($it.nights, [])))
+  $util.qr($p.put("needsLodging", $util.defaultIfNull($it.needsLodging, false)))
+  $util.qr($out.add($p))
+#end
+$util.toJson($out)

@@ -1,3 +1,7 @@
+// allocation.ts imports the GraphQL client for loadPool (B2a); these tests
+// exercise the offline/pure paths, so stub the module to keep Amplify out.
+jest.mock('@/api/graphql', () => ({ gqlClient: jest.fn(), LODGING_POOL: 'LODGING_POOL_DOC' }));
+
 import poolFixture from '@/features/lodging/__fixtures__/pool.mock.json';
 import roomsFixture from '@/features/lodging/__fixtures__/rooms.mock.json';
 import {

@@ -21,8 +21,8 @@ log "Seeding fly-status (flying)"
 put '{"pk":{"S":"FLYSTATUS"},"sk":{"S":"current"},"state":{"S":"flying"},"reasonEn":{"S":"Clear skies over Billing"},"reasonHi":{"S":"बिलिंग के ऊपर साफ़ आसमान"},"updatedAt":{"N":"1795248000"},"refundsAutoQueued":{"BOOL":false}}'
 
 log "Seeding sample confirmed competition registrations (lodging pool)"
-put '{"pk":{"S":"REG"},"sk":{"S":"reg:p1:him-queen-2026:na"},"name":{"S":"Anita Thakur"},"competitionId":{"S":"him-queen-2026"},"gender":{"S":"female"},"needsLodging":{"BOOL":true},"status":{"S":"confirmed"}}'
-put '{"pk":{"S":"REG"},"sk":{"S":"reg:p4:him-prince-2026:na"},"name":{"S":"Rohan Katoch"},"competitionId":{"S":"him-prince-2026"},"gender":{"S":"male"},"needsLodging":{"BOOL":true},"status":{"S":"confirmed"}}'
+put '{"pk":{"S":"REG"},"sk":{"S":"reg:p1:him-queen-2026:na"},"name":{"S":"Anita Thakur"},"competitionId":{"S":"him-queen-2026"},"gender":{"S":"female"},"nights":{"L":[{"S":"2026-11-21"},{"S":"2026-11-22"},{"S":"2026-11-23"}]},"needsLodging":{"BOOL":true},"status":{"S":"confirmed"}}'
+put '{"pk":{"S":"REG"},"sk":{"S":"reg:p4:him-prince-2026:na"},"name":{"S":"Rohan Katoch"},"competitionId":{"S":"him-prince-2026"},"gender":{"S":"male"},"nights":{"L":[{"S":"2026-11-22"},{"S":"2026-11-23"}]},"needsLodging":{"BOOL":true},"status":{"S":"confirmed"}}'
 
 log "Publishing JWKS to the media bucket"
 if [[ -f "${TF_DIR}/.build/jwks.json" ]]; then

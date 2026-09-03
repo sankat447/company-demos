@@ -16,6 +16,15 @@
 #end
 #if($ctx.args.input.answers)
     "answers": $util.dynamodb.toDynamoDBJson($ctx.args.input.answers),
+## B2: promote lodging-relevant answers to top level so this registration is
+## visible to the lodgingPool query (gender is lodging-only, never on badges).
+#set($ans = $ctx.args.input.answers)
+#if($ans.needsLodging == "yes")
+    "needsLodging": $util.dynamodb.toDynamoDBJson(true),
+#end
+#if(!$util.isNullOrEmpty($ans.gender))
+    "gender": $util.dynamodb.toDynamoDBJson($ans.gender),
+#end
 #end
     "status": $util.dynamodb.toDynamoDBJson("confirmed"),
     "createdAt": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds())

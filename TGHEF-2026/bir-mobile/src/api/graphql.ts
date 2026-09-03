@@ -128,6 +128,22 @@ export const CREATE_REGISTRATION = /* GraphQL */ `
   }
 `;
 
+// Lodging pool (CO-003, ASK #28 / B2a): confirmed participants who need lodging.
+// admin-hospitality-guarded server-side. gender is lodging-only (never on badges).
+export const LODGING_POOL = /* GraphQL */ `
+  query LodgingPool {
+    lodgingPool {
+      regId
+      name
+      competitionId
+      gender
+      coupleGroupId
+      nights
+      needsLodging
+    }
+  }
+`;
+
 // Lodging allocation commit (CO-003, ASK #29): server re-validates the §3
 // hard constraints, audit-logs (actorNote on overrides), notifies participants.
 export const COMMIT_ALLOCATION = /* GraphQL */ `
