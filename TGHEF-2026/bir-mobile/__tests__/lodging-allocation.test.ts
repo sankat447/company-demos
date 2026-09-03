@@ -50,6 +50,9 @@ describe('commitAllocation (idempotent, versioned, audit-noted)', () => {
     expect(head.mutation).toBe('commitAllocation');
     expect(head.idempotencyKey).toBe('alloc:admin1:v1');
     expect(head.variables.actorNote).toBe('initial run');
+    // assignments is serialized for the AWSJSON scalar (string, re-parsed server-side)
+    expect(typeof head.variables.assignments).toBe('string');
+    expect(JSON.parse(head.variables.assignments as string)).toEqual(proposal.assignments);
 
     // Post-commit reassignment → new version, new idempotency key.
     const v2 = await commitAllocation(

@@ -55,8 +55,10 @@ export async function commitAllocation(
     {
       aggregate: `lodging:${input.sub}`,
       mutation: 'commitAllocation',
+      // assignments maps to the AWSJSON scalar — serialize (AppSync rejects a
+      // raw array), same as highlights answers. The server re-parses + re-validates.
       variables: {
-        assignments: input.assignments,
+        assignments: JSON.stringify(input.assignments),
         version,
         actorNote: input.actorNote ?? null,
       },

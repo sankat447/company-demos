@@ -161,6 +161,11 @@ data "archive_file" "health" {
   source_dir  = "${path.module}/lambda/health"
   output_path = "${path.module}/.build/health.zip"
 }
+data "archive_file" "commit_allocation" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/commit-allocation"
+  output_path = "${path.module}/.build/commit-allocation.zip"
+}
 
 resource "aws_iam_role" "lambda" {
   name = "${local.name}-lambda-role"
@@ -227,6 +232,20 @@ resource "aws_lambda_function" "health" {
   timeout          = 5
 }
 
+# B2b: privileged commitAllocation resolver — re-checks the group, re-validates
+# §3 against source-of-truth rooms/pool, persists + audits. Reuses the lambda
+# role (DynamoDB Query/PutItem already granted).
+resource "aws_lambda_function" "commit_allocation" {
+  function_name    = "${local.name}-commit-allocation"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.commit_allocation.output_path
+  source_code_hash = data.archive_file.commit_allocation.output_base64sha256
+  timeout          = 15
+  environment { variables = { TABLE = aws_dynamodb_table.main.name } }
+}
+
 # Payment webhook needs a public URL for Razorpay to POST to.
 resource "aws_lambda_function_url" "payment_webhook" {
   function_name      = aws_lambda_function.payment_webhook.function_name
@@ -234,7 +253,7 @@ resource "aws_lambda_function_url" "payment_webhook" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
-  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health"])
+  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation"])
   name              = "/aws/lambda/${local.name}-${each.key}"
   retention_in_days = var.log_retention_days
 }
@@ -312,6 +331,38 @@ resource "aws_appsync_resolver" "lodging_pool" {
   data_source       = aws_appsync_datasource.ddb.name
   request_template  = file("${path.module}/resolvers/lodging-pool.req.vtl")
   response_template = file("${path.module}/resolvers/lodging-pool.res.vtl")
+}
+
+# B2b: AppSync → Lambda data source for the privileged commitAllocation.
+resource "aws_iam_role" "appsync_lambda" {
+  name = "${local.name}-appsync-lambda"
+  assume_role_policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = [{ Effect = "Allow", Principal = { Service = "appsync.amazonaws.com" }, Action = "sts:AssumeRole" }]
+  })
+}
+resource "aws_iam_role_policy" "appsync_lambda" {
+  name = "${local.name}-appsync-lambda"
+  role = aws_iam_role.appsync_lambda.id
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = aws_lambda_function.commit_allocation.arn }]
+  })
+}
+resource "aws_appsync_datasource" "commit_lambda" {
+  api_id           = aws_appsync_graphql_api.main.id
+  name             = "CommitAllocationLambda"
+  type             = "AWS_LAMBDA"
+  service_role_arn = aws_iam_role.appsync_lambda.arn
+  lambda_config { function_arn = aws_lambda_function.commit_allocation.arn }
+}
+resource "aws_appsync_resolver" "commit_allocation" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "commitAllocation"
+  data_source       = aws_appsync_datasource.commit_lambda.name
+  request_template  = file("${path.module}/resolvers/commit-allocation.req.vtl")
+  response_template = file("${path.module}/resolvers/commit-allocation.res.vtl")
 }
 
 # ---------- SSM: ops params + pass signing key placeholder ----------

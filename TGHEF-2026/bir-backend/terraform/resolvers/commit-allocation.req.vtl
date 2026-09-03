@@ -1,0 +1,7 @@
+## Pass the full context (identity + arguments) to the Lambda, which enforces
+## the admin-hospitality group and re-validates §3 server-side.
+{
+  "version": "2018-05-29",
+  "operation": "Invoke",
+  "payload": $util.toJson($context)
+}

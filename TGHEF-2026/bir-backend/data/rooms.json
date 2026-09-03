@@ -1,0 +1,113 @@
+[
+  {
+    "id": "r-surya-101",
+    "hotelName": "Hotel Surya Classic",
+    "roomLabel": "101",
+    "type": "twin",
+    "capacity": 2,
+    "doubleOccupancy": false,
+    "availability": {
+      "from": "2026-11-20",
+      "to": "2026-11-24",
+      "nights": [
+        "2026-11-20",
+        "2026-11-21",
+        "2026-11-22",
+        "2026-11-23"
+      ]
+    },
+    "contactPhone": "+911894268001",
+    "status": "active"
+  },
+  {
+    "id": "r-surya-102",
+    "hotelName": "Hotel Surya Classic",
+    "roomLabel": "102",
+    "type": "twin",
+    "capacity": 2,
+    "doubleOccupancy": false,
+    "availability": {
+      "from": "2026-11-20",
+      "to": "2026-11-24",
+      "nights": [
+        "2026-11-20",
+        "2026-11-21",
+        "2026-11-22",
+        "2026-11-23"
+      ]
+    },
+    "status": "active"
+  },
+  {
+    "id": "r-surya-201",
+    "hotelName": "Hotel Surya Classic",
+    "roomLabel": "201",
+    "type": "double",
+    "capacity": 2,
+    "doubleOccupancy": true,
+    "availability": {
+      "from": "2026-11-20",
+      "to": "2026-11-24",
+      "nights": [
+        "2026-11-20",
+        "2026-11-21",
+        "2026-11-22",
+        "2026-11-23"
+      ]
+    },
+    "status": "active"
+  },
+  {
+    "id": "r-deodar-c2",
+    "hotelName": "Deodar Homestay",
+    "propertyId": "partner-deodar",
+    "roomLabel": "Deodar Cottage 2",
+    "type": "triple",
+    "capacity": 3,
+    "doubleOccupancy": false,
+    "availability": {
+      "from": "2026-11-21",
+      "to": "2026-11-24",
+      "nights": [
+        "2026-11-21",
+        "2026-11-22",
+        "2026-11-23"
+      ]
+    },
+    "amenitiesNote": "Partner-programme complimentary room",
+    "status": "active"
+  },
+  {
+    "id": "r-colony-dorm",
+    "hotelName": "Tibetan Colony Guesthouse",
+    "roomLabel": "Dorm A",
+    "type": "dorm",
+    "capacity": 6,
+    "doubleOccupancy": false,
+    "availability": {
+      "from": "2026-11-20",
+      "to": "2026-11-24",
+      "nights": [
+        "2026-11-20",
+        "2026-11-21",
+        "2026-11-22",
+        "2026-11-23"
+      ]
+    },
+    "status": "active"
+  },
+  {
+    "id": "r-retired-x",
+    "hotelName": "Old Annexe",
+    "roomLabel": "X1",
+    "type": "twin",
+    "capacity": 2,
+    "doubleOccupancy": false,
+    "availability": {
+      "from": "2026-11-20",
+      "to": "2026-11-24",
+      "nights": []
+    },
+    "status": "retired"
+  }
+]

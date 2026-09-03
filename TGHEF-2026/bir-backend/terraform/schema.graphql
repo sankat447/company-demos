@@ -37,6 +37,8 @@ type Mutation {
   registerDevice(input: RegisterDeviceInput!): Ack
   # Lodging + badges (CO-003) — admin-hospitality guarded, server re-validates §3
   commitAllocation(input: CommitAllocationInput!): CommitResult
+    @aws_cognito_user_pools
+    @aws_iam
   issueBadge(input: IssueBadgeInput!): BadgeResult
   # Ops (CO-004)
   setFlyStatus(input: SetFlyStatusInput!): FlyStatus # safety-officer guarded
@@ -92,7 +94,7 @@ input CastVoteInput { eventId: ID! category: String idempotencyKey: String! }
 type PoolParticipant @aws_cognito_user_pools @aws_iam { regId: ID! name: String! competitionId: ID! gender: String! coupleGroupId: String nights: [String!]! needsLodging: Boolean! }
 type OccupancyCell { roomId: ID! night: String! occupied: Int! capacity: Int! }
 input CommitAllocationInput { assignments: AWSJSON! version: Int! actorNote: String idempotencyKey: String! }
-type CommitResult { version: Int! accepted: Boolean! violations: [String!] }
+type CommitResult @aws_cognito_user_pools @aws_iam { version: Int! accepted: Boolean! violations: [String!] }
 input IssueBadgeInput { regId: ID! idempotencyKey: String! }
 type BadgeResult { jti: ID! passToken: String! }
 
