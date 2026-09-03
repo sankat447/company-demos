@@ -128,6 +128,22 @@ export const CREATE_REGISTRATION = /* GraphQL */ `
   }
 `;
 
+// My registrations (CO-002, B1): the server-authoritative list for the signed-in
+// visitor — status/qrPassJti/answers reflect confirmations & waitlist promotions
+// made on any device. answers is AWSJSON (a JSON string) — parse on ingest.
+export const MY_REGISTRATIONS = /* GraphQL */ `
+  query MyRegistrations {
+    myRegistrations {
+      id
+      itemId
+      slotId
+      status
+      qrPassJti
+      answers
+    }
+  }
+`;
+
 // Room inventory (CO-003 P6.10 / ASK #27, B2c): admin-hospitality-guarded read.
 export const LODGING_ROOMS = /* GraphQL */ `
   query LodgingRooms {
@@ -192,6 +208,19 @@ export const LODGING_POOL = /* GraphQL */ `
       coupleGroupId
       nights
       needsLodging
+    }
+  }
+`;
+
+// Occupancy board (CO-003, B2): server-computed rooms×nights fill for a hotel,
+// from the latest committed allocation. admin-hospitality-guarded server-side.
+export const LODGING_OCCUPANCY = /* GraphQL */ `
+  query LodgingOccupancy($hotelName: String!) {
+    lodgingOccupancy(hotelName: $hotelName) {
+      roomId
+      night
+      occupied
+      capacity
     }
   }
 `;

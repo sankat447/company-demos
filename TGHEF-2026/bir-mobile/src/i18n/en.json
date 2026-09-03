@@ -210,6 +210,8 @@
     "commit": "Commit allocation",
     "committed": "Committed — participants will be notified.",
     "committedVersion": "Committed allocation v{{v}} is live. Auto-allocate to draft changes.",
+    "serverAccepted": "Server confirmed the allocation.",
+    "serverRejected": "The server rejected this commit — resolve and re-commit:",
     "gender_female": "F",
     "gender_male": "M",
     "gender_other": "Other",

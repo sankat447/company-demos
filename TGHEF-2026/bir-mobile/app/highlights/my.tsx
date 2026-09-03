@@ -8,7 +8,12 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { isEnabled } from '@/config/flags';
 import { addToDeviceCalendar, eventWindow } from '@/features/highlights/calendar';
 import { findItem, loadCatalog } from '@/features/highlights/catalog';
-import { cancelRegistration, kvRegistrationStore } from '@/features/highlights/registration';
+import {
+  cancelRegistration,
+  kvRegistrationStore,
+  mergeRegistrations,
+} from '@/features/highlights/registration';
+import { fetchMyRegistrations } from '@/features/highlights/myRegistrations';
 import type { RegistrationStatus } from '@/features/highlights/types';
 import {
   shouldIssueBadge,
@@ -44,9 +49,20 @@ export default function MyRegistrations() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [calendarNote, setCalendarNote] = useState<'added' | 'failed' | null>(null);
+  // Local kv is the offline-safe base; when online the server-authoritative
+  // myRegistrations (B1) merges over it so confirmations/waitlist promotions
+  // made on another device appear here too.
   const registrations = useQuery({
     queryKey: ['registrations'],
-    queryFn: () => store.list(),
+    queryFn: async () => {
+      const local = await store.list();
+      try {
+        const server = await fetchMyRegistrations(Date.now());
+        return mergeRegistrations(local, server, Date.now());
+      } catch {
+        return local;
+      }
+    },
     networkMode: 'always',
   });
   const catalog = useQuery({

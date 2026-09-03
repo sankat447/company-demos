@@ -4,13 +4,16 @@ import {
   beginPaidRegistration,
   cancelRegistration,
   kvRegistrationStore,
+  mapServerRegistrationStatus,
   markRegistration,
+  mergeRegistrations,
   normaliseRefundState,
   registrationKey,
   requiresPayment,
   submitFreeRegistration,
   validateForm,
 } from '@/features/highlights/registration';
+import type { Registration } from '@/features/highlights/types';
 import type { KvStore } from '@/offline/jwks';
 import { MemoryOutboxStore } from '@/offline/outbox';
 
@@ -99,7 +102,6 @@ describe('free path (outbox, offline-safe)', () => {
       itemId: 'yoga-sunrise',
       slotId: null,
       answers: '{"level":"beginner"}',
-      waitlist: false,
     });
     // ...but the local record keeps the object for rendering
     expect(reg.answers).toEqual({ level: 'beginner' });
@@ -164,8 +166,9 @@ describe('waitlist join (full item, waitlist allowed)', () => {
     );
     expect(reg.status).toBe('waitlisted');
 
+    // Intent stays local — the wire input has no waitlist field (server decides).
     const [head] = await outbox.dueHeads(NOW_MS);
-    expect(head.variables.waitlist).toBe(true);
+    expect(head.variables.waitlist).toBeUndefined();
   });
 
   it('live mode stays pending-sync — the server decides confirmed vs waitlisted', async () => {
@@ -223,5 +226,45 @@ describe('cancel → refund disposition', () => {
     expect(normaliseRefundState('none')).toBe('none');
     expect(normaliseRefundState('REFUND_INITIATED')).toBe('pending');
     expect(normaliseRefundState(null)).toBe('pending');
+  });
+});
+
+describe('myRegistrations merge (server authoritative, local preserved)', () => {
+  const local: Registration[] = [
+    { id: 'a', itemId: 'yoga', status: 'confirmed', answers: { x: '1' }, createdAtMs: 100 },
+    { id: 'b', itemId: 'pottery', status: 'pending-sync', answers: {}, createdAtMs: 200 },
+  ];
+
+  it('server wins on status/qrPassJti but keeps local createdAtMs and unsynced entries', () => {
+    const server: Registration[] = [
+      {
+        id: 'a',
+        itemId: 'yoga',
+        status: 'waitlisted',
+        qrPassJti: 'jti-a',
+        answers: {},
+        createdAtMs: 0,
+      },
+      { id: 'c', itemId: 'trek', status: 'confirmed', answers: { g: 'yes' }, createdAtMs: 0 },
+    ];
+    const merged = mergeRegistrations(local, server, 999);
+    const byId = Object.fromEntries(merged.map((r) => [r.id, r]));
+    // server overrode status + added a jti, but local createdAtMs + answers survive
+    expect(byId.a.status).toBe('waitlisted');
+    expect(byId.a.qrPassJti).toBe('jti-a');
+    expect(byId.a.createdAtMs).toBe(100);
+    expect(byId.a.answers).toEqual({ x: '1' });
+    // local-only unsynced entry is kept
+    expect(byId.b.status).toBe('pending-sync');
+    // server-only entry (made on another device) appears with nowMs
+    expect(byId.c.createdAtMs).toBe(999);
+    expect(byId.c.answers).toEqual({ g: 'yes' });
+  });
+
+  it('maps backend status strings and rejects unknowns', () => {
+    expect(mapServerRegistrationStatus('confirmed')).toBe('confirmed');
+    expect(mapServerRegistrationStatus('WAITLISTED')).toBe('waitlisted');
+    expect(mapServerRegistrationStatus('pending')).toBe('pending-sync');
+    expect(mapServerRegistrationStatus('weird')).toBeNull();
   });
 });

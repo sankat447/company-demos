@@ -7,7 +7,13 @@ import { badgesPdfHtml, participantNumber } from '@/features/badges/badges';
 import { issueParticipantBadge } from '@/features/badges/issue';
 import { isEnabled } from '@/config/flags';
 import { loadCatalog, findItem } from '@/features/highlights/catalog';
-import { loadAllocation, loadPool, rosterHtml } from '@/features/lodging/allocation';
+import {
+  fetchOccupancy,
+  loadAllocation,
+  loadPool,
+  rosterHtml,
+  type OccupancyCell,
+} from '@/features/lodging/allocation';
 import { kvRoomStore } from '@/features/lodging/rooms';
 import { LODGING_NIGHTS } from '@/features/lodging/types';
 import { kvStore } from '@/offline/db';
@@ -48,6 +54,20 @@ export default function Occupancy() {
   const byId = new Map((pool.data ?? []).map((p) => [p.regId, p]));
   const hotels = [...new Set((rooms.data ?? []).map((r) => r.hotelName))].sort();
   const competitions = [...new Set((pool.data ?? []).map((p) => p.competitionId))].sort();
+
+  // Server-authoritative occupancy (B2), keyed roomId::night. Empty in mock
+  // mode (no backend) — the grid then falls back to the local computation.
+  const occupancy = useQuery({
+    queryKey: ['lodging', 'occupancy', hotels.join('|')],
+    enabled: hotels.length > 0,
+    networkMode: 'always',
+    queryFn: async () => {
+      const all = await Promise.all(hotels.map((h) => fetchOccupancy(h).catch(() => [])));
+      const map = new Map<string, OccupancyCell>();
+      for (const cell of all.flat()) map.set(`${cell.roomId}::${cell.night}`, cell);
+      return map;
+    },
+  });
 
   const [issuing, setIssuing] = useState<string | null>(null);
 
@@ -131,21 +151,25 @@ export default function Occupancy() {
                   </Text>
                   {LODGING_NIGHTS.map((night) => {
                     const available = room.availability.nights.includes(night);
-                    const occupants = (allocation.data?.assignments ?? []).filter((a) => {
-                      const p = byId.get(a.regId);
-                      return a.roomId === room.id && p?.nights.includes(night);
-                    }).length;
+                    const serverCell = occupancy.data?.get(`${room.id}::${night}`);
+                    const occupants =
+                      serverCell?.occupied ??
+                      (allocation.data?.assignments ?? []).filter((a) => {
+                        const p = byId.get(a.regId);
+                        return a.roomId === room.id && p?.nights.includes(night);
+                      }).length;
+                    const capacity = serverCell?.capacity ?? room.capacity;
                     const fill = !available
                       ? styles.cellNA
                       : occupants === 0
                         ? styles.cellEmpty
-                        : occupants < room.capacity
+                        : occupants < capacity
                           ? styles.cellPartial
                           : styles.cellFull;
                     return (
                       <View key={night} style={[styles.cell, fill]}>
                         <Text style={styles.cellText}>
-                          {available ? `${occupants}/${room.capacity}` : '—'}
+                          {available ? `${occupants}/${capacity}` : '—'}
                         </Text>
                       </View>
                     );

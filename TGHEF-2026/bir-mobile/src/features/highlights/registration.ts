@@ -137,18 +137,20 @@ export async function submitFreeRegistration(
       // `answers` maps to the GraphQL AWSJSON scalar, which requires a JSON
       // STRING — AppSync rejects a raw object ("invalid value"). Serialize here;
       // the local record below keeps the object for rendering.
+      // The CreateRegistrationInput schema is {itemId, slotId, answers,
+      // idempotencyKey} — there is no waitlist field. The server decides
+      // confirmed vs waitlisted from live capacity, so intent stays local.
       variables: {
         itemId: input.item.id,
         slotId: input.slotId ?? null,
         answers: JSON.stringify(input.answers),
-        waitlist: input.waitlist ?? false,
       },
       idempotencyKey: id,
     },
     nowMs,
   );
-  // Live: always pending-sync — the server decides confirmed vs waitlisted.
-  // Mock: reflect the intent locally (waitlist join → waitlisted).
+  // Live: always pending-sync — the server's ack decides confirmed vs
+  // waitlisted (reconciled by the outbox drain). Mock: reflect intent locally.
   const status: RegistrationStatus = deps.mockMode
     ? input.waitlist
       ? 'waitlisted'
@@ -217,6 +219,49 @@ export async function markRegistration(
 export function normaliseRefundState(raw: string | null | undefined): RefundState {
   if (raw === 'none' || raw === 'processed') return raw;
   return 'pending';
+}
+
+/** Map the backend's registration status string onto our closed union. */
+export function mapServerRegistrationStatus(raw: unknown): RegistrationStatus | null {
+  switch (String(raw).toLowerCase()) {
+    case 'confirmed':
+      return 'confirmed';
+    case 'waitlisted':
+      return 'waitlisted';
+    case 'cancelled':
+      return 'cancelled';
+    case 'pending':
+    case 'pending-sync':
+      return 'pending-sync';
+    default:
+      return null; // unknown → don't downgrade the local record
+  }
+}
+
+/**
+ * Merge the server-authoritative registrations (myRegistrations, B1) over the
+ * local ones. The server wins for status/qrPassJti; local-only entries not yet
+ * synced (pending-sync/pending-payment) are kept, and local createdAtMs / badge
+ * / provisional refund fields are preserved so nothing the device knows is lost.
+ */
+export function mergeRegistrations(
+  local: Registration[],
+  server: Registration[],
+  nowMs: number,
+): Registration[] {
+  const byId = new Map(local.map((r) => [r.id, r]));
+  for (const s of server) {
+    const existing = byId.get(s.id);
+    byId.set(s.id, {
+      ...existing,
+      ...s,
+      answers: Object.keys(s.answers ?? {}).length ? s.answers : (existing?.answers ?? {}),
+      createdAtMs: existing?.createdAtMs ?? nowMs,
+      qrPassJti: s.qrPassJti ?? existing?.qrPassJti,
+      refundState: s.refundState ?? existing?.refundState,
+    });
+  }
+  return [...byId.values()];
 }
 
 /**

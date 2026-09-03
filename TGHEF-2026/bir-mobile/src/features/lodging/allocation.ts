@@ -4,7 +4,7 @@
  * Commit rides the outbox (idempotent); the backend re-validates §3 and
  * audit-logs (ASK #29) — actorNote accompanies every manual override.
  */
-import { gqlClient, LODGING_POOL } from '@/api/graphql';
+import { gqlClient, LODGING_OCCUPANCY, LODGING_POOL } from '@/api/graphql';
 import { isEnabled } from '@/config/flags';
 import type { KvStore } from '@/offline/jwks';
 import type { OutboxStore } from '@/offline/outbox';
@@ -13,6 +13,7 @@ import poolFixture from './__fixtures__/pool.mock.json';
 import type { Assignment, Participant, Room } from './types';
 
 const ALLOC_KEY = 'lodging.allocations';
+const COMMIT_RESULT_KEY = 'lodging.lastCommitResult';
 
 /** The allocation pool (B2a). admin-hospitality-guarded server-side. */
 export async function loadPool(): Promise<Participant[]> {
@@ -21,6 +22,57 @@ export async function loadPool(): Promise<Participant[]> {
     data?: { lodgingPool?: Participant[] };
   };
   return res.data?.lodgingPool ?? [];
+}
+
+/** Server-computed occupancy cell for a hotel's rooms × nights grid (B2). */
+export interface OccupancyCell {
+  roomId: string;
+  night: string;
+  occupied: number;
+  capacity: number;
+}
+
+/**
+ * Fetch the authoritative occupancy grid for one hotel (B2). Mock mode has no
+ * backend, so it returns [] and the board falls back to the local computation.
+ */
+export async function fetchOccupancy(hotelName: string): Promise<OccupancyCell[]> {
+  if (isEnabled('mockLodging')) return [];
+  const res = (await gqlClient().graphql({
+    query: LODGING_OCCUPANCY,
+    variables: { hotelName },
+  })) as { data?: { lodgingOccupancy?: OccupancyCell[] } };
+  return res.data?.lodgingOccupancy ?? [];
+}
+
+/**
+ * Outcome of the server's re-validation of a commit (B2). Persisted by the
+ * outbox reconcile so the allocate screen can surface a rejection even though
+ * the mutation itself drained asynchronously.
+ */
+export interface CommitResult {
+  version: number;
+  accepted: boolean;
+  violations: string[];
+  atMs: number;
+}
+
+export async function saveCommitResult(kv: KvStore, result: CommitResult): Promise<void> {
+  await kv.set(COMMIT_RESULT_KEY, JSON.stringify(result));
+}
+
+export async function loadCommitResult(kv: KvStore): Promise<CommitResult | null> {
+  const raw = await kv.get(COMMIT_RESULT_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as CommitResult;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearCommitResult(kv: KvStore): Promise<void> {
+  await kv.set(COMMIT_RESULT_KEY, '');
 }
 
 export interface CommittedAllocation {
@@ -72,6 +124,9 @@ export async function commitAllocation(
     version,
   };
   await deps.kv.set(ALLOC_KEY, JSON.stringify(committed));
+  // Clear any prior server verdict; the reconcile writes the fresh one when the
+  // mutation drains (mock mode has no backend, so none arrives).
+  await clearCommitResult(deps.kv);
   return committed;
 }
 
