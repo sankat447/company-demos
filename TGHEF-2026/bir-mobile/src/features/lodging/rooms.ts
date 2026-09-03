@@ -3,6 +3,7 @@
  * flags.mockLodging; the real CRUD is admin-guarded backend API (ASK #27 —
  * the server enforces the admin-hospitality group and audit-logs writes).
  */
+import { gqlClient, LODGING_ROOMS } from '@/api/graphql';
 import { isEnabled } from '@/config/flags';
 import type { KvStore } from '@/offline/jwks';
 
@@ -54,9 +55,17 @@ export function kvRoomStore(kv: KvStore): RoomStore {
         // fall through to seed
       }
     }
-    // First run in mock mode: seed the fixture (incl. the partner
-    // complimentary room, which is read-only-sourced but allocatable).
-    const seed = isEnabled('mockLodging') ? (roomsFixture.rooms as Room[]) : [];
+    // Mock mode seeds the fixture (incl. the partner complimentary room). Live
+    // mode (B2c) fetches the admin-guarded lodgingRooms query and caches it.
+    let seed: Room[];
+    if (isEnabled('mockLodging')) {
+      seed = roomsFixture.rooms as Room[];
+    } else {
+      const res = (await gqlClient().graphql({ query: LODGING_ROOMS })) as {
+        data?: { lodgingRooms?: Room[] };
+      };
+      seed = res.data?.lodgingRooms ?? [];
+    }
     await kv.set(ROOMS_KEY, JSON.stringify(seed));
     return seed;
   }

@@ -166,6 +166,16 @@ data "archive_file" "commit_allocation" {
   source_dir  = "${path.module}/lambda/commit-allocation"
   output_path = "${path.module}/.build/commit-allocation.zip"
 }
+data "archive_file" "lodging_occupancy" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/lodging-occupancy"
+  output_path = "${path.module}/.build/lodging-occupancy.zip"
+}
+data "archive_file" "issue_badge" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/issue-badge"
+  output_path = "${path.module}/.build/issue-badge.zip"
+}
 
 resource "aws_iam_role" "lambda" {
   name = "${local.name}-lambda-role"
@@ -246,6 +256,28 @@ resource "aws_lambda_function" "commit_allocation" {
   environment { variables = { TABLE = aws_dynamodb_table.main.name } }
 }
 
+resource "aws_lambda_function" "lodging_occupancy" {
+  function_name    = "${local.name}-lodging-occupancy"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.lodging_occupancy.output_path
+  source_code_hash = data.archive_file.lodging_occupancy.output_base64sha256
+  timeout          = 15
+  environment { variables = { TABLE = aws_dynamodb_table.main.name } }
+}
+
+resource "aws_lambda_function" "issue_badge" {
+  function_name    = "${local.name}-issue-badge"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.issue_badge.output_path
+  source_code_hash = data.archive_file.issue_badge.output_base64sha256
+  timeout          = 10
+  environment { variables = { TABLE = aws_dynamodb_table.main.name, ISSUER_KID = var.issuer_kid, PRIVATE_KEY_PARAM = "/${local.name}/passes/private-key" } }
+}
+
 # Payment webhook needs a public URL for Razorpay to POST to.
 resource "aws_lambda_function_url" "payment_webhook" {
   function_name      = aws_lambda_function.payment_webhook.function_name
@@ -253,7 +285,7 @@ resource "aws_lambda_function_url" "payment_webhook" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
-  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation"])
+  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge"])
   name              = "/aws/lambda/${local.name}-${each.key}"
   retention_in_days = var.log_retention_days
 }
@@ -346,7 +378,7 @@ resource "aws_iam_role_policy" "appsync_lambda" {
   role = aws_iam_role.appsync_lambda.id
   policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = aws_lambda_function.commit_allocation.arn }]
+    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = [aws_lambda_function.commit_allocation.arn, aws_lambda_function.lodging_occupancy.arn, aws_lambda_function.issue_badge.arn] }]
   })
 }
 resource "aws_appsync_datasource" "commit_lambda" {
@@ -363,6 +395,64 @@ resource "aws_appsync_resolver" "commit_allocation" {
   data_source       = aws_appsync_datasource.commit_lambda.name
   request_template  = file("${path.module}/resolvers/commit-allocation.req.vtl")
   response_template = file("${path.module}/resolvers/commit-allocation.res.vtl")
+}
+
+# B2c: room inventory read + CRUD (VTL on DDB, admin-hospitality guarded).
+resource "aws_appsync_resolver" "lodging_rooms" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "lodgingRooms"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/lodging-rooms.req.vtl")
+  response_template = file("${path.module}/resolvers/lodging-rooms.res.vtl")
+}
+resource "aws_appsync_resolver" "save_room" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "saveRoom"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/save-room.req.vtl")
+  response_template = file("${path.module}/resolvers/save-room.res.vtl")
+}
+resource "aws_appsync_resolver" "retire_room" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "retireRoom"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/retire-room.req.vtl")
+  response_template = file("${path.module}/resolvers/retire-room.res.vtl")
+}
+
+# B2c: occupancy board + participant badge — Lambda-backed (compute / ES256 sign).
+resource "aws_appsync_datasource" "occupancy_lambda" {
+  api_id           = aws_appsync_graphql_api.main.id
+  name             = "LodgingOccupancyLambda"
+  type             = "AWS_LAMBDA"
+  service_role_arn = aws_iam_role.appsync_lambda.arn
+  lambda_config { function_arn = aws_lambda_function.lodging_occupancy.arn }
+}
+resource "aws_appsync_resolver" "lodging_occupancy" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "lodgingOccupancy"
+  data_source       = aws_appsync_datasource.occupancy_lambda.name
+  request_template  = file("${path.module}/resolvers/lambda-invoke.req.vtl")
+  response_template = file("${path.module}/resolvers/lambda-invoke.res.vtl")
+}
+resource "aws_appsync_datasource" "badge_lambda" {
+  api_id           = aws_appsync_graphql_api.main.id
+  name             = "IssueBadgeLambda"
+  type             = "AWS_LAMBDA"
+  service_role_arn = aws_iam_role.appsync_lambda.arn
+  lambda_config { function_arn = aws_lambda_function.issue_badge.arn }
+}
+resource "aws_appsync_resolver" "issue_badge" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "issueBadge"
+  data_source       = aws_appsync_datasource.badge_lambda.name
+  request_template  = file("${path.module}/resolvers/lambda-invoke.req.vtl")
+  response_template = file("${path.module}/resolvers/lambda-invoke.res.vtl")
 }
 
 # ---------- SSM: ops params + pass signing key placeholder ----------

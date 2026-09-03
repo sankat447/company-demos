@@ -128,6 +128,29 @@ export const CREATE_REGISTRATION = /* GraphQL */ `
   }
 `;
 
+// Room inventory (CO-003 P6.10 / ASK #27, B2c): admin-hospitality-guarded read.
+export const LODGING_ROOMS = /* GraphQL */ `
+  query LodgingRooms {
+    lodgingRooms {
+      id
+      hotelName
+      propertyId
+      roomLabel
+      type
+      capacity
+      doubleOccupancy
+      availability {
+        from
+        to
+        nights
+      }
+      amenitiesNote
+      contactPhone
+      status
+    }
+  }
+`;
+
 // Lodging pool (CO-003, ASK #28 / B2a): confirmed participants who need lodging.
 // admin-hospitality-guarded server-side. gender is lodging-only (never on badges).
 export const LODGING_POOL = /* GraphQL */ `

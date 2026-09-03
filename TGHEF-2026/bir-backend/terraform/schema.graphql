@@ -16,7 +16,8 @@ type Query {
   # Lodging (CO-003) — admin-hospitality guarded (resolver re-checks the group;
   # IAM callers are trusted server/admin). Reachable by both auth modes.
   lodgingPool: [PoolParticipant!]! @aws_cognito_user_pools @aws_iam
-  lodgingOccupancy(hotelName: String!): [OccupancyCell!]!
+  lodgingRooms: [LodgingRoom!]! @aws_cognito_user_pools @aws_iam
+  lodgingOccupancy(hotelName: String!): [OccupancyCell!]! @aws_cognito_user_pools @aws_iam
   # Volunteer (CO-004)
   volunteerRoster: VolunteerProfile
   # Partner (CO-004)
@@ -39,7 +40,9 @@ type Mutation {
   commitAllocation(input: CommitAllocationInput!): CommitResult
     @aws_cognito_user_pools
     @aws_iam
-  issueBadge(input: IssueBadgeInput!): BadgeResult
+  saveRoom(input: SaveRoomInput!): LodgingRoom @aws_cognito_user_pools @aws_iam
+  retireRoom(input: RetireRoomInput!): LodgingRoom @aws_cognito_user_pools @aws_iam
+  issueBadge(input: IssueBadgeInput!): BadgeResult @aws_cognito_user_pools @aws_iam
   # Ops (CO-004)
   setFlyStatus(input: SetFlyStatusInput!): FlyStatus # safety-officer guarded
   recordAttendance(input: RecordAttendanceInput!): Ack
@@ -92,11 +95,26 @@ input CastVoteInput { eventId: ID! category: String idempotencyKey: String! }
 
 # --- lodging + badges (CO-003) ---
 type PoolParticipant @aws_cognito_user_pools @aws_iam { regId: ID! name: String! competitionId: ID! gender: String! coupleGroupId: String nights: [String!]! needsLodging: Boolean! }
-type OccupancyCell { roomId: ID! night: String! occupied: Int! capacity: Int! }
+type OccupancyCell @aws_cognito_user_pools @aws_iam { roomId: ID! night: String! occupied: Int! capacity: Int! }
 input CommitAllocationInput { assignments: AWSJSON! version: Int! actorNote: String idempotencyKey: String! }
 type CommitResult @aws_cognito_user_pools @aws_iam { version: Int! accepted: Boolean! violations: [String!] }
 input IssueBadgeInput { regId: ID! idempotencyKey: String! }
-type BadgeResult { jti: ID! passToken: String! }
+type BadgeResult @aws_cognito_user_pools @aws_iam { jti: ID! passToken: String! }
+
+# Room inventory (CO-003 P6.10 / ASK #27). admin-hospitality-guarded CRUD.
+type RoomAvailability @aws_cognito_user_pools @aws_iam { from: String! to: String! nights: [String!]! }
+type LodgingRoom @aws_cognito_user_pools @aws_iam {
+  id: ID! hotelName: String! propertyId: String roomLabel: String! type: String!
+  capacity: Int! doubleOccupancy: Boolean! availability: RoomAvailability!
+  amenitiesNote: String contactPhone: String status: String!
+}
+input RoomAvailabilityInput { from: String! to: String! nights: [String!]! }
+input SaveRoomInput {
+  id: ID! hotelName: String! propertyId: String roomLabel: String! type: String!
+  capacity: Int! doubleOccupancy: Boolean! availability: RoomAvailabilityInput!
+  amenitiesNote: String contactPhone: String status: String! idempotencyKey: String!
+}
+input RetireRoomInput { id: ID! status: String! idempotencyKey: String! }
 
 # --- volunteer (CO-004) ---
 type Shift { id: ID! date: String! zone: String! role: String! startsAtSec: AWSTimestamp! endsAtSec: AWSTimestamp! }

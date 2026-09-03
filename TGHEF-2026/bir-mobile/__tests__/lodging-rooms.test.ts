@@ -1,3 +1,7 @@
+// rooms.ts imports the GraphQL client for the live read path (B2c); these tests
+// run in mock mode, so stub the module to keep Amplify out.
+jest.mock('@/api/graphql', () => ({ gqlClient: jest.fn(), LODGING_ROOMS: 'LODGING_ROOMS_DOC' }));
+
 import roomsFixture from '@/features/lodging/__fixtures__/rooms.mock.json';
 import { kvRoomStore, newRoomId, validateRoom } from '@/features/lodging/rooms';
 import type { Room } from '@/features/lodging/types';
