@@ -5,12 +5,8 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import {
-  loadRoster,
-  markAttendance,
-  recordedAttendance,
-  type Shift,
-} from '@/features/volunteers/volunteer';
+import { loadRoster } from '@/features/volunteers/roster';
+import { markAttendance, recordedAttendance, type Shift } from '@/features/volunteers/volunteer';
 import { kvStore } from '@/offline/db';
 import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
 import { Screen } from '@/ui/Screen';

@@ -423,6 +423,34 @@ resource "aws_appsync_resolver" "retire_room" {
   response_template = file("${path.module}/resolvers/retire-room.res.vtl")
 }
 
+# B3: Volunteer domain (CO-004) — all VTL-direct on the table. Roster is a
+# member-facing GetItem keyed by the caller's own sub; attendance + incidents
+# are idempotent PutItems (the app's outbox key is the sort key).
+resource "aws_appsync_resolver" "volunteer_roster" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "volunteerRoster"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/volunteer-roster.req.vtl")
+  response_template = file("${path.module}/resolvers/volunteer-roster.res.vtl")
+}
+resource "aws_appsync_resolver" "record_attendance" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "recordAttendance"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/record-attendance.req.vtl")
+  response_template = file("${path.module}/resolvers/record-attendance.res.vtl")
+}
+resource "aws_appsync_resolver" "report_incident" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "reportIncident"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/report-incident.req.vtl")
+  response_template = file("${path.module}/resolvers/report-incident.res.vtl")
+}
+
 # B2c: occupancy board + participant badge — Lambda-backed (compute / ES256 sign).
 resource "aws_appsync_datasource" "occupancy_lambda" {
   api_id           = aws_appsync_graphql_api.main.id

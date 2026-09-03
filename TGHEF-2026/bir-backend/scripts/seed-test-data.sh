@@ -24,6 +24,14 @@ log "Seeding sample confirmed competition registrations (lodging pool)"
 put '{"pk":{"S":"REG"},"sk":{"S":"reg:p1:him-queen-2026:na"},"name":{"S":"Anita Thakur"},"competitionId":{"S":"him-queen-2026"},"gender":{"S":"female"},"nights":{"L":[{"S":"2026-11-21"},{"S":"2026-11-22"},{"S":"2026-11-23"}]},"needsLodging":{"BOOL":true},"status":{"S":"confirmed"}}'
 put '{"pk":{"S":"REG"},"sk":{"S":"reg:p4:him-prince-2026:na"},"name":{"S":"Rohan Katoch"},"competitionId":{"S":"him-prince-2026"},"gender":{"S":"male"},"nights":{"L":[{"S":"2026-11-22"},{"S":"2026-11-23"}]},"needsLodging":{"BOOL":true},"status":{"S":"confirmed"}}'
 
+log "Seeding volunteer roster (B3)"
+# The roster is keyed by the volunteer's Cognito sub (VOL#<sub>). For a live
+# smoke test, set VOL_TEST_SUB to a real volunteer-group user's sub so their
+# app shows this profile; otherwise a placeholder id is used for structure.
+VOL_SUB="${VOL_TEST_SUB:-vol-demo-1}"
+put '{"pk":{"S":"VOL"},"sk":{"S":"'"$VOL_SUB"'"},"sub":{"S":"'"$VOL_SUB"'"},"name":{"S":"Tenzin Dorje"},"team":{"S":"Gate & Access"},"idVerified":{"BOOL":true},"shifts":{"L":[{"M":{"id":{"S":"sh-21-gateA"},"date":{"S":"2026-11-21"},"zone":{"S":"Chogan Gate A"},"role":{"S":"Scanner"},"startsAtSec":{"N":"1795233600"},"endsAtSec":{"N":"1795262400"}}},{"M":{"id":{"S":"sh-22-landing"},"date":{"S":"2026-11-22"},"zone":{"S":"Bir Landing"},"role":{"S":"Crowd steward"},"startsAtSec":{"N":"1795320000"},"endsAtSec":{"N":"1795348800"}}}]}}'
+ok "volunteer roster seeded (sub=$VOL_SUB)"
+
 log "Seeding room inventory (source of truth for commit-allocation re-validation)"
 TABLE="$TABLE" AWS_PROFILE="$AWS_PROFILE" AWS_REGION="$AWS_REGION" \
   node "${BACKEND_DIR}/scripts/seed-rooms.mjs" && ok "rooms seeded" || warn "room seed failed"

@@ -5,11 +5,8 @@
  * Pure over injected stores; the real data comes from GraphQL rosters
  * (BACKEND_ASKS) with the fixture behind flags.mockVolunteer.
  */
-import { isEnabled } from '@/config/flags';
 import type { KvStore } from '@/offline/jwks';
 import type { OutboxStore } from '@/offline/outbox';
-
-import rosterFixture from './__fixtures__/roster.mock.json';
 
 export interface Shift {
   id: string;
@@ -27,11 +24,6 @@ export interface VolunteerProfile {
   idVerified: boolean;
   shifts: Shift[];
   certificateJti?: string;
-}
-
-export async function loadRoster(): Promise<VolunteerProfile> {
-  if (isEnabled('mockVolunteer')) return rosterFixture as VolunteerProfile;
-  throw new Error('volunteer roster unavailable — rosters query pending (ASK #33)');
 }
 
 // ---- attendance (QR check-in / check-out, outbox-safe) ----

@@ -257,11 +257,30 @@ export const SET_FLY_STATUS = /* GraphQL */ `
   }
 `;
 
+// Volunteer roster (CO-004, B3): the signed-in volunteer's own profile + shifts.
+export const VOLUNTEER_ROSTER = /* GraphQL */ `
+  query VolunteerRoster {
+    volunteerRoster {
+      sub
+      name
+      team
+      idVerified
+      certificateJti
+      shifts {
+        id
+        date
+        zone
+        role
+        startsAtSec
+        endsAtSec
+      }
+    }
+  }
+`;
+
 export const RECORD_ATTENDANCE = /* GraphQL */ `
   mutation RecordAttendance($input: RecordAttendanceInput!) {
     recordAttendance(input: $input) {
-      shiftId
-      kind
       accepted
     }
   }

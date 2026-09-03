@@ -1,0 +1,10 @@
+## Return the volunteer's profile as-is (fields mirror VolunteerProfile:
+## sub/name/team/idVerified/shifts[{id,date,zone,role,startsAtSec,endsAtSec}]/
+## certificateJti). A missing profile is a hard error the client surfaces.
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+#if($util.isNull($ctx.result))
+  $util.error("no volunteer profile for this account", "NotFound")
+#end
+$util.toJson($ctx.result)
