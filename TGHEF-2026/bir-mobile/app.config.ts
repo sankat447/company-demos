@@ -10,7 +10,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'Bir',
   slug: 'bir-app',
-  version: '0.4.5',
+  version: '0.4.6',
   scheme: 'bir',
   orientation: 'portrait',
   icon: './assets/icon.png',
@@ -29,7 +29,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'org.birfestival.app',
-    versionCode: 7,
+    versionCode: 8,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#17232B',
