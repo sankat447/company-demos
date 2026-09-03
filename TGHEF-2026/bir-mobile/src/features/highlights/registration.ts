@@ -126,7 +126,14 @@ export async function submitFreeRegistration(
     {
       aggregate: `registrations:${input.sub}`,
       mutation: 'createRegistration',
-      variables: { itemId: input.item.id, slotId: input.slotId ?? null, answers: input.answers },
+      // `answers` maps to the GraphQL AWSJSON scalar, which requires a JSON
+      // STRING — AppSync rejects a raw object ("invalid value"). Serialize here;
+      // the local record below keeps the object for rendering.
+      variables: {
+        itemId: input.item.id,
+        slotId: input.slotId ?? null,
+        answers: JSON.stringify(input.answers),
+      },
       idempotencyKey: id,
     },
     nowMs,

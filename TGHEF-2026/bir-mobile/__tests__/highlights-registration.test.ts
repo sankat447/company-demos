@@ -92,11 +92,14 @@ describe('free path (outbox, offline-safe)', () => {
     expect(head.mutation).toBe('createRegistration');
     expect(head.aggregate).toBe('registrations:u1');
     expect(head.idempotencyKey).toBe('reg:u1:yoga-sunrise:na');
+    // answers is serialized for the GraphQL AWSJSON scalar (string, not object)
     expect(head.variables).toEqual({
       itemId: 'yoga-sunrise',
       slotId: null,
-      answers: { level: 'beginner' },
+      answers: '{"level":"beginner"}',
     });
+    // ...but the local record keeps the object for rendering
+    expect(reg.answers).toEqual({ level: 'beginner' });
 
     // double-tap → single queue entry, record overwritten not duplicated
     await submitFreeRegistration(
