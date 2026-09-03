@@ -45,6 +45,17 @@
     "demoAccess": "Demo · all roles active",
     "visitorRole": "Visitor"
   },
+  "intro": {
+    "skip": "Skip",
+    "next": "Next",
+    "start": "Feel the Bir",
+    "p1Title": "Welcome to Bir",
+    "p1Body": "Three days above the valley — 21–23 November at Bir–Billing, the paragliding capital of India. Flight, music, food and mountain culture, in one festival.",
+    "p2Title": "Your whole festival, in one app",
+    "p2Body": "Buy and carry your pass, register for highlights and experiences, and keep the day's schedule in your pocket.",
+    "p3Title": "Live, and ready off-grid",
+    "p3Body": "Watch live fly-status from the take-off, breeze through gates even in airplane mode, and reach help fast with SOS. Let's go."
+  },
   "home": {
     "todayAtFestival": "Today at the festival",
     "flyFlying": "Flying today: YES — conditions are good.",

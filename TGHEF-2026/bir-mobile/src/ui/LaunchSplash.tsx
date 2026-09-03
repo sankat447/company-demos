@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Dimensions, Easing, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Circle, G, Path } from 'react-native-svg';
+import Svg, { Circle, Defs, G, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
 
 import { palette, typeScale } from '@/ui/tokens';
 
@@ -90,23 +90,41 @@ export function LaunchSplash({ onDone }: { onDone: () => void }) {
   return (
     <View style={styles.root}>
       <LinearGradient colors={['#0e1a22', '#17232B', '#22403a']} style={StyleSheet.absoluteFill} />
-      {/* ridgeline + flight line */}
+      {/* frigid snow peaks + lush ridge + flight line */}
       <Svg
         style={styles.mtn}
         width={W}
-        height={140}
-        viewBox="0 0 340 120"
+        height={180}
+        viewBox="0 0 340 150"
         preserveAspectRatio="none"
       >
-        <Path d="M0 120 L0 92 L70 66 L140 90 L210 60 L280 86 L340 66 L340 120 Z" fill="#0a1418" />
+        <Defs>
+          <SvgGradient id="splashPeak" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#EAF1F5" />
+            <Stop offset="0.45" stopColor="#B9CCD8" />
+            <Stop offset="1" stopColor="#3E6B8C" />
+          </SvgGradient>
+        </Defs>
+        {/* flight line above the peaks */}
         <Path
-          d="M20 84 C 90 70, 200 96, 300 54"
+          d="M20 44 C 90 30, 200 56, 300 18"
           stroke={palette.marigold}
           strokeWidth={1.6}
           strokeDasharray="5 5"
           fill="none"
           opacity={0.8}
         />
+        {/* frigid snow-capped peaks */}
+        <Path
+          d="M0 150 L0 92 L70 58 L140 96 L210 52 L280 88 L340 62 L340 150 Z"
+          fill="url(#splashPeak)"
+          opacity={0.96}
+        />
+        <Path d="M210 52 L197 80 L206 76 L210 90 L215 74 L226 80 Z" fill="#F5F9FB" />
+        <Path d="M70 58 L58 84 L67 80 L70 92 L75 76 L86 82 Z" fill="#F5F9FB" />
+        {/* lush pine ridge anchored to the bottom */}
+        <Path d="M0 150 L0 116 L110 96 L230 122 L340 100 L340 150 Z" fill="#2E5E4E" />
+        <Path d="M0 150 L0 132 L120 120 L260 138 L340 124 L340 150 Z" fill="#20473B" />
       </Svg>
 
       <Animated.View style={[styles.center, { opacity: intro }]}>
