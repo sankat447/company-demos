@@ -32,6 +32,14 @@ VOL_SUB="${VOL_TEST_SUB:-vol-demo-1}"
 put '{"pk":{"S":"VOL"},"sk":{"S":"'"$VOL_SUB"'"},"sub":{"S":"'"$VOL_SUB"'"},"name":{"S":"Tenzin Dorje"},"team":{"S":"Gate & Access"},"idVerified":{"BOOL":true},"shifts":{"L":[{"M":{"id":{"S":"sh-21-gateA"},"date":{"S":"2026-11-21"},"zone":{"S":"Chogan Gate A"},"role":{"S":"Scanner"},"startsAtSec":{"N":"1795233600"},"endsAtSec":{"N":"1795262400"}}},{"M":{"id":{"S":"sh-22-landing"},"date":{"S":"2026-11-22"},"zone":{"S":"Bir Landing"},"role":{"S":"Crowd steward"},"startsAtSec":{"N":"1795320000"},"endsAtSec":{"N":"1795348800"}}}]}}'
 ok "volunteer roster seeded (sub=$VOL_SUB)"
 
+log "Seeding partner consoles (B4) — keyed by the partner's Cognito sub"
+# Uses the same test principal as the roster (add it to the 'partner' group for a
+# live smoke test). analytics / allocations are native lists → AWSJSON on output.
+PARTNER_SUB="${PARTNER_TEST_SUB:-$VOL_SUB}"
+put '{"pk":{"S":"STALL"},"sk":{"S":"'"$PARTNER_SUB"'"},"stallName":{"S":"Kangra Kitchen"},"category":{"S":"Local food · siddu & dham"},"stage":{"S":"approved"},"allocationLabel":{"S":"Food Street · Stall F-12"},"feeInr":{"N":"3500"},"paid":{"BOOL":false},"analytics":{"L":[{"M":{"day":{"S":"2026-11-21"},"ordersEstimate":{"N":"220"},"footfallIndex":{"N":"78"}}},{"M":{"day":{"S":"2026-11-22"},"ordersEstimate":{"N":"310"},"footfallIndex":{"N":"91"}}},{"M":{"day":{"S":"2026-11-23"},"ordersEstimate":{"N":"265"},"footfallIndex":{"N":"84"}}}]},"rules":{"L":[{"S":"Single-use plastic is prohibited across the food street."},{"S":"Serve on deposit-return cups and plates only."}]},"rulesHi":{"L":[{"S":"फ़ूड स्ट्रीट पर एकल-उपयोग प्लास्टिक निषिद्ध है।"},{"S":"केवल डिपॉज़िट-रिटर्न कप और प्लेट में परोसें।"}]}}'
+put '{"pk":{"S":"HOSP"},"sk":{"S":"'"$PARTNER_SUB"'"},"hotelName":{"S":"Deodar Homestay"},"tier":{"S":"11+ rooms → two complimentary twin-sharing rooms, two nights"},"complimentaryRooms":{"N":"2"},"allocations":{"L":[{"M":{"regId":{"S":"reg:p1:him-queen-2026:na"},"guestName":{"S":"Anita Thakur"},"roomLabel":{"S":"Deodar Cottage 2"},"nights":{"L":[{"S":"2026-11-21"},{"S":"2026-11-22"},{"S":"2026-11-23"}]},"checkedIn":{"BOOL":false}}},{"M":{"regId":{"S":"reg:p6:chef-local:na"},"guestName":{"S":"Karan Verma"},"roomLabel":{"S":"Pine Suite"},"nights":{"L":[{"S":"2026-11-20"},{"S":"2026-11-21"}]},"checkedIn":{"BOOL":true}}}]}}'
+ok "partner consoles seeded (sub=$PARTNER_SUB)"
+
 log "Seeding room inventory (source of truth for commit-allocation re-validation)"
 TABLE="$TABLE" AWS_PROFILE="$AWS_PROFILE" AWS_REGION="$AWS_REGION" \
   node "${BACKEND_DIR}/scripts/seed-rooms.mjs" && ok "rooms seeded" || warn "room seed failed"

@@ -216,8 +216,11 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       caller's profile, both mutations persist + are idempotent). `mockVolunteer`
       stays on for the offline demo/eval build; flip off in the live contract
       for on-device live runs (ASKs #33–34; #34 photo signed-URL upload deferred).
-- [ ] **B4** Partner domain live: `stallConsole`/`hospitalityConsole` resolvers; **flip
-      `mockPartner` off**.
+- [x] **B4** Partner domain live: `stallConsole`/`hospitalityConsole` resolvers (VTL-direct
+      GetItem keyed by the caller's own sub, `partner`-group guarded; analytics/allocations
+      stored as native lists, coerced to AWSJSON on output and parsed client-side). Deployed + verified end-to-end with a real partner-group token (both consoles return; AWSJSON
+      round-trips; a non-partner token is rejected `Unauthorized`). `mockPartner` stays on
+      for the offline demo/eval build; flip off in the live contract for on-device runs.
 - [ ] **B5** Payments path end-to-end: REST API Gateway `payments.orderPath` +
       `createOrder`/`getOrder`; `payment-webhook` marks the order CONFIRMED and mints pass
       tokens via `pass-signer`; `onOrderConfirmed` subscription verified (ASKs #14, #15).

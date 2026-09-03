@@ -451,6 +451,26 @@ resource "aws_appsync_resolver" "report_incident" {
   response_template = file("${path.module}/resolvers/report-incident.res.vtl")
 }
 
+# B4: Partner consoles (CO-004) — VTL-direct GetItems keyed by the caller's own
+# sub, partner-group guarded. analytics / allocations are stored as native lists
+# and coerced to the AWSJSON scalar on output (the client parses them).
+resource "aws_appsync_resolver" "stall_console" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "stallConsole"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/stall-console.req.vtl")
+  response_template = file("${path.module}/resolvers/stall-console.res.vtl")
+}
+resource "aws_appsync_resolver" "hospitality_console" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "hospitalityConsole"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/hospitality-console.req.vtl")
+  response_template = file("${path.module}/resolvers/hospitality-console.res.vtl")
+}
+
 # B2c: occupancy board + participant badge — Lambda-backed (compute / ES256 sign).
 resource "aws_appsync_datasource" "occupancy_lambda" {
   api_id           = aws_appsync_graphql_api.main.id

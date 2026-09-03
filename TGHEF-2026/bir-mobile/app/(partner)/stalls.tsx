@@ -3,7 +3,8 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { loadStallConsole, STALL_STAGES, stallProgress } from '@/features/partner/partner';
+import { loadStallConsole } from '@/features/partner/console';
+import { STALL_STAGES, stallProgress } from '@/features/partner/partner';
 import { pickLang } from '@/i18n';
 import { Screen } from '@/ui/Screen';
 import { color, radius, spacing, typeScale, palette } from '@/ui/tokens';

@@ -3,11 +3,8 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import {
-  loadHospitalityConsole,
-  occupancySummary,
-  type Allocation,
-} from '@/features/partner/partner';
+import { loadHospitalityConsole } from '@/features/partner/console';
+import { occupancySummary, type Allocation } from '@/features/partner/partner';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
 

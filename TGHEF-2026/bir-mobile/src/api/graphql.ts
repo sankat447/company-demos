@@ -257,6 +257,35 @@ export const SET_FLY_STATUS = /* GraphQL */ `
   }
 `;
 
+// Partner consoles (CO-004, B4): the signed-in partner's own console.
+// analytics / allocations are AWSJSON (JSON strings) — parse on ingest.
+export const STALL_CONSOLE = /* GraphQL */ `
+  query StallConsole {
+    stallConsole {
+      stallName
+      category
+      stage
+      allocationLabel
+      feeInr
+      paid
+      analytics
+      rules
+      rulesHi
+    }
+  }
+`;
+
+export const HOSPITALITY_CONSOLE = /* GraphQL */ `
+  query HospitalityConsole {
+    hospitalityConsole {
+      hotelName
+      tier
+      complimentaryRooms
+      allocations
+    }
+  }
+`;
+
 // Volunteer roster (CO-004, B3): the signed-in volunteer's own profile + shifts.
 export const VOLUNTEER_ROSTER = /* GraphQL */ `
   query VolunteerRoster {
