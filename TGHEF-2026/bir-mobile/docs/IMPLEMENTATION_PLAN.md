@@ -12,27 +12,39 @@ Festival freeze: **7 November** (only P0 fixes after).
 
 ---
 
+> **Status update (2026-09-03).** Two tracks now run in parallel. **Track A** below is
+> the mobile client — Phases 0–4 are complete, plus the CO-002 (Highlights) and CO-003
+> (lodging & badges) extensions in Phases 5–6. **Track B** (new, at the end of this file)
+> is the AWS backend: the original plan assumed the backend "already existed elsewhere",
+> but it is now the sibling **`bir-backend`** Terraform project (deployed, us-east-1). Its
+> AppSync resolvers and Lambda bodies are still being wired, so the client runs on the
+> `flags.mock*` fixtures until each domain's resolver lands — flipping those off, domain by
+> domain, is the current critical path. A self-contained **demo/evaluation build** (example
+> contract → OTP `123456`, all roles, mocks on, payments off) is published for testing via
+> the QR page, and organizers collect real seed data through
+> `bir-backend/data-collection/Bir_Festival_2026_Data_Collection.xlsx`.
+
 ## Phase 0 — Repo bootstrap & contract plumbing
 
-- [ ] **P0.1** Init Expo (TS strict), expo-router, ESLint/Prettier, Jest, Maestro skeleton;
+- [x] **P0.1** Init Expo (TS strict), expo-router, ESLint/Prettier, Jest, Maestro skeleton;
       commit `CLAUDE.md`, docs/, `.easignore`.
-- [ ] **P0.2** `schemas/stack-contract.schema.json` + `src/config/stack.ts` typed accessor + `npm run contract:check`; check in `config/stack-outputs.example.json`.
-- [ ] **P0.3** Amplify v6 runtime configuration from contract (no CLI, no `amplify pull`);
+- [x] **P0.2** `schemas/stack-contract.schema.json` + `src/config/stack.ts` typed accessor + `npm run contract:check`; check in `config/stack-outputs.example.json`.
+- [x] **P0.3** Amplify v6 runtime configuration from contract (no CLI, no `amplify pull`);
       smoke test: unauthenticated AppSync health query.
-- [ ] **P0.4** Design system: tokens from docs/BRAND.md (colors, spacing, type scale,
+- [x] **P0.4** Design system: tokens from docs/BRAND.md (colors, spacing, type scale,
       flight-line divider component, paraglider spinner); Storybook-on-device screen.
-- [ ] **P0.5** i18n scaffold (en/hi), locale switcher, Devanagari font check on both OSes.
+- [x] **P0.5** i18n scaffold (en/hi), locale switcher, Devanagari font check on both OSes.
 
 **Gate 0:** app boots on Android emulator + iOS simulator, shows branded shell in
 English & Hindi, `contract:check` green in CI.
 
 ## Phase 1 — Identity & roles
 
-- [ ] **P1.1** Cognito OTP phone auth flow (enter phone → OTP → session), secure token
+- [x] **P1.1** Cognito OTP phone auth flow (enter phone → OTP → session), secure token
       storage, silent refresh, sign-out.
-- [ ] **P1.2** Role resolution from Cognito groups → route gating (visitor/partner/
+- [x] **P1.2** Role resolution from Cognito groups → route gating (visitor/partner/
       volunteer tab sets); deep-link auth guard.
-- [ ] **P1.3** Profile & consent screen driven by contract consent registry; DPDP copy
+- [x] **P1.3** Profile & consent screen driven by contract consent registry; DPDP copy
       in en+hi.
 
 **Gate 1:** Maestro flow `auth-otp.yaml` passes on both platforms; tokens survive app
@@ -40,13 +52,13 @@ kill; wrong-OTP and offline-during-OTP paths handled.
 
 ## Phase 2 — Offline core (build this before any feature that depends on it)
 
-- [ ] **P2.1** SQLite schema + migrations: `passes`, `revocations`, `scans`, `schedule`,
+- [x] **P2.1** SQLite schema + migrations: `passes`, `revocations`, `scans`, `schedule`,
       `roster`, `outbox`, `kv`.
-- [ ] **P2.2** Outbox engine: enqueue(mutation, idempotencyKey), FIFO drain per aggregate,
+- [x] **P2.2** Outbox engine: enqueue(mutation, idempotencyKey), FIFO drain per aggregate,
       retry w/ backoff+jitter, poison queue surfaced in a debug screen.
-- [ ] **P2.3** JWKS fetch/cache/rotation (`passes.jwksPath`), ES256 verifier (pure-JS or
+- [x] **P2.3** JWKS fetch/cache/rotation (`passes.jwksPath`), ES256 verifier (pure-JS or
       quick native via `react-native-quick-crypto`), unit tests incl. expired/nbf/bad-kid.
-- [ ] **P2.4** Delta sync jobs: schedule + revocations pull on foreground & on push nudge.
+- [x] **P2.4** Delta sync jobs: schedule + revocations pull on foreground & on push nudge.
 
 **Gate 2:** unit suite proves verify() <50 ms median on mid-range Android; airplane-mode
 test: verifier accepts valid pass, rejects revoked one from cached list.
@@ -65,8 +77,10 @@ test: verifier accepts valid pass, rejects revoked one from cached list.
       with consent).
 - [x] **P3.4** Push registration: FCM/APNs token → Pinpoint endpoint w/ role+locale
       attributes; quiet-hours preference UI.
-- [ ] **P3.5** Preview channel build: `eas build --profile preview` universal APK;
+- [~] **P3.5** Preview channel build: `eas build --profile preview` universal APK;
       verify install-from-QR flow end-to-end using DISTRIBUTION.md §3.
+      _Partial: a local-gradle **evaluation APK** ships via the S3/QR page (install-from-QR
+      verified on device + emulator); the EAS `preview` profile build is still to run._
 
 **Gate 3:** e2e `buy-ticket.yaml` and `show-pass-offline.yaml` green; preview APK
 installed on a physical device via the QR page; push received with app backgrounded.
@@ -174,6 +188,50 @@ verifies on the offline scanner.
 
 **Gate 7 (GO/NO-GO, 7 Nov):** all e2e green on physical devices (1 low-end Android,
 1 recent Android, 1 iPhone), crash-free sessions ≥99.5% on internal track for 7 days.
+
+---
+
+## Track B — Backend implementation (`../bir-backend`)
+
+New since the original plan, which assumed a pre-existing backend. The backend is now the
+sibling **`bir-backend`** Terraform project. Provisioning lives there, never in
+`bir-mobile`. Each domain task ends by **flipping its `flags.mock*` off and re-verifying
+the client against live data** — that is the acceptance test. Privileged mutations MUST
+re-check the Cognito group server-side and audit-log overrides (`actorNote`).
+
+- [x] **B0** Infra: Terraform stack (Cognito + 6 role groups + Identity Pool, AppSync,
+      DynamoDB single-table w/ streams + PITR, S3 + CloudFront, 4 Lambdas, SSM), one-command
+      `deploy.sh`/`destroy.sh`, tag-scoped teardown, cost estimate; ES256 key → SSM, JWKS
+      published; health smoke; seed data. **Deployed** (acct 406337554361, us-east-1).
+- [ ] **B1** Highlights domain live: AppSync resolvers for `highlightsCatalog`,
+      `createRegistration`, `cancelRegistration` over DynamoDB; publish the catalog to
+      `highlights.catalogPath`; **flip `mockHighlights` off** (ASKs #21–26). ← _start here_
+- [ ] **B2** Lodging & badges domain live: `lodgingPool`/`lodgingOccupancy`/`commitAllocation`
+      (server re-validates the §3 constraints, `admin-hospitality`-guarded) + `issueBadge`;
+      **flip `mockLodging` off** (ASKs #27–32).
+- [ ] **B3** Volunteer domain live: `volunteerRoster`/`recordAttendance`/`reportIncident`
+      resolvers; **flip `mockVolunteer` off** (ASKs #33–34).
+- [ ] **B4** Partner domain live: `stallConsole`/`hospitalityConsole` resolvers; **flip
+      `mockPartner` off**.
+- [ ] **B5** Payments path end-to-end: REST API Gateway `payments.orderPath` +
+      `createOrder`/`getOrder`; `payment-webhook` marks the order CONFIRMED and mints pass
+      tokens via `pass-signer`; `onOrderConfirmed` subscription verified (ASKs #14, #15).
+- [ ] **B6** Auth + pass Lambda bodies: `custom-auth` real random OTP over SNS SMS;
+      `pass-signer` `issuePass`/`issueBadge`/`revoke`; revocations delta feed.
+- [ ] **B7** Data importer: `bir-backend/data-collection` workbook → DynamoDB seed rows
+      (dates/times → epoch, cross-sheet id resolution) + Cognito users & role-group
+      membership for the Users & Roles tab.
+- [ ] **B8** AI endpoints: REST API GW + Lambda → Bedrock for `ai.assistantPath`,
+      `ai.plannerPath`, `ai.translatePath`, `ai.queuePredictPath` (unblocks P6.1–6.4).
+- [ ] **B9** Push + geo services: Pinpoint app + FCM/APNs platform endpoints (`push.*`);
+      Location Service geofences + shuttle tracker (`geo.*`).
+- [ ] **B10** Ops resolvers: `recordScan`, `setFlyStatus` (`safety-officer`-guarded) + SNS
+      fly-status fanout + refund auto-queue.
+
+**Gate B:** for each domain, the client runs with its `mock*` flag OFF against the live
+stack (`contract:check` green on the emitted `stack-outputs.json`); every privileged
+mutation is rejected for the wrong Cognito group in a direct API test; the self-contained
+demo/eval build (mocks on, example contract) still works unchanged for offline testing.
 
 ---
 
