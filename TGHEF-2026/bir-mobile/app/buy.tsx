@@ -117,6 +117,13 @@ export default function Buy() {
       {state === 'failed' ? <Text style={styles.error}>{t('buy.failed')}</Text> : null}
       {state === 'cancelled' ? <Text style={styles.error}>{t('buy.cancelled')}</Text> : null}
 
+      {selected && state !== 'confirming' && state !== 'stillPending' ? (
+        <View style={styles.methods}>
+          <Text style={styles.methodsText}>{t('buy.methods')}</Text>
+          <Text style={styles.securedText}>{t('buy.securedBy')}</Text>
+        </View>
+      ) : null}
+
       <Pressable
         style={[
           styles.payButton,
@@ -125,9 +132,13 @@ export default function Buy() {
         onPress={pay}
         disabled={!selected || state === 'paying' || state === 'confirming'}
         accessibilityRole="button"
-        accessibilityLabel={t('buy.pay')}
+        accessibilityLabel={
+          state === 'failed' || state === 'cancelled' ? t('buy.tryAgain') : t('buy.pay')
+        }
       >
-        <Text style={styles.payText}>{t('buy.pay')}</Text>
+        <Text style={styles.payText}>
+          {state === 'failed' || state === 'cancelled' ? t('buy.tryAgain') : t('buy.pay')}
+        </Text>
       </Pressable>
     </Screen>
   );
@@ -152,6 +163,9 @@ const styles = StyleSheet.create({
   statusText: { ...typeScale.body, color: color.text },
   statusNote: { ...typeScale.caption, color: color.textMuted, textAlign: 'center' },
   error: { ...typeScale.body, color: color.danger, paddingVertical: spacing.sm },
+  methods: { alignItems: 'center', gap: 2, marginBottom: spacing.sm },
+  methodsText: { ...typeScale.caption, color: color.text, fontWeight: '600' },
+  securedText: { ...typeScale.caption, color: color.textMuted, fontSize: 11 },
   payButton: {
     backgroundColor: color.primary,
     borderRadius: radius.md,

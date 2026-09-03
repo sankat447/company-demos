@@ -269,7 +269,10 @@
     "confirmNote": "Confirmation comes from the payment provider's webhook — this can take a moment. Your money is safe either way.",
     "stillPending": "Taking longer than usual. Your ticket will appear in the wallet as soon as it's confirmed.",
     "failed": "Payment not completed. Nothing is charged without confirmation — please try again.",
-    "cancelled": "Payment cancelled."
+    "cancelled": "Payment cancelled.",
+    "methods": "UPI · Cards · Netbanking · Wallet",
+    "securedBy": "Secured by Paytm",
+    "tryAgain": "Try again"
   },
   "tickets": {
     "myPasses": "My passes",

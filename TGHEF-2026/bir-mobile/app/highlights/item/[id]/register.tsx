@@ -35,7 +35,7 @@ import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/
 const outbox = new SqliteOutboxStore();
 const store = kvRegistrationStore(kvStore);
 
-type FlowState = 'form' | 'submitting' | 'confirming' | 'done' | 'queued' | 'failed';
+type FlowState = 'form' | 'submitting' | 'confirming' | 'done' | 'queued' | 'failed' | 'cancelled';
 
 function Field({
   field,
@@ -185,7 +185,7 @@ export default function Register() {
           locale: currentLocale(),
         });
         if (outcome.state !== 'submitted') {
-          setState('failed');
+          setState(outcome.state === 'cancelled' ? 'cancelled' : 'failed');
           return;
         }
         setState('confirming');
@@ -330,6 +330,12 @@ export default function Register() {
                 {t('highlights.feeNote', { amount: item.fee!.amount })}
               </Text>
             ) : null}
+            {paid && !waitlistMode && !paidBlocked ? (
+              <View style={styles.methods}>
+                <Text style={styles.methodsText}>{t('buy.methods')}</Text>
+                <Text style={styles.securedText}>{t('buy.securedBy')}</Text>
+              </View>
+            ) : null}
             {paidBlocked ? (
               <View style={styles.blocker}>
                 <Text style={styles.blockerText}>
@@ -349,6 +355,9 @@ export default function Register() {
                 {paid ? t('buy.failed') : t('highlights.regFailed')}
               </Text>
             ) : null}
+            {state === 'cancelled' ? (
+              <Text style={styles.errorText}>{t('buy.cancelled')}</Text>
+            ) : null}
             {errors.length ? (
               <Text style={styles.errorText}>{t('highlights.formErrors')}</Text>
             ) : null}
@@ -367,7 +376,11 @@ export default function Register() {
               accessibilityLabel={ctaLabel}
             >
               <Text style={styles.ctaText}>
-                {state === 'confirming' ? t('buy.confirming') : ctaLabel}
+                {state === 'confirming'
+                  ? t('buy.confirming')
+                  : state === 'failed' || state === 'cancelled'
+                    ? t('buy.tryAgain')
+                    : ctaLabel}
               </Text>
             </Pressable>
           </>
@@ -418,6 +431,9 @@ const styles = StyleSheet.create({
   },
   consentText: { ...typeScale.caption, color: color.textMuted, flex: 1, lineHeight: 17 },
   feeNote: { ...typeScale.body, color: palette.pine, fontWeight: '600', marginTop: spacing.sm },
+  methods: { alignItems: 'center', gap: 2, marginTop: spacing.sm },
+  methodsText: { ...typeScale.caption, color: color.text, fontWeight: '600' },
+  securedText: { ...typeScale.caption, color: color.textMuted, fontSize: 11 },
   blocker: {
     marginTop: spacing.sm,
     backgroundColor: '#FCF3E3',
