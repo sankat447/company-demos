@@ -1,13 +1,18 @@
 import { Redirect } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import { View } from 'react-native';
 
 import { useAuth } from '@/auth/useAuth';
+import { LaunchSplash } from '@/ui/LaunchSplash';
 import { ParagliderSpinner } from '@/ui/ParagliderSpinner';
 import { color } from '@/ui/tokens';
 
 export default function Index() {
   const auth = useAuth();
+  const [splashDone, setSplashDone] = useState(false);
+
+  // Launch moment first (the glider sways → flies → engulfs), then route.
+  if (!splashDone) return <LaunchSplash onDone={() => setSplashDone(true)} />;
 
   if (auth.status === 'loading') {
     return (
