@@ -10,7 +10,13 @@
 import type { KvStore } from '@/offline/jwks';
 import type { OutboxStore } from '@/offline/outbox';
 
-import type { FormField, HighlightItem, Registration, RegistrationStatus } from './types';
+import type {
+  FormField,
+  HighlightItem,
+  RefundState,
+  Registration,
+  RegistrationStatus,
+} from './types';
 
 // ---------- validation ----------
 
@@ -108,6 +114,8 @@ export interface SubmitInput {
   item: HighlightItem;
   slotId?: string;
   answers: Record<string, string>;
+  /** The item is full but takes a waitlist — record intent, not a confirmed seat. */
+  waitlist?: boolean;
 }
 
 /**
@@ -133,12 +141,19 @@ export async function submitFreeRegistration(
         itemId: input.item.id,
         slotId: input.slotId ?? null,
         answers: JSON.stringify(input.answers),
+        waitlist: input.waitlist ?? false,
       },
       idempotencyKey: id,
     },
     nowMs,
   );
-  const status: RegistrationStatus = deps.mockMode ? 'confirmed' : 'pending-sync';
+  // Live: always pending-sync — the server decides confirmed vs waitlisted.
+  // Mock: reflect the intent locally (waitlist join → waitlisted).
+  const status: RegistrationStatus = deps.mockMode
+    ? input.waitlist
+      ? 'waitlisted'
+      : 'confirmed'
+    : 'pending-sync';
   const registration: Registration = {
     id,
     itemId: input.item.id,
@@ -185,12 +200,23 @@ export async function markRegistration(
   store: RegistrationStore,
   id: string,
   status: RegistrationStatus,
-  qrPassJti?: string,
+  extra?: { qrPassJti?: string; refundState?: RefundState },
 ): Promise<void> {
   const all = await store.list();
   const existing = all.find((r) => r.id === id);
   if (!existing) return;
-  await store.upsert({ ...existing, status, qrPassJti: qrPassJti ?? existing.qrPassJti });
+  await store.upsert({
+    ...existing,
+    status,
+    qrPassJti: extra?.qrPassJti ?? existing.qrPassJti,
+    refundState: extra?.refundState ?? existing.refundState,
+  });
+}
+
+/** Normalise the backend's refundState string onto our closed union. */
+export function normaliseRefundState(raw: string | null | undefined): RefundState {
+  if (raw === 'none' || raw === 'processed') return raw;
+  return 'pending';
 }
 
 /**
@@ -200,7 +226,7 @@ export async function markRegistration(
  */
 export async function cancelRegistration(
   deps: SubmitDeps,
-  input: { sub: string; registrationId: string },
+  input: { sub: string; registrationId: string; paid?: boolean },
   nowMs: number,
 ): Promise<void> {
   if (!deps.mockMode) {
@@ -214,7 +240,12 @@ export async function cancelRegistration(
       nowMs,
     );
   }
-  await markRegistration(deps.store, input.registrationId, 'cancelled');
+  // Provisional refund disposition so the UI reflects it immediately. A free
+  // item has nothing to refund; a paid one starts as pending (T+2). In live
+  // mode the outbox reconcile overwrites this with the server's authoritative
+  // RegistrationAck.refundState when the mutation drains.
+  const refundState: RefundState = input.paid ? 'pending' : 'none';
+  await markRegistration(deps.store, input.registrationId, 'cancelled', { refundState });
 }
 
 // ---------- helpers for the form renderer ----------

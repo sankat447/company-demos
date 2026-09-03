@@ -89,6 +89,14 @@ export interface HighlightsCatalog {
 export type RegistrationStatus =
   'draft' | 'pending-payment' | 'pending-sync' | 'confirmed' | 'waitlisted' | 'cancelled';
 
+/**
+ * Refund disposition after a cancellation. The backend is authoritative
+ * (RegistrationAck.refundState); the app renders whatever it is told. `none`
+ * means nothing to refund (a free item); `pending`/`processed` track a paid
+ * item's T+2 refund. Unknown strings from the server render as `pending`.
+ */
+export type RefundState = 'none' | 'pending' | 'processed';
+
 export interface Registration {
   id: string;
   itemId: string;
@@ -97,4 +105,6 @@ export interface Registration {
   qrPassJti?: string;
   answers: Record<string, string>;
   createdAtMs: number;
+  /** Set once cancelled; drives the refund note in My Registrations. */
+  refundState?: RefundState;
 }

@@ -105,6 +105,13 @@ export default function MyRegistrations() {
               {reg.status === 'pending-sync' ? (
                 <Text style={styles.pendingNote}>{t('highlights.queuedBody')}</Text>
               ) : null}
+              {reg.status === 'cancelled' && reg.refundState && reg.refundState !== 'none' ? (
+                <Text style={styles.refundNote}>
+                  {reg.refundState === 'processed'
+                    ? t('highlights.refundProcessed')
+                    : t('highlights.refundPending')}
+                </Text>
+              ) : null}
               {(() => {
                 const lodging = lodgingCardFor(
                   reg.id,
@@ -193,7 +200,7 @@ export default function MyRegistrations() {
                       const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'demo-user');
                       await cancelRegistration(
                         { outbox, store, mockMode: isEnabled('mockHighlights') },
-                        { sub, registrationId: reg.id },
+                        { sub, registrationId: reg.id, paid: (item?.fee?.amount ?? 0) > 0 },
                         Date.now(),
                       );
                       await queryClient.invalidateQueries({ queryKey: ['registrations'] });
@@ -235,6 +242,7 @@ const styles = StyleSheet.create({
   cardTitle: { ...typeScale.heading, color: color.text, flex: 1 },
   cardMeta: { ...typeScale.caption, color: color.textMuted },
   pendingNote: { ...typeScale.caption, color: palette.slate },
+  refundNote: { ...typeScale.caption, color: palette.pine, fontWeight: '600' },
   chip: { borderRadius: 999, paddingVertical: 3, paddingHorizontal: 9 },
   chipOk: { backgroundColor: '#E4EEE8' },
   chipWarn: { backgroundColor: '#FCF3E3' },

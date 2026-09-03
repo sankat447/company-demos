@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { badgesPdfHtml, participantNumber } from '@/features/badges/badges';
+import { issueParticipantBadge } from '@/features/badges/issue';
+import { isEnabled } from '@/config/flags';
 import { loadCatalog, findItem } from '@/features/highlights/catalog';
 import { loadAllocation, loadPool, rosterHtml } from '@/features/lodging/allocation';
 import { kvRoomStore } from '@/features/lodging/rooms';
@@ -47,23 +49,38 @@ export default function Occupancy() {
   const hotels = [...new Set((rooms.data ?? []).map((r) => r.hotelName))].sort();
   const competitions = [...new Set((pool.data ?? []).map((p) => p.competitionId))].sort();
 
-  const printBadges = async (competitionId: string) => {
+  const [issuing, setIssuing] = useState<string | null>(null);
+
+  // Admin bulk issue + print (B2d). In live mode each participant gets a real
+  // ES256-signed badge from the admin-guarded issueBadge mutation, and the
+  // printed lanyard carries that pass jti; mock builds print a demo note only.
+  const issueAndPrintBadges = async (competitionId: string) => {
     const item = catalog.data ? findItem(catalog.data, competitionId) : null;
-    const entries = (pool.data ?? [])
-      .filter((p) => p.competitionId === competitionId)
-      .map((p) => ({
-        name: p.name,
-        number: participantNumber(`demo-badge-${competitionId}-${p.regId}`),
-        jtiNote: p.regId,
-      }));
-    if (!entries.length) return;
-    const Print = await import('expo-print');
-    const Sharing = await import('expo-sharing');
-    const { uri } = await Print.printToFileAsync({
-      html: badgesPdfHtml(item?.title ?? competitionId, entries),
-    });
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, { mimeType: 'application/pdf' });
+    const participants = (pool.data ?? []).filter((p) => p.competitionId === competitionId);
+    if (!participants.length) return;
+    const live = !isEnabled('mockLodging');
+    setIssuing(competitionId);
+    try {
+      const entries = await Promise.all(
+        participants.map(async (p) => {
+          const jti = live ? await issueParticipantBadge(p.regId).catch(() => null) : null;
+          return {
+            name: p.name,
+            number: participantNumber(`badge-${competitionId}-${p.regId}`),
+            jtiNote: jti ?? p.regId,
+          };
+        }),
+      );
+      const Print = await import('expo-print');
+      const Sharing = await import('expo-sharing');
+      const { uri } = await Print.printToFileAsync({
+        html: badgesPdfHtml(item?.title ?? competitionId, entries),
+      });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf' });
+      }
+    } finally {
+      setIssuing(null);
     }
   };
 
@@ -141,17 +158,21 @@ export default function Occupancy() {
         <View style={styles.legend}>
           <Text style={styles.legendText}>{t('lodging.legend')}</Text>
         </View>
-        <Text style={styles.badgesTitle}>{t('lodging.printBadges')}</Text>
+        <Text style={styles.badgesTitle}>{t('lodging.issueBadges')}</Text>
+        <Text style={styles.badgesHint}>{t('lodging.issueBadgesHint')}</Text>
         <View style={styles.badgesRow}>
           {competitions.map((competitionId) => (
             <Pressable
               key={competitionId}
-              style={styles.print}
-              onPress={() => printBadges(competitionId)}
+              style={[styles.print, issuing === competitionId && styles.printBusy]}
+              disabled={issuing !== null}
+              onPress={() => issueAndPrintBadges(competitionId)}
               accessibilityRole="button"
-              accessibilityLabel={`${t('lodging.printBadges')} ${competitionId}`}
+              accessibilityLabel={`${t('lodging.issueBadges')} ${competitionId}`}
             >
-              <Text style={styles.printText}>{competitionId}</Text>
+              <Text style={styles.printText}>
+                {issuing === competitionId ? t('lodging.issuing') : competitionId}
+              </Text>
             </Pressable>
           ))}
         </View>
@@ -179,6 +200,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  printBusy: { opacity: 0.5 },
   printText: { fontSize: 12, color: color.info, fontWeight: '600' },
   gridHead: { flexDirection: 'row', gap: 4, marginBottom: 4 },
   gridHeadText: { fontSize: 10, color: color.textMuted, fontWeight: '700', textAlign: 'center' },
@@ -203,6 +225,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     marginBottom: spacing.xs,
   },
+  badgesHint: { ...typeScale.caption, color: color.textMuted, marginBottom: spacing.xs },
   badgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   legendText: { ...typeScale.caption, color: color.textMuted },
 });

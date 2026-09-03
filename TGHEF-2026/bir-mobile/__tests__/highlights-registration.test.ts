@@ -2,8 +2,10 @@ import mockCatalog from '@/features/highlights/__fixtures__/catalog.mock.json';
 import { parseCatalog, findItem } from '@/features/highlights/catalog';
 import {
   beginPaidRegistration,
+  cancelRegistration,
   kvRegistrationStore,
   markRegistration,
+  normaliseRefundState,
   registrationKey,
   requiresPayment,
   submitFreeRegistration,
@@ -97,6 +99,7 @@ describe('free path (outbox, offline-safe)', () => {
       itemId: 'yoga-sunrise',
       slotId: null,
       answers: '{"level":"beginner"}',
+      waitlist: false,
     });
     // ...but the local record keeps the object for rendering
     expect(reg.answers).toEqual({ level: 'beginner' });
@@ -137,7 +140,7 @@ describe('paid path (webhook-confirmed, never faked)', () => {
       idempotencyKey: 'reg:u1:pottery-wheel:na',
     });
 
-    await markRegistration(store, registration.id, 'confirmed', 'act-jti-1');
+    await markRegistration(store, registration.id, 'confirmed', { qrPassJti: 'act-jti-1' });
     const [stored] = await store.list();
     expect(stored.status).toBe('confirmed');
     expect(stored.qrPassJti).toBe('act-jti-1');
@@ -145,5 +148,80 @@ describe('paid path (webhook-confirmed, never faked)', () => {
 
   it('slot id participates in the idempotency key', () => {
     expect(registrationKey('u1', 'paragliding', 'pg-21-am')).toBe('reg:u1:paragliding:pg-21-am');
+  });
+});
+
+describe('waitlist join (full item, waitlist allowed)', () => {
+  it('records intent (not a seat) and forwards waitlist=true to the backend', async () => {
+    const outbox = new MemoryOutboxStore();
+    const store = kvRegistrationStore(memoryKv());
+
+    // mock mode reflects the intent locally
+    const reg = await submitFreeRegistration(
+      { outbox, store, mockMode: true },
+      { sub: 'u1', item: byId('yoga-sunrise'), answers: {}, waitlist: true },
+      NOW_MS,
+    );
+    expect(reg.status).toBe('waitlisted');
+
+    const [head] = await outbox.dueHeads(NOW_MS);
+    expect(head.variables.waitlist).toBe(true);
+  });
+
+  it('live mode stays pending-sync — the server decides confirmed vs waitlisted', async () => {
+    const reg = await submitFreeRegistration(
+      { outbox: new MemoryOutboxStore(), store: kvRegistrationStore(memoryKv()), mockMode: false },
+      { sub: 'u1', item: byId('yoga-sunrise'), answers: {}, waitlist: true },
+      NOW_MS,
+    );
+    expect(reg.status).toBe('pending-sync');
+  });
+});
+
+describe('cancel → refund disposition', () => {
+  it('a paid item cancels to a pending refund; a free item to none', async () => {
+    const store = kvRegistrationStore(memoryKv());
+    const outbox = new MemoryOutboxStore();
+    // seed two confirmed registrations
+    await markRegistration(store, 'reg:u1:paragliding:na', 'confirmed');
+    await store.upsert({
+      id: 'reg:u1:paragliding:na',
+      itemId: 'paragliding',
+      status: 'confirmed',
+      answers: {},
+      createdAtMs: NOW_MS,
+    });
+    await store.upsert({
+      id: 'reg:u1:yoga-sunrise:na',
+      itemId: 'yoga-sunrise',
+      status: 'confirmed',
+      answers: {},
+      createdAtMs: NOW_MS,
+    });
+
+    await cancelRegistration(
+      { outbox, store, mockMode: true },
+      { sub: 'u1', registrationId: 'reg:u1:paragliding:na', paid: true },
+      NOW_MS,
+    );
+    await cancelRegistration(
+      { outbox, store, mockMode: true },
+      { sub: 'u1', registrationId: 'reg:u1:yoga-sunrise:na', paid: false },
+      NOW_MS,
+    );
+
+    const all = await store.list();
+    const paid = all.find((r) => r.id === 'reg:u1:paragliding:na')!;
+    const free = all.find((r) => r.id === 'reg:u1:yoga-sunrise:na')!;
+    expect(paid.status).toBe('cancelled');
+    expect(paid.refundState).toBe('pending');
+    expect(free.refundState).toBe('none');
+  });
+
+  it('normaliseRefundState clamps unknown server strings to pending', () => {
+    expect(normaliseRefundState('processed')).toBe('processed');
+    expect(normaliseRefundState('none')).toBe('none');
+    expect(normaliseRefundState('REFUND_INITIATED')).toBe('pending');
+    expect(normaliseRefundState(null)).toBe('pending');
   });
 });

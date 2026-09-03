@@ -10,7 +10,7 @@ import { issueDemoActivityPass } from '@/demo/demo';
 import { getFlyStatus } from '@/features/flight-status/flyStatus';
 import { awaitOrderConfirmation, ingestPassTokens } from '@/features/tickets/purchase';
 import { savePass } from '@/features/tickets/passStore';
-import { findItem, loadCatalog } from '@/features/highlights/catalog';
+import { capacityState, findItem, loadCatalog } from '@/features/highlights/catalog';
 import {
   beginPaidRegistration,
   fieldLabel,
@@ -135,7 +135,10 @@ export default function Register() {
 
   const paid = requiresPayment(item);
   const mockMode = isEnabled('mockHighlights');
-  const paidBlocked = paid && (!online || mockMode);
+  // Full item that takes a waitlist: joining is free (you pay only if promoted),
+  // so the fee/payment gates don't apply to a waitlist join.
+  const waitlistMode = capacityState(item).state === 'waitlist';
+  const paidBlocked = paid && !waitlistMode && (!online || mockMode);
   const weatherHold = weatherBlocked(item, fly.data?.state ?? null);
 
   const submit = async (target: HighlightItem) => {
@@ -149,21 +152,23 @@ export default function Register() {
       const session = await fetchAuthSession().catch(() => null);
       const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'demo-user');
 
-      if (!paid) {
+      // A waitlist join uses the free path regardless of fee — no seat, no pay.
+      if (!paid || waitlistMode) {
         const registration = await submitFreeRegistration(
           { outbox, store, mockMode },
-          { sub, item: target, slotId, answers },
+          { sub, item: target, slotId, answers, waitlist: waitlistMode },
           Date.now(),
         );
         // Demo-only: mock-confirmed gate-checked items get a locally-signed
-        // activity pass so the wallet + verifier path demos end-to-end.
-        if (mockMode && target.gateChecked) {
+        // activity pass so the wallet + verifier path demos end-to-end. A
+        // waitlisted entry has no confirmed seat, so it issues no pass.
+        if (mockMode && target.gateChecked && !waitlistMode) {
           const jti = await issueDemoActivityPass(
             { kv: kvStore, savePass },
             { itemId: target.id, slotId, sub },
             Date.now(),
           );
-          if (jti) await markRegistration(store, registration.id, 'confirmed', jti);
+          if (jti) await markRegistration(store, registration.id, 'confirmed', { qrPassJti: jti });
         }
         setState(online ? 'done' : 'queued');
       } else {
@@ -195,7 +200,7 @@ export default function Register() {
           );
           qrPassJti = claims[0]?.jti;
         }
-        await markRegistration(store, registration.id, 'confirmed', qrPassJti);
+        await markRegistration(store, registration.id, 'confirmed', { qrPassJti });
         setState('done');
       }
       await queryClient.invalidateQueries({ queryKey: ['registrations'] });
@@ -204,8 +209,9 @@ export default function Register() {
     }
   };
 
-  const ctaLabel =
-    item.regMode === 'register-participation'
+  const ctaLabel = waitlistMode
+    ? t('highlights.joinWaitlist')
+    : item.regMode === 'register-participation'
       ? t('highlights.registerParticipation')
       : t('highlights.register');
   const hasError = (key: string) => errors.some((e) => e.field === key);
@@ -216,10 +222,18 @@ export default function Register() {
         {state === 'done' || state === 'queued' ? (
           <View style={styles.doneBox}>
             <Text style={styles.doneTitle}>
-              {state === 'queued' ? t('highlights.queuedTitle') : t('highlights.doneTitle')}
+              {waitlistMode
+                ? t('highlights.waitlistDoneTitle')
+                : state === 'queued'
+                  ? t('highlights.queuedTitle')
+                  : t('highlights.doneTitle')}
             </Text>
             <Text style={styles.doneBody}>
-              {state === 'queued' ? t('highlights.queuedBody') : t('highlights.doneBody')}
+              {waitlistMode
+                ? t('highlights.waitlistDoneBody')
+                : state === 'queued'
+                  ? t('highlights.queuedBody')
+                  : t('highlights.doneBody')}
             </Text>
             <Pressable
               style={styles.cta}
@@ -307,7 +321,11 @@ export default function Register() {
               </View>
             ) : null}
 
-            {paid ? (
+            {waitlistMode ? (
+              <View style={styles.blocker}>
+                <Text style={styles.blockerText}>{t('highlights.waitlistNote')}</Text>
+              </View>
+            ) : paid ? (
               <Text style={styles.feeNote}>
                 {t('highlights.feeNote', { amount: item.fee!.amount })}
               </Text>
