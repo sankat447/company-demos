@@ -40,7 +40,8 @@ cat > "${MOBILE_DIR}/config/stack-outputs.json" <<JSON
   },
   "realtime": { "alertTopicArnParam": "/bir/sns/emergency" },
   "geo": { "geofenceCollection": "bir-venues", "shuttleTrackerName": "bir-shuttles" },
-  "flags": { "festivalMode": true, "experiencesMarketplace": true }
+  "flags": { "festivalMode": true, "experiencesMarketplace": true },
+  "highlights": { "catalogPath": "https://$(tfout storage_cdn_domain)/config/highlights/catalog.json" }
 }
 JSON
 

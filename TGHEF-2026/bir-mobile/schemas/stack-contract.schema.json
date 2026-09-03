@@ -124,6 +124,13 @@
       "properties": {
         "sentryDsn": { "type": "string", "format": "uri" }
       }
+    },
+    "highlights": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "catalogPath": { "type": "string", "format": "uri", "pattern": "^https://" }
+      }
     }
   }
 }

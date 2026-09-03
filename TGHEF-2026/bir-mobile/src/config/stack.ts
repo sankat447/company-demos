@@ -37,6 +37,8 @@ export interface StackContract {
   geo: { geofenceCollection: string; shuttleTrackerName: string };
   flags: { festivalMode: boolean; experiencesMarketplace: boolean } & Record<string, boolean>;
   observability?: { sentryDsn?: string };
+  /** CO-002 / B1: server-driven Highlights catalog (absolute CDN URL). */
+  highlights?: { catalogPath?: string };
 }
 
 const stack = raw as unknown as StackContract;
@@ -68,4 +70,13 @@ export function jwksUrl(): string {
 
 export function cdnUrl(path: string): string {
   return `https://${stack.storage.cdnDomain}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
+/**
+ * Absolute URL of the server-driven Highlights catalog (B1). Prefers the
+ * contract's `highlights.catalogPath` when present; otherwise resolves the
+ * conventional CDN key so a stack that hasn't exported the path yet still works.
+ */
+export function highlightsCatalogUrl(): string {
+  return stack.highlights?.catalogPath ?? cdnUrl('/config/highlights/catalog.json');
 }

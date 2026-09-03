@@ -33,4 +33,16 @@ else
   warn "JWKS not generated yet (deploy.sh generates it) — skipping"
 fi
 
+# B1: the server-driven Highlights catalog. Public via CloudFront (/config/*);
+# the app fetches it (highlights.catalogPath) when flags.mockHighlights is off.
+log "Publishing Highlights catalog to the media CDN"
+CATALOG="${BACKEND_DIR}/data/highlights-catalog.json"
+if [[ -f "$CATALOG" ]]; then
+  awscli s3 cp "$CATALOG" "s3://${MEDIA}/config/highlights/catalog.json" \
+    --content-type application/json >/dev/null
+  ok "Highlights catalog published (config/highlights/catalog.json)"
+else
+  warn "Highlights catalog missing: $CATALOG — skipping"
+fi
+
 ok "Test data seeded into $TABLE"
