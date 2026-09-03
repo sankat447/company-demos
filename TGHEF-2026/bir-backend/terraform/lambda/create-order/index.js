@@ -18,7 +18,9 @@ const ssm = new SSMClient({});
 const TABLE = process.env.TABLE;
 const ENV = process.env.PAYTM_ENV === 'prod' ? 'prod' : 'staging';
 const HOST = ENV === 'prod' ? 'securegw.paytm.in' : 'securegw-stage.paytm.in';
-const WEBSITE = ENV === 'prod' ? 'DEFAULT' : 'WEBSTAGING';
+// Overridable: some test MIDs use a merchant-specific website name rather than
+// the Paytm defaults (WEBSTAGING / DEFAULT).
+const WEBSITE = process.env.PAYTM_WEBSITE || (ENV === 'prod' ? 'DEFAULT' : 'WEBSTAGING');
 
 let creds = null;
 async function paytmCreds() {
@@ -106,6 +108,9 @@ exports.handler = async (event) => {
   }
 
   const callbackUrl = process.env.CALLBACK_URL;
+  // Paytm custId must be a clean alphanumeric id — the Cognito sub is a
+  // hyphenated UUID, which Paytm rejects (generic 501). Strip to alphanumerics.
+  const custId = sub.replace(/[^a-zA-Z0-9]/g, '').slice(0, 40) || 'guest';
   const body = {
     requestType: 'Payment',
     mid,
@@ -113,7 +118,7 @@ exports.handler = async (event) => {
     orderId,
     callbackUrl,
     txnAmount: { value: amountInr.toFixed(2), currency: 'INR' },
-    userInfo: { custId: sub },
+    userInfo: { custId },
   };
   const signature = generateSignature(JSON.stringify(body), key);
   const url = `https://${HOST}/theia/api/v1/initiateTransaction?mid=${mid}&orderId=${orderId}`;
@@ -125,7 +130,9 @@ exports.handler = async (event) => {
   const data = await resp.json();
   const txnToken = data && data.body && data.body.txnToken;
   if (!txnToken) {
-    return json(502, { error: 'paytm initiate failed', detail: data && data.body && data.body.resultInfo });
+    const info = data && data.body && data.body.resultInfo;
+    console.log('paytm initiate failed:', JSON.stringify(info), 'mid:', mid, 'website:', WEBSITE);
+    return json(502, { error: 'paytm initiate failed', detail: info });
   }
 
   return json(200, {
