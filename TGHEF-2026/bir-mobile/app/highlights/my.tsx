@@ -15,6 +15,7 @@ import {
   setRegistrationBadge,
   type RegistrationWithBadge,
 } from '@/features/badges/badges';
+import { issueParticipantBadge } from '@/features/badges/issue';
 import { issueDemoParticipantBadge } from '@/demo/demo';
 import { savePass } from '@/features/tickets/passStore';
 import { loadAllocation, loadPool, lodgingCardFor } from '@/features/lodging/allocation';
@@ -142,12 +143,15 @@ export default function MyRegistrations() {
                   style={styles.passLink}
                   onPress={async () => {
                     let jti = (reg as RegistrationWithBadge).badgeJti;
-                    if (!jti && isEnabled('mockHighlights')) {
-                      const issued = await issueDemoParticipantBadge(
-                        { kv: kvStore, savePass },
-                        { competitionId: reg.itemId, sub: reg.id },
-                        Date.now(),
-                      );
+                    if (!jti) {
+                      // Mock demo signs locally; live issues via the backend (B2d).
+                      const issued = isEnabled('mockHighlights')
+                        ? await issueDemoParticipantBadge(
+                            { kv: kvStore, savePass },
+                            { competitionId: reg.itemId, sub: reg.id },
+                            Date.now(),
+                          )
+                        : await issueParticipantBadge(reg.id);
                       if (issued) {
                         await setRegistrationBadge(store, reg.id, issued);
                         await queryClient.invalidateQueries({ queryKey: ['registrations'] });

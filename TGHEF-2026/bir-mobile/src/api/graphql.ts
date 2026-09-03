@@ -151,6 +151,35 @@ export const LODGING_ROOMS = /* GraphQL */ `
   }
 `;
 
+// Room CRUD write-through (B2d): admin-hospitality guarded, server-audited.
+export const SAVE_ROOM = /* GraphQL */ `
+  mutation SaveRoom($input: SaveRoomInput!) {
+    saveRoom(input: $input) {
+      id
+      status
+    }
+  }
+`;
+export const RETIRE_ROOM = /* GraphQL */ `
+  mutation RetireRoom($input: RetireRoomInput!) {
+    retireRoom(input: $input) {
+      id
+      status
+    }
+  }
+`;
+
+// Participant badge issuance (CO-003, ASK #31 / B2d): signs an ES256 typ:'participant'
+// pass server-side; the app ingests + verifies it against the JWKS like any pass.
+export const ISSUE_BADGE = /* GraphQL */ `
+  mutation IssueBadge($input: IssueBadgeInput!) {
+    issueBadge(input: $input) {
+      jti
+      passToken
+    }
+  }
+`;
+
 // Lodging pool (CO-003, ASK #28 / B2a): confirmed participants who need lodging.
 // admin-hospitality-guarded server-side. gender is lodging-only (never on badges).
 export const LODGING_POOL = /* GraphQL */ `

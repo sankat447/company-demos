@@ -6,6 +6,7 @@
 import { gqlClient, LODGING_ROOMS } from '@/api/graphql';
 import { isEnabled } from '@/config/flags';
 import type { KvStore } from '@/offline/jwks';
+import type { OutboxStore } from '@/offline/outbox';
 
 import roomsFixture from './__fixtures__/rooms.mock.json';
 import { LODGING_NIGHTS, type Room } from './types';
@@ -45,7 +46,20 @@ export interface RoomStore {
   setStatus(id: string, status: Room['status']): Promise<void>;
 }
 
-export function kvRoomStore(kv: KvStore): RoomStore {
+/**
+ * Room store. Reads from the fixture (mock) or the backend (live, B2c); when an
+ * `outbox` is supplied and live, writes are also queued to the admin-guarded
+ * saveRoom/retireRoom mutations (B2d write-through) so edits persist server-side.
+ */
+export function kvRoomStore(kv: KvStore, outbox?: OutboxStore): RoomStore {
+  const writeThrough = (mutation: string, variables: Record<string, unknown>, key: string) => {
+    if (!outbox || isEnabled('mockLodging')) return Promise.resolve();
+    const now = Date.now();
+    return outbox.enqueue(
+      { aggregate: `rooms:${variables.id as string}`, mutation, variables, idempotencyKey: key },
+      now,
+    );
+  };
   async function read(): Promise<Room[]> {
     const rawValue = await kv.get(ROOMS_KEY);
     if (rawValue) {
@@ -78,11 +92,29 @@ export function kvRoomStore(kv: KvStore): RoomStore {
       const next = all.filter((r) => r.id !== room.id);
       next.push(room);
       await kv.set(ROOMS_KEY, JSON.stringify(next));
+      await writeThrough(
+        'saveRoom',
+        {
+          id: room.id,
+          hotelName: room.hotelName,
+          propertyId: room.propertyId ?? null,
+          roomLabel: room.roomLabel,
+          type: room.type,
+          capacity: room.capacity,
+          doubleOccupancy: room.doubleOccupancy,
+          availability: room.availability,
+          amenitiesNote: room.amenitiesNote ?? null,
+          contactPhone: room.contactPhone ?? null,
+          status: room.status,
+        },
+        `room:save:${room.id}:${Date.now()}`,
+      );
       return [];
     },
     async setStatus(id, status) {
       const all = await read();
       await kv.set(ROOMS_KEY, JSON.stringify(all.map((r) => (r.id === id ? { ...r, status } : r))));
+      await writeThrough('retireRoom', { id, status }, `room:status:${id}:${status}:${Date.now()}`);
     },
   };
 }
