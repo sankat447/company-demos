@@ -4,12 +4,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, {
   Circle,
   Defs,
-  G,
   LinearGradient as SvgGradient,
   Path,
   Rect,
   Stop,
-  Text as SvgText,
 } from 'react-native-svg';
 
 import { palette } from '@/ui/tokens';
@@ -18,15 +16,55 @@ import { palette } from '@/ui/tokens';
  * Launch moment (≤~1.7s): the "i" in Bir does one big jump up to the paraglider;
  * the instant its dot reaches it, two short hands leave the stem and grab the
  * white risers — then it glides toward the viewer as the marigold engulfs the
- * screen and the app comes to life. Rendered in one SVG (viewBox 300×600) so the
- * geometry matches the approved storyboard; the group transforms are driven by
- * RN Animated (reanimated isn't a dependency). onDone fires when the engulf ends.
+ * screen and the app comes to life. Every animated piece is a plain View driven
+ * on the NATIVE driver (reanimated isn't a dependency), so it plays smoothly
+ * even while the JS thread is busy booting the app. onDone fires at the engulf.
  */
 const { width: W, height: H } = Dimensions.get('window');
+const M = palette.marigold;
+const PAPER = '#F2F5EF';
+const GLIDER_GAP = 66; // space between the wordmark and the glider = the jump target
 
-const AnimatedG = Animated.createAnimatedComponent(G);
-const AnimatedText = Animated.createAnimatedComponent(SvgText);
-const AnimatedRect = Animated.createAnimatedComponent(Rect);
+function GliderCanopy() {
+  return (
+    <Svg width={128} height={62} viewBox="0 0 128 62">
+      <Path
+        d="M12 40 C 43 10, 85 10, 116 40"
+        fill="none"
+        stroke={M}
+        strokeWidth={7}
+        strokeLinecap="round"
+      />
+      <Path d="M25 40 L64 60 M103 40 L64 60" stroke={PAPER} strokeWidth={2.4} />
+    </Svg>
+  );
+}
+
+/** The wider "i" body + its prominent dot. */
+function IStem() {
+  return (
+    <Svg width={20} height={64} viewBox="0 0 20 64">
+      <Rect x={3} y={20} width={14} height={42} rx={7} fill={M} />
+      <Circle cx={10} cy={8} r={8} fill={M} />
+    </Svg>
+  );
+}
+
+/** A short hand reaching up-and-out; `flip` mirrors it for the left side. */
+function HandShape({ flip }: { flip?: boolean }) {
+  return (
+    <Svg width={24} height={30} viewBox="0 0 24 30" style={flip ? styles.flip : undefined}>
+      <Path
+        d="M5 29 C 9 21, 15 12, 19 5"
+        fill="none"
+        stroke={M}
+        strokeWidth={6}
+        strokeLinecap="round"
+      />
+      <Circle cx={20} cy={4} r={4.6} fill={M} />
+    </Svg>
+  );
+}
 
 export function LaunchSplash({ onDone }: { onDone: () => void }) {
   const intro = useRef(new Animated.Value(0)).current; // 0→1 fade-in
@@ -43,35 +81,32 @@ export function LaunchSplash({ onDone }: { onDone: () => void }) {
       onDone();
     };
     Animated.sequence([
-      Animated.timing(intro, { toValue: 1, duration: 240, useNativeDriver: false }),
-      // one big jump up to the glider
+      Animated.timing(intro, { toValue: 1, duration: 240, useNativeDriver: true }),
       Animated.timing(jump, {
         toValue: 1,
-        duration: 520,
+        duration: 500,
         easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
+        useNativeDriver: true,
       }),
-      // the moment the dot meets it, the short hands sprout & grab
       Animated.timing(hands, {
         toValue: 1,
-        duration: 260,
+        duration: 240,
         easing: Easing.out(Easing.back(1.7)),
-        useNativeDriver: false,
+        useNativeDriver: true,
       }),
-      Animated.delay(70),
-      // glide at the screen while the marigold engulfs
+      Animated.delay(60),
       Animated.parallel([
         Animated.timing(fly, {
           toValue: 1,
-          duration: 600,
+          duration: 580,
           easing: Easing.in(Easing.cubic),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.timing(veil, {
           toValue: 1,
           duration: 560,
           easing: Easing.in(Easing.quad),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
       ]),
     ]).start(finish);
@@ -79,15 +114,16 @@ export function LaunchSplash({ onDone }: { onDone: () => void }) {
     return () => clearTimeout(cap);
   }, [intro, jump, hands, fly, veil, onDone]);
 
-  const jumpY = jump.interpolate({ inputRange: [0, 1], outputRange: [0, -110] });
-  const flyScale = fly.interpolate({ inputRange: [0, 1], outputRange: [1, 18] });
-  const flyY = fly.interpolate({ inputRange: [0, 1], outputRange: [0, -24] });
+  const jumpY = jump.interpolate({ inputRange: [0, 1], outputRange: [0, -(GLIDER_GAP + 30)] });
+  const flyScale = fly.interpolate({ inputRange: [0, 1], outputRange: [1, 16] });
+  const flyY = fly.interpolate({ inputRange: [0, 1], outputRange: [0, -28] });
   const sideFade = fly.interpolate({
     inputRange: [0, 0.4],
     outputRange: [1, 0],
     extrapolate: 'clamp',
   });
   const wordFade = Animated.multiply(intro, sideFade);
+  const iTY = Animated.add(jumpY, flyY);
 
   return (
     <View style={styles.root}>
@@ -118,100 +154,66 @@ export function LaunchSplash({ onDone }: { onDone: () => void }) {
         <Path d="M0 150 L0 132 L120 120 L260 138 L340 124 L340 150 Z" fill="#20473B" />
       </Svg>
 
-      {/* the animated wordmark + glider + engulf */}
-      <Svg
-        style={StyleSheet.absoluteFill}
-        width={W}
-        height={H}
-        viewBox="0 0 300 600"
-        preserveAspectRatio="xMidYMid slice"
-      >
-        {/* flywrap: the glide toward the viewer scales from the canopy */}
-        <AnimatedG opacity={intro} translateY={flyY} scale={flyScale} originX={150} originY={208}>
-          {/* paraglider (static) */}
-          <G>
-            <Path
-              d="M110 205 C 130 183, 170 183, 190 205"
-              fill="none"
-              stroke={palette.marigold}
-              strokeWidth={7}
-              strokeLinecap="round"
-            />
-            <Path d="M118 205 L150 240 M182 205 L150 240" stroke="#F2F5EF" strokeWidth={2.4} />
-          </G>
-          {/* the "i" character — jumps up */}
-          <AnimatedG translateY={jumpY}>
-            {/* short hands leave the stem and reach the white risers */}
-            <AnimatedG scale={hands} originX={145} originY={358}>
-              <Path
-                d="M145 358 C 141 350, 137 343, 135 336"
-                fill="none"
-                stroke={palette.marigold}
-                strokeWidth={6}
-                strokeLinecap="round"
-              />
-              <Circle cx={135} cy={335} r={4.6} fill={palette.marigold} />
-            </AnimatedG>
-            <AnimatedG scale={hands} originX={155} originY={358}>
-              <Path
-                d="M155 358 C 159 350, 163 343, 165 336"
-                fill="none"
-                stroke={palette.marigold}
-                strokeWidth={6}
-                strokeLinecap="round"
-              />
-              <Circle cx={165} cy={335} r={4.6} fill={palette.marigold} />
-            </AnimatedG>
-            {/* the wider "i" body + prominent dot */}
-            <Rect x={143} y={352} width={14} height={42} rx={7} fill={palette.marigold} />
-            <Circle cx={150} cy={328} r={8} fill={palette.marigold} />
-          </AnimatedG>
-        </AnimatedG>
+      <View style={styles.center}>
+        {/* paraglider */}
+        <Animated.View
+          style={{ opacity: intro, transform: [{ translateY: flyY }, { scale: flyScale }] }}
+        >
+          <GliderCanopy />
+        </Animated.View>
 
-        {/* B and r flank the i, then step aside */}
-        <AnimatedText
-          x={137}
-          y={394}
-          textAnchor="end"
-          fontFamily="Fraunces_600SemiBold"
-          fontSize={70}
-          fill="#F2F5EF"
-          opacity={wordFade}
-        >
-          B
-        </AnimatedText>
-        <AnimatedText
-          x={163}
-          y={394}
-          textAnchor="start"
-          fontFamily="Fraunces_600SemiBold"
-          fontSize={70}
-          fill="#F2F5EF"
-          opacity={wordFade}
-        >
-          r
-        </AnimatedText>
-        <AnimatedText
-          x={150}
-          y={438}
-          textAnchor="middle"
-          fontFamily="Fraunces_600SemiBold"
-          fontSize={24}
-          fontStyle="italic"
-          fill={palette.marigold}
-          opacity={wordFade}
-        >
-          Feel the Bir
-        </AnimatedText>
+        <View style={{ height: GLIDER_GAP }} />
 
-        {/* marigold engulf */}
-        <AnimatedRect x={0} y={0} width={300} height={600} fill={palette.marigold} opacity={veil} />
-      </Svg>
+        {/* wordmark: B [i] r */}
+        <View style={styles.wordRow}>
+          <Animated.Text style={[styles.word, { opacity: wordFade }]}>B</Animated.Text>
+          <Animated.View
+            style={{ opacity: intro, transform: [{ translateY: iTY }, { scale: flyScale }] }}
+          >
+            <View style={styles.iBox}>
+              <IStem />
+              <Animated.View
+                style={[styles.handL, { opacity: hands, transform: [{ scale: hands }] }]}
+              >
+                <HandShape flip />
+              </Animated.View>
+              <Animated.View
+                style={[styles.handR, { opacity: hands, transform: [{ scale: hands }] }]}
+              >
+                <HandShape />
+              </Animated.View>
+            </View>
+          </Animated.View>
+          <Animated.Text style={[styles.word, { opacity: wordFade }]}>r</Animated.Text>
+        </View>
+
+        <Animated.Text style={[styles.slogan, { opacity: wordFade }]}>Feel the Bir</Animated.Text>
+      </View>
+
+      {/* marigold engulf */}
+      <Animated.View pointerEvents="none" style={[styles.veil, { opacity: veil }]} />
     </View>
   );
 }
 
+const CAP = 58;
 const styles = StyleSheet.create({
   root: { ...StyleSheet.absoluteFillObject, backgroundColor: '#17232B', overflow: 'hidden' },
   mtn: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: H * 0.05 },
+  flip: { transform: [{ scaleX: -1 }] },
+  wordRow: { flexDirection: 'row', alignItems: 'flex-end' },
+  word: { fontFamily: 'Fraunces_600SemiBold', fontSize: CAP, lineHeight: CAP * 1.12, color: PAPER },
+  // the "i" occupies the slot between B and r; hands overflow up-and-out.
+  iBox: { width: 20, height: CAP * 1.12, alignItems: 'center', justifyContent: 'flex-end' },
+  handL: { position: 'absolute', top: 2, left: -16, transformOrigin: 'right bottom' },
+  handR: { position: 'absolute', top: 2, right: -16, transformOrigin: 'left bottom' },
+  slogan: {
+    fontFamily: 'Fraunces_600SemiBold',
+    fontSize: 20,
+    color: M,
+    fontStyle: 'italic',
+    marginTop: 14,
+  },
+  veil: { ...StyleSheet.absoluteFillObject, backgroundColor: M },
 });
