@@ -37,6 +37,14 @@
     "explore": "Explore",
     "more": "More"
   },
+  "more": {
+    "services": "Services",
+    "profile": "Profile",
+    "settings": "Settings",
+    "accountTitle": "Festival account",
+    "demoAccess": "Demo · all roles active",
+    "visitorRole": "Visitor"
+  },
   "home": {
     "todayAtFestival": "Today at the festival",
     "flyFlying": "Flying today: YES — conditions are good.",

@@ -37,6 +37,14 @@
     "explore": "एक्सप्लोर",
     "more": "और"
   },
+  "more": {
+    "services": "सेवाएँ",
+    "profile": "प्रोफ़ाइल",
+    "settings": "सेटिंग्स",
+    "accountTitle": "महोत्सव खाता",
+    "demoAccess": "डेमो · सभी भूमिकाएँ सक्रिय",
+    "visitorRole": "आगंतुक"
+  },
   "home": {
     "todayAtFestival": "आज महोत्सव में",
     "flyFlying": "आज उड़ान: हाँ — मौसम अनुकूल है।",
