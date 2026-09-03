@@ -78,9 +78,9 @@ test: verifier accepts valid pass, rejects revoked one from cached list.
 - [x] **P3.4** Push registration: FCM/APNs token → Pinpoint endpoint w/ role+locale
       attributes; quiet-hours preference UI.
 - [~] **P3.5** Preview channel build: `eas build --profile preview` universal APK;
-      verify install-from-QR flow end-to-end using DISTRIBUTION.md §3.
-      _Partial: a local-gradle **evaluation APK** ships via the S3/QR page (install-from-QR
-      verified on device + emulator); the EAS `preview` profile build is still to run._
+  verify install-from-QR flow end-to-end using DISTRIBUTION.md §3.
+  _Partial: a local-gradle **evaluation APK** ships via the S3/QR page (install-from-QR
+  verified on device + emulator); the EAS `preview` profile build is still to run._
 
 **Gate 3:** e2e `buy-ticket.yaml` and `show-pass-offline.yaml` green; preview APK
 installed on a physical device via the QR page; push received with app backgrounded.

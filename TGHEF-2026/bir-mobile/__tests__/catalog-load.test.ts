@@ -25,7 +25,9 @@ function memKv() {
 
 const REMOTE = {
   version: 7,
-  categories: [{ id: 'competitions', title: 'C', titleHi: 'C', icon: '🏆', order: 1, kind: 'competition' }],
+  categories: [
+    { id: 'competitions', title: 'C', titleHi: 'C', icon: '🏆', order: 1, kind: 'competition' },
+  ],
   items: [
     {
       id: 'night-21',

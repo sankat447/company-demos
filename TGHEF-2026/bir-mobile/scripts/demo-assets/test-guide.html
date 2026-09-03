@@ -1,200 +1,492 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bir Festival 2026 — Testing Guide</title>
-<style>
-  :root{--ink:#17232B;--pine:#2E5E4E;--slate:#3E6B8C;--marigold:#E8A13D;--red:#B4482B;--paper:#F7F8F5}
-  *{box-sizing:border-box}
-  body{font-family:Georgia,'Times New Roman',serif;margin:0;background:var(--paper);color:var(--ink);line-height:1.55}
-  .sans{font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif}
-  main{max-width:720px;margin:0 auto;padding:24px 18px 72px}
-  header{text-align:center;padding:20px 0 6px}
-  h1{font-size:1.7rem;margin:6px 0 2px}
-  .tagline{color:var(--slate);font-size:.92rem;margin:0}
-  .dates{display:inline-block;margin-top:10px;background:var(--ink);color:var(--paper);border-radius:999px;padding:5px 16px;font-size:.8rem}
-  .demo{background:var(--ink);color:var(--paper);border-radius:12px;padding:14px 18px;margin:20px 0;text-align:center;font-size:.92rem}
-  .demo b{color:var(--marigold);letter-spacing:2px}
-  h2{font-size:1.25rem;margin:30px 0 8px;padding-bottom:6px;border-bottom:2px solid var(--marigold)}
-  h3{font-size:1.02rem;margin:20px 0 4px;color:var(--pine)}
-  .card{background:#fff;border:1px solid #DDE2DC;border-radius:14px;padding:16px 18px;margin:14px 0}
-  ol,ul{padding-left:20px;margin:8px 0}
-  li{margin:4px 0}
-  .hi{color:var(--slate)}
-  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.9rem}
-  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #E4E8E2;vertical-align:top}
-  th{background:#EEF2EC;font-family:-apple-system,system-ui,sans-serif;font-size:.8rem;text-transform:uppercase;letter-spacing:.6px;color:var(--slate)}
-  code,.kbd{background:#EEF2EC;border-radius:6px;padding:1px 7px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92em}
-  .kbd{background:var(--marigold);color:var(--ink);font-weight:700;letter-spacing:1px}
-  .pill{display:inline-block;background:var(--pine);color:#fff;border-radius:999px;padding:2px 10px;font-size:.78rem;font-family:-apple-system,system-ui,sans-serif}
-  .warn{background:#FCF3E3;border-left:4px solid var(--marigold);border-radius:8px;padding:12px 14px;margin:14px 0;font-size:.9rem}
-  .crit{background:#FBEBE7;border-left:4px solid var(--red)}
-  .toc a{color:var(--slate);text-decoration:none}
-  footer{text-align:center;font-size:.75rem;color:#5B6B75;margin-top:34px}
-  a{color:var(--pine)}
-</style>
-</head>
-<body><main>
-<header>
-  <h1>Bir Festival 2026 — Testing Guide</h1>
-  <p class="tagline">बीड़ महोत्सव 2026 · For the business / functional tester</p>
-  <span class="dates sans">Evaluation build · 21–23 November 2026 · Bir–Billing</span>
-</header>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bir Festival 2026 — Testing Guide</title>
+    <style>
+      :root {
+        --ink: #17232b;
+        --pine: #2e5e4e;
+        --slate: #3e6b8c;
+        --marigold: #e8a13d;
+        --red: #b4482b;
+        --paper: #f7f8f5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: Georgia, 'Times New Roman', serif;
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        line-height: 1.55;
+      }
+      .sans {
+        font-family:
+          -apple-system,
+          system-ui,
+          Segoe UI,
+          Roboto,
+          sans-serif;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 24px 18px 72px;
+      }
+      header {
+        text-align: center;
+        padding: 20px 0 6px;
+      }
+      h1 {
+        font-size: 1.7rem;
+        margin: 6px 0 2px;
+      }
+      .tagline {
+        color: var(--slate);
+        font-size: 0.92rem;
+        margin: 0;
+      }
+      .dates {
+        display: inline-block;
+        margin-top: 10px;
+        background: var(--ink);
+        color: var(--paper);
+        border-radius: 999px;
+        padding: 5px 16px;
+        font-size: 0.8rem;
+      }
+      .demo {
+        background: var(--ink);
+        color: var(--paper);
+        border-radius: 12px;
+        padding: 14px 18px;
+        margin: 20px 0;
+        text-align: center;
+        font-size: 0.92rem;
+      }
+      .demo b {
+        color: var(--marigold);
+        letter-spacing: 2px;
+      }
+      h2 {
+        font-size: 1.25rem;
+        margin: 30px 0 8px;
+        padding-bottom: 6px;
+        border-bottom: 2px solid var(--marigold);
+      }
+      h3 {
+        font-size: 1.02rem;
+        margin: 20px 0 4px;
+        color: var(--pine);
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #dde2dc;
+        border-radius: 14px;
+        padding: 16px 18px;
+        margin: 14px 0;
+      }
+      ol,
+      ul {
+        padding-left: 20px;
+        margin: 8px 0;
+      }
+      li {
+        margin: 4px 0;
+      }
+      .hi {
+        color: var(--slate);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+        font-size: 0.9rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid #e4e8e2;
+        vertical-align: top;
+      }
+      th {
+        background: #eef2ec;
+        font-family: -apple-system, system-ui, sans-serif;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--slate);
+      }
+      code,
+      .kbd {
+        background: #eef2ec;
+        border-radius: 6px;
+        padding: 1px 7px;
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+      }
+      .kbd {
+        background: var(--marigold);
+        color: var(--ink);
+        font-weight: 700;
+        letter-spacing: 1px;
+      }
+      .pill {
+        display: inline-block;
+        background: var(--pine);
+        color: #fff;
+        border-radius: 999px;
+        padding: 2px 10px;
+        font-size: 0.78rem;
+        font-family: -apple-system, system-ui, sans-serif;
+      }
+      .warn {
+        background: #fcf3e3;
+        border-left: 4px solid var(--marigold);
+        border-radius: 8px;
+        padding: 12px 14px;
+        margin: 14px 0;
+        font-size: 0.9rem;
+      }
+      .crit {
+        background: #fbebe7;
+        border-left: 4px solid var(--red);
+      }
+      .toc a {
+        color: var(--slate);
+        text-decoration: none;
+      }
+      footer {
+        text-align: center;
+        font-size: 0.75rem;
+        color: #5b6b75;
+        margin-top: 34px;
+      }
+      a {
+        color: var(--pine);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Bir Festival 2026 — Testing Guide</h1>
+        <p class="tagline">बीड़ महोत्सव 2026 · For the business / functional tester</p>
+        <span class="dates sans">Evaluation build · 21–23 November 2026 · Bir–Billing</span>
+      </header>
 
-<div class="demo sans">
-  Sign in with <b>ANY 10-DIGIT NUMBER</b>, OTP <b>123456</b><br>
-  <span class="hi">कोई भी 10-अंक नंबर, OTP 123456</span><br>
-  Sample data · payments disabled · all roles unlocked
-</div>
+      <div class="demo sans">
+        Sign in with <b>ANY 10-DIGIT NUMBER</b>, OTP <b>123456</b><br />
+        <span class="hi">कोई भी 10-अंक नंबर, OTP 123456</span><br />
+        Sample data · payments disabled · all roles unlocked
+      </div>
 
-<div class="card sans toc">
-  <b>On this page:</b>
-  <a href="#install">Install</a> · <a href="#signin">Sign in</a> · <a href="#areas">Where things are</a> ·
-  <a href="#what">What to test</a> · <a href="#limits">Known limits</a> · <a href="#report">Report a bug</a>
-</div>
+      <div class="card sans toc">
+        <b>On this page:</b>
+        <a href="#install">Install</a> · <a href="#signin">Sign in</a> ·
+        <a href="#areas">Where things are</a> · <a href="#what">What to test</a> ·
+        <a href="#limits">Known limits</a> · <a href="#report">Report a bug</a>
+      </div>
 
-<h2 id="install">1 · Install the app</h2>
-<div class="card">
-  <span class="pill sans">Android</span>
-  <ol class="sans">
-    <li><b>Uninstall any older “Bir” demo</b> first (Settings → Apps → Bir → Uninstall), so this newer build installs cleanly.</li>
-    <li>Open the download page and scan the <b>Android QR</b>, or tap <b>Download APK</b>.</li>
-    <li>Open the downloaded file → when asked, allow <b>“Install from this source”</b> → <b>Install</b>.</li>
-    <li>Open <b>Bir Festival 2026</b>.</li>
-  </ol>
-  <p class="hi sans">पुराना डेमो पहले अनइंस्टॉल करें → QR स्कैन करें → फ़ाइल खोलें → “इस स्रोत से इंस्टॉल की अनुमति दें” → इंस्टॉल।</p>
-  <span class="pill sans">iPhone</span>
-  <p class="sans">Apple doesn’t allow direct installs — the iOS build comes via <b>TestFlight</b>. Send your Apple‑ID e‑mail to the delivery team for an invite. <span class="hi">iPhone बिल्ड TestFlight से मिलेगा।</span></p>
-</div>
-<div class="warn sans"><b>Tip — test offline too.</b> Install and sign in <i>once</i> while online (loads the sample data), then switch on <b>Airplane mode</b> and confirm passes, the schedule, scanning and check‑in still work.</div>
+      <h2 id="install">1 · Install the app</h2>
+      <div class="card">
+        <span class="pill sans">Android</span>
+        <ol class="sans">
+          <li>
+            <b>Uninstall any older “Bir” demo</b> first (Settings → Apps → Bir → Uninstall), so this
+            newer build installs cleanly.
+          </li>
+          <li>
+            Open the download page and scan the <b>Android QR</b>, or tap <b>Download APK</b>.
+          </li>
+          <li>
+            Open the downloaded file → when asked, allow <b>“Install from this source”</b> →
+            <b>Install</b>.
+          </li>
+          <li>Open <b>Bir Festival 2026</b>.</li>
+        </ol>
+        <p class="hi sans">
+          पुराना डेमो पहले अनइंस्टॉल करें → QR स्कैन करें → फ़ाइल खोलें → “इस स्रोत से इंस्टॉल की
+          अनुमति दें” → इंस्टॉल।
+        </p>
+        <span class="pill sans">iPhone</span>
+        <p class="sans">
+          Apple doesn’t allow direct installs — the iOS build comes via <b>TestFlight</b>. Send your
+          Apple‑ID e‑mail to the delivery team for an invite.
+          <span class="hi">iPhone बिल्ड TestFlight से मिलेगा।</span>
+        </p>
+      </div>
+      <div class="warn sans">
+        <b>Tip — test offline too.</b> Install and sign in <i>once</i> while online (loads the
+        sample data), then switch on <b>Airplane mode</b> and confirm passes, the schedule, scanning
+        and check‑in still work.
+      </div>
 
-<h2 id="signin">2 · Sign in &amp; language</h2>
-<div class="card sans">
-  <ol>
-    <li>Enter any 10‑digit number (e.g. <code>9876543210</code>) → <b>Continue</b>.</li>
-    <li>Enter OTP <span class="kbd">123456</span>.</li>
-    <li>You land on <b>Home</b> with a “Demo / Evaluation build” banner and <b>all roles unlocked</b>.</li>
-  </ol>
-  <p><b>Language:</b> tap the <b>EN / हिं</b> pill on Home (top‑right) or <b>More → Change Language</b>. Please run tests in <b>both</b> English and Hindi and note any untranslated or clipped text.</p>
-  <p><b>Sign out:</b> <b>More → Sign Out</b>. Signing back in with <code>123456</code> reuses the same sample data.</p>
-</div>
+      <h2 id="signin">2 · Sign in &amp; language</h2>
+      <div class="card sans">
+        <ol>
+          <li>Enter any 10‑digit number (e.g. <code>9876543210</code>) → <b>Continue</b>.</li>
+          <li>Enter OTP <span class="kbd">123456</span>.</li>
+          <li>
+            You land on <b>Home</b> with a “Demo / Evaluation build” banner and
+            <b>all roles unlocked</b>.
+          </li>
+        </ol>
+        <p>
+          <b>Language:</b> tap the <b>EN / हिं</b> pill on Home (top‑right) or
+          <b>More → Change Language</b>. Please run tests in <b>both</b> English and Hindi and note
+          any untranslated or clipped text.
+        </p>
+        <p>
+          <b>Sign out:</b> <b>More → Sign Out</b>. Signing back in with <code>123456</code> reuses
+          the same sample data.
+        </p>
+      </div>
 
-<h2 id="areas">3 · Where everything is</h2>
-<div class="card">
-<table>
-<tr><th>Area</th><th>How to reach it</th></tr>
-<tr><td>Home · fly‑status · SOS</td><td><b>Home</b> tab</td></tr>
-<tr><td>Cultural‑night schedule + voting</td><td><b>Schedule</b> tab</td></tr>
-<tr><td>My passes / QR wallet</td><td><b>My Pass</b> tab</td></tr>
-<tr><td>Buy a ticket</td><td>Home pass card → <b>Get Pass</b></td></tr>
-<tr><td>Highlights (competitions, yoga, adventure…)</td><td>Home → <b>Highlights</b></td></tr>
-<tr><td>My Registrations</td><td><b>More → My Registrations</b></td></tr>
-<tr><td>Volunteer: Roster / Scanner / Incident</td><td><b>More → Roster</b></td></tr>
-<tr><td>Admin — Lodging &amp; badges</td><td><b>More → Lodging</b></td></tr>
-<tr><td>Organiser / Safety — Ops &amp; fly‑status</td><td><b>More → Ops</b></td></tr>
-<tr><td>Partner — Stalls / Hospitality</td><td><b>More → Stalls / Hospitality</b></td></tr>
-<tr><td>Settings / quiet hours</td><td><b>More → Settings</b></td></tr>
-</table>
-<p class="sans" style="font-size:.86rem;color:#5B6B75">In this evaluation build you hold <i>all</i> roles at once, so every row is visible. In the real app each person sees only their own role’s rows.</p>
-</div>
+      <h2 id="areas">3 · Where everything is</h2>
+      <div class="card">
+        <table>
+          <tr>
+            <th>Area</th>
+            <th>How to reach it</th>
+          </tr>
+          <tr>
+            <td>Home · fly‑status · SOS</td>
+            <td><b>Home</b> tab</td>
+          </tr>
+          <tr>
+            <td>Cultural‑night schedule + voting</td>
+            <td><b>Schedule</b> tab</td>
+          </tr>
+          <tr>
+            <td>My passes / QR wallet</td>
+            <td><b>My Pass</b> tab</td>
+          </tr>
+          <tr>
+            <td>Buy a ticket</td>
+            <td>Home pass card → <b>Get Pass</b></td>
+          </tr>
+          <tr>
+            <td>Highlights (competitions, yoga, adventure…)</td>
+            <td>Home → <b>Highlights</b></td>
+          </tr>
+          <tr>
+            <td>My Registrations</td>
+            <td><b>More → My Registrations</b></td>
+          </tr>
+          <tr>
+            <td>Volunteer: Roster / Scanner / Incident</td>
+            <td><b>More → Roster</b></td>
+          </tr>
+          <tr>
+            <td>Admin — Lodging &amp; badges</td>
+            <td><b>More → Lodging</b></td>
+          </tr>
+          <tr>
+            <td>Organiser / Safety — Ops &amp; fly‑status</td>
+            <td><b>More → Ops</b></td>
+          </tr>
+          <tr>
+            <td>Partner — Stalls / Hospitality</td>
+            <td><b>More → Stalls / Hospitality</b></td>
+          </tr>
+          <tr>
+            <td>Settings / quiet hours</td>
+            <td><b>More → Settings</b></td>
+          </tr>
+        </table>
+        <p class="sans" style="font-size: 0.86rem; color: #5b6b75">
+          In this evaluation build you hold <i>all</i> roles at once, so every row is visible. In
+          the real app each person sees only their own role’s rows.
+        </p>
+      </div>
 
-<h2 id="what">4 · What to test (area checklist)</h2>
+      <h2 id="what">4 · What to test (area checklist)</h2>
 
-<h3>Sign‑in</h3>
-<div class="card sans"><ul>
-<li>Any number + <code>123456</code> signs in; a clearly invalid number is refused; a wrong OTP is refused with a clear message.</li>
-<li>Sign out → relaunch returns to sign‑in.</li>
-</ul></div>
+      <h3>Sign‑in</h3>
+      <div class="card sans">
+        <ul>
+          <li>
+            Any number + <code>123456</code> signs in; a clearly invalid number is refused; a wrong
+            OTP is refused with a clear message.
+          </li>
+          <li>Sign out → relaunch returns to sign‑in.</li>
+        </ul>
+      </div>
 
-<h3>Home · fly‑status · SOS</h3>
-<div class="card sans"><ul>
-<li>Fly‑status chip shows <b>Flying</b> (green) with a reason.</li>
-<li><b>SOS needs two taps</b> — one tap asks to confirm; it must not fire on a single tap. Second tap shows “help sent”.</li>
-<li>Language switch changes all Home text incl. the fly‑status reason.</li>
-</ul></div>
+      <h3>Home · fly‑status · SOS</h3>
+      <div class="card sans">
+        <ul>
+          <li>Fly‑status chip shows <b>Flying</b> (green) with a reason.</li>
+          <li>
+            <b>SOS needs two taps</b> — one tap asks to confirm; it must not fire on a single tap.
+            Second tap shows “help sent”.
+          </li>
+          <li>Language switch changes all Home text incl. the fly‑status reason.</li>
+        </ul>
+      </div>
 
-<h3>Tickets</h3>
-<div class="card sans"><ul>
-<li>Tiers show <b>Day pass ₹499</b> and <b>3‑Day pass ₹1199</b>; selecting one shows the right amount.</li>
-<li>Paying is <b>blocked by design</b> in this build — note the message.</li>
-<li>Passes appear in <b>My Pass</b> with a QR that still opens in <b>Airplane mode</b>.</li>
-</ul></div>
+      <h3>Tickets</h3>
+      <div class="card sans">
+        <ul>
+          <li>
+            Tiers show <b>Day pass ₹499</b> and <b>3‑Day pass ₹1199</b>; selecting one shows the
+            right amount.
+          </li>
+          <li>Paying is <b>blocked by design</b> in this build — note the message.</li>
+          <li>
+            Passes appear in <b>My Pass</b> with a QR that still opens in <b>Airplane mode</b>.
+          </li>
+        </ul>
+      </div>
 
-<h3>Cultural nights</h3>
-<div class="card sans"><ul>
-<li>Day tabs 21 / 22 / 23 Nov; events with venues (e.g. <i>Folk music of Kangra</i>).</li>
-<li><b>Remind</b> toggles a reminder; <b>Vote</b> works once on votable events and blocks a second vote.</li>
-<li>Voting/reminders work in Airplane mode and sync later.</li>
-</ul></div>
+      <h3>Cultural nights</h3>
+      <div class="card sans">
+        <ul>
+          <li>Day tabs 21 / 22 / 23 Nov; events with venues (e.g. <i>Folk music of Kangra</i>).</li>
+          <li>
+            <b>Remind</b> toggles a reminder; <b>Vote</b> works once on votable events and blocks a
+            second vote.
+          </li>
+          <li>Voting/reminders work in Airplane mode and sync later.</li>
+        </ul>
+      </div>
 
-<h3>Highlights &amp; My Registrations</h3>
-<div class="card sans"><ul>
-<li>Categories: Competitions, Cultural Nights, Yoga, Pottery, Adventure, Sightseeing.</li>
-<li>Competitions include <b>Himalayan Prince/Queen 2026</b>; items show rules in <b>English + Hindi</b>.</li>
-<li>Register for a free item → it appears in <b>My Registrations</b> with a status.</li>
-<li><b>Adventure → Paragliding</b> shows time slots (some full/waitlisted).</li>
-<li>In My Registrations: <b>Add to calendar</b> opens the device calendar; <b>Cancel</b> works.</li>
-</ul></div>
+      <h3>Highlights &amp; My Registrations</h3>
+      <div class="card sans">
+        <ul>
+          <li>Categories: Competitions, Cultural Nights, Yoga, Pottery, Adventure, Sightseeing.</li>
+          <li>
+            Competitions include <b>Himalayan Prince/Queen 2026</b>; items show rules in
+            <b>English + Hindi</b>.
+          </li>
+          <li>Register for a free item → it appears in <b>My Registrations</b> with a status.</li>
+          <li><b>Adventure → Paragliding</b> shows time slots (some full/waitlisted).</li>
+          <li>
+            In My Registrations: <b>Add to calendar</b> opens the device calendar;
+            <b>Cancel</b> works.
+          </li>
+        </ul>
+      </div>
 
-<h3>Volunteer</h3>
-<div class="card sans"><ul>
-<li><b>Roster</b>: team, ID‑verified status, shifts across 21–23 Nov; <b>Check In</b> then <b>Check Out</b> (works offline).</li>
-<li><b>Scanner</b>: camera opens (grant permission); <b>Kiosk mode</b> keeps the screen awake; scanning a QR pass gives a verdict in ~1s — <b>green = valid, red = invalid</b> — and still works in Airplane mode (a “pending sync” count rises).</li>
-<li><b>Report Incident</b>: category + note + optional photo → queued with a confirmation.</li>
-</ul></div>
+      <h3>Volunteer</h3>
+      <div class="card sans">
+        <ul>
+          <li>
+            <b>Roster</b>: team, ID‑verified status, shifts across 21–23 Nov; <b>Check In</b> then
+            <b>Check Out</b> (works offline).
+          </li>
+          <li>
+            <b>Scanner</b>: camera opens (grant permission); <b>Kiosk mode</b> keeps the screen
+            awake; scanning a QR pass gives a verdict in ~1s — <b>green = valid, red = invalid</b> —
+            and still works in Airplane mode (a “pending sync” count rises).
+          </li>
+          <li>
+            <b>Report Incident</b>: category + note + optional photo → queued with a confirmation.
+          </li>
+        </ul>
+      </div>
 
-<h3>Ops &amp; fly‑status (Safety Officer)</h3>
-<div class="card sans"><ul>
-<li><b>More → Ops</b> shows a live snapshot (fly‑status, unsynced scans, queued writes, lodging version).</li>
-<li>Declare a reason in English + Hindi, tap <b>Hold</b> → Home chip changes to Hold and an <b>auto‑refund</b> notice appears. Set back to <b>Flying</b> to clear it.</li>
-</ul></div>
+      <h3>Ops &amp; fly‑status (Safety Officer)</h3>
+      <div class="card sans">
+        <ul>
+          <li>
+            <b>More → Ops</b> shows a live snapshot (fly‑status, unsynced scans, queued writes,
+            lodging version).
+          </li>
+          <li>
+            Declare a reason in English + Hindi, tap <b>Hold</b> → Home chip changes to Hold and an
+            <b>auto‑refund</b> notice appears. Set back to <b>Flying</b> to clear it.
+          </li>
+        </ul>
+      </div>
 
-<h3>Lodging &amp; badges (Admin — Hospitality)</h3>
-<div class="card sans"><ul>
-<li><b>Rooms</b>: inventory with status filter + hotel search; <b>Add Room</b> works.</li>
-<li><b>Allocate</b>: pool loads (e.g. Anita Thakur, Rohan Katoch); <b>Auto‑suggest</b> proposes rooms; an invalid move (over capacity / mixed‑gender share) is <b>blocked with a reason in EN + HI</b>; a valid placement <b>commits</b>.</li>
-<li><b>Occupancy</b> shows rooms by hotel with check‑in status.</li>
-</ul></div>
-<div class="warn crit sans"><b>Privacy check (important).</b> Confirm <b>gender is never shown</b> on a badge, occupancy board or hotel roster — it may appear <i>only</i> on the Allocate screen. A badge shows initials + QR, <b>no photo</b>. Report any leak as <b>Critical</b>.</div>
+      <h3>Lodging &amp; badges (Admin — Hospitality)</h3>
+      <div class="card sans">
+        <ul>
+          <li><b>Rooms</b>: inventory with status filter + hotel search; <b>Add Room</b> works.</li>
+          <li>
+            <b>Allocate</b>: pool loads (e.g. Anita Thakur, Rohan Katoch);
+            <b>Auto‑suggest</b> proposes rooms; an invalid move (over capacity / mixed‑gender share)
+            is <b>blocked with a reason in EN + HI</b>; a valid placement <b>commits</b>.
+          </li>
+          <li><b>Occupancy</b> shows rooms by hotel with check‑in status.</li>
+        </ul>
+      </div>
+      <div class="warn crit sans">
+        <b>Privacy check (important).</b> Confirm <b>gender is never shown</b> on a badge, occupancy
+        board or hotel roster — it may appear <i>only</i> on the Allocate screen. A badge shows
+        initials + QR, <b>no photo</b>. Report any leak as <b>Critical</b>.
+      </div>
 
-<h3>Partner</h3>
-<div class="card sans"><ul>
-<li><b>Stalls</b>: stall name, stage, allocation, <b>fee &amp; paid/unpaid</b>, daily footfall, food‑street rules (EN + HI).</li>
-<li><b>Hospitality</b>: guest rows with <b>Check In</b>; the occupancy count updates.</li>
-</ul></div>
+      <h3>Partner</h3>
+      <div class="card sans">
+        <ul>
+          <li>
+            <b>Stalls</b>: stall name, stage, allocation, <b>fee &amp; paid/unpaid</b>, daily
+            footfall, food‑street rules (EN + HI).
+          </li>
+          <li><b>Hospitality</b>: guest rows with <b>Check In</b>; the occupancy count updates.</li>
+        </ul>
+      </div>
 
-<h3>Language &amp; offline sweep</h3>
-<div class="card sans"><ul>
-<li>Walk the main screens in <b>Hindi</b> — no leftover English, no clipped text.</li>
-<li>With <b>Airplane mode on</b>: open a pass, view the schedule, scan, check in, vote — all should work; turning the network back on should <b>sync</b> pending items with nothing lost or duplicated.</li>
-</ul></div>
+      <h3>Language &amp; offline sweep</h3>
+      <div class="card sans">
+        <ul>
+          <li>Walk the main screens in <b>Hindi</b> — no leftover English, no clipped text.</li>
+          <li>
+            With <b>Airplane mode on</b>: open a pass, view the schedule, scan, check in, vote — all
+            should work; turning the network back on should <b>sync</b> pending items with nothing
+            lost or duplicated.
+          </li>
+        </ul>
+      </div>
 
-<h2 id="limits">5 · Known limits — please don’t log these as bugs</h2>
-<div class="card sans"><ul>
-<li>Payments are <b>disabled</b> — you can reach the pay step but not be charged.</li>
-<li>The only working OTP is the demo code <b>123456</b> (any phone number).</li>
-<li><b>All roles are visible at once</b> — role‑by‑role gating is checked in a later round.</li>
-<li>Names, rooms, stalls, shifts and competitions are <b>sample data</b>.</li>
-<li>The AI <b>Explore / Assistant</b> is a placeholder.</li>
-<li>Some server actions are <b>simulated on the device</b> for this self‑contained build.</li>
-<li>Venue <b>maps may not render</b> (map key not shipped in the demo).</li>
-</ul></div>
+      <h2 id="limits">5 · Known limits — please don’t log these as bugs</h2>
+      <div class="card sans">
+        <ul>
+          <li>Payments are <b>disabled</b> — you can reach the pay step but not be charged.</li>
+          <li>The only working OTP is the demo code <b>123456</b> (any phone number).</li>
+          <li>
+            <b>All roles are visible at once</b> — role‑by‑role gating is checked in a later round.
+          </li>
+          <li>Names, rooms, stalls, shifts and competitions are <b>sample data</b>.</li>
+          <li>The AI <b>Explore / Assistant</b> is a placeholder.</li>
+          <li>
+            Some server actions are <b>simulated on the device</b> for this self‑contained build.
+          </li>
+          <li>Venue <b>maps may not render</b> (map key not shipped in the demo).</li>
+        </ul>
+      </div>
 
-<h2 id="report">6 · Reporting a finding</h2>
-<div class="card sans">
-<p>For anything that doesn’t match “what to test”, capture:</p>
-<ul>
-<li>The <b>area / screen</b> and what you tapped</li>
-<li><b>Device &amp; Android version</b>, and the app <b>version</b> (from <b>More</b>)</li>
-<li><b>Language</b> (EN/HI) and whether you were <b>online or in Airplane mode</b></li>
-<li><b>Steps</b>, <b>Expected vs Actual</b>, and a <b>screenshot / screen‑recording</b></li>
-<li>Severity — <b>Critical</b> (blocked / data loss / safety / privacy), <b>Major</b> (broken, has a workaround), <b>Minor</b> (cosmetic / copy)</li>
-</ul>
-</div>
+      <h2 id="report">6 · Reporting a finding</h2>
+      <div class="card sans">
+        <p>For anything that doesn’t match “what to test”, capture:</p>
+        <ul>
+          <li>The <b>area / screen</b> and what you tapped</li>
+          <li>
+            <b>Device &amp; Android version</b>, and the app <b>version</b> (from <b>More</b>)
+          </li>
+          <li><b>Language</b> (EN/HI) and whether you were <b>online or in Airplane mode</b></li>
+          <li>
+            <b>Steps</b>, <b>Expected vs Actual</b>, and a <b>screenshot / screen‑recording</b>
+          </li>
+          <li>
+            Severity — <b>Critical</b> (blocked / data loss / safety / privacy),
+            <b>Major</b> (broken, has a workaround), <b>Minor</b> (cosmetic / copy)
+          </li>
+        </ul>
+      </div>
 
-<footer class="sans">
-  Bir Festival 2026 · evaluation build · not the released app.<br>
-  Covers the CO‑001 baseline + Highlights, Lodging &amp; badges, and Volunteer / Partner / Ops.
-</footer>
-</main></body></html>
+      <footer class="sans">
+        Bir Festival 2026 · evaluation build · not the released app.<br />
+        Covers the CO‑001 baseline + Highlights, Lodging &amp; badges, and Volunteer / Partner /
+        Ops.
+      </footer>
+    </main>
+  </body>
+</html>
