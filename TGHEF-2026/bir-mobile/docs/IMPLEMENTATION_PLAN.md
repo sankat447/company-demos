@@ -240,9 +240,15 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       mutation (safety-officer/organiser-lite guarded). Deployed + verified (sign-in still
       works with the fixed OTP; revoke → surfaces in the feed; non-ops rejected). Flip
       `SMS_ENABLED=true` (+ DLT) for production.
-- [ ] **B7** Data importer: `bir-backend/data-collection` workbook → DynamoDB seed rows
-      (dates/times → epoch, cross-sheet id resolution) + Cognito users & role-group
-      membership for the Users & Roles tab.
+- [x] **B7** Data importer (`bir-backend/scripts/import-workbook.py`, openpyxl + boto3):
+      reads the filled workbook → DynamoDB rows (tiers, schedule, competition regs/lodging
+      pool, rooms, volunteers+shifts, stall/hospitality consoles, fly-status), CDN JSON
+      (Highlights catalog + venues.json), and creates Cognito users + role-group membership
+      (volunteers, partners, Users & Roles) so console rows keyed by sub resolve. Dates+times
+      (IST) → epoch; venue_id / volunteer_phone cross-sheet resolution; idempotent (`--no-users`
+      / `--dry-run`). Verified end-to-end on the example workbook: an imported partner logs in
+      (OTP off → `000000`) and their `stallConsole` resolves. (The live catalog was restored to
+      the fuller festival set until organizers fill the real workbook.)
 - [ ] **B8** AI endpoints: REST API GW + Lambda → Bedrock for `ai.assistantPath`,
       `ai.plannerPath`, `ai.translatePath`, `ai.queuePredictPath` (unblocks P6.1–6.4).
 - [ ] **B9** Push + geo services: Pinpoint app + FCM/APNs platform endpoints (`push.*`);
