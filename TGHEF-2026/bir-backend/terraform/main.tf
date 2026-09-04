@@ -199,8 +199,9 @@ resource "aws_iam_role_policy" "lambda" {
       # the server-only confirmOrder mutation (AppSync IAM).
       { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = "arn:aws:lambda:*:*:function:${local.name}-pass-signer" },
       { Effect = "Allow", Action = ["appsync:GraphQL"], Resource = "${aws_appsync_graphql_api.main.arn}/*" },
-      # B8: AI endpoints invoke Bedrock (via a cross-region inference profile).
-      { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], Resource = ["arn:aws:bedrock:*::foundation-model/anthropic.*", "arn:aws:bedrock:*:*:inference-profile/*"] },
+      # B8: AI endpoints read the Anthropic API key from SSM (SecureString);
+      # ssm:GetParameter above already covers /${local.name}/*. No Bedrock IAM —
+      # the AI Lambda calls the Anthropic API directly over HTTPS.
       { Effect = "Allow", Action = ["sns:Publish"], Resource = "*" }
     ]
   })
@@ -591,6 +592,17 @@ resource "aws_ssm_parameter" "pass_private_key" {
   lifecycle { ignore_changes = [value] } # deploy.sh owns the real value
 }
 
+# B8: the Anthropic API key the AI Lambda uses. Placeholder SecureString — the
+# operator sets the real value out-of-band (never in the repo or client):
+#   aws ssm put-parameter --name /${local.name}/ai/anthropic-key \
+#     --type SecureString --overwrite --value <ANTHROPIC_API_KEY>
+resource "aws_ssm_parameter" "anthropic_key" {
+  name  = "/${local.name}/ai/anthropic-key"
+  type  = "SecureString"
+  value = "REPLACE_WITH_ANTHROPIC_API_KEY"
+  lifecycle { ignore_changes = [value] } # operator owns the real value
+}
+
 # =====================================================================
 # B5: Payments — Paytm gateway, order REST API, order resolvers.
 # =====================================================================
@@ -734,7 +746,7 @@ resource "aws_lambda_function" "ai" {
   source_code_hash = data.archive_file.ai.output_base64sha256
   timeout          = 30
   memory_size      = 256
-  environment { variables = { BEDROCK_MODEL = var.bedrock_model } }
+  environment { variables = { ANTHROPIC_MODEL = var.anthropic_model, ANTHROPIC_KEY_PARAM = aws_ssm_parameter.anthropic_key.name } }
 }
 resource "aws_apigatewayv2_integration" "ai" {
   api_id                 = aws_apigatewayv2_api.pay.id

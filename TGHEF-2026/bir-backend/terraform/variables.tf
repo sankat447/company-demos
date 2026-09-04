@@ -62,10 +62,10 @@ variable "demo_numbers" {
   default     = ["+911100000007"]
 }
 
-variable "bedrock_model" {
-  description = "B8: Bedrock model / inference-profile id for the AI endpoints."
+variable "anthropic_model" {
+  description = "B8: Anthropic model id the AI endpoints call (Anthropic Messages API)."
   type        = string
-  default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  default     = "claude-haiku-4-5-20251001"
 }
 
 variable "fcm_sender_id" {

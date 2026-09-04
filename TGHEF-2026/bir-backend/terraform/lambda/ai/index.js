@@ -1,14 +1,37 @@
 /**
- * B8: AI endpoints (REST → Bedrock). One Lambda behind /ai/assistant,
- * /ai/planner, /ai/translate and /ai/queue on the HTTP API (Cognito-authorized).
- * The app NEVER holds model keys or calls Bedrock directly — it goes through
- * here. Uses the Bedrock Converse API with a cross-region inference profile.
+ * B8: AI endpoints (REST → Anthropic Messages API). One Lambda behind
+ * /ai/assistant, /ai/planner, /ai/translate and /ai/queue on the HTTP API
+ * (Cognito-authorized). The app NEVER holds the model key or calls the model
+ * directly — it goes through here, and the key lives in SSM (SecureString),
+ * read at runtime and cached for the container's life.
+ *
+ * Repointed off Amazon Bedrock (whose model access is gated on an account
+ * use-case form) to the Anthropic API directly, so it works with a plain
+ * Anthropic key. @aws-sdk/client-ssm ships in the Node.js 20 runtime; the HTTP
+ * call uses the runtime's global fetch — no bundled dependencies.
  */
 'use strict';
-const { BedrockRuntimeClient, ConverseCommand } = require('@aws-sdk/client-bedrock-runtime');
+const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 
-const client = new BedrockRuntimeClient({});
-const MODEL = process.env.BEDROCK_MODEL;
+const ssm = new SSMClient({});
+const KEY_PARAM = process.env.ANTHROPIC_KEY_PARAM;
+const MODEL = process.env.ANTHROPIC_MODEL;
+const API_URL = 'https://api.anthropic.com/v1/messages';
+const API_VERSION = '2023-06-01';
+
+let cachedKey = null;
+async function apiKey() {
+  if (cachedKey) return cachedKey;
+  const out = await ssm.send(new GetParameterCommand({ Name: KEY_PARAM, WithDecryption: true }));
+  const val = out.Parameter && out.Parameter.Value;
+  if (!val || val.startsWith('REPLACE')) {
+    const e = new Error('Anthropic API key is not configured for this stack');
+    e.notConfigured = true;
+    throw e;
+  }
+  cachedKey = val;
+  return cachedKey;
+}
 
 const ASSISTANT_SYS =
   'You are the friendly assistant for the Bir Festival 2026 (21–23 November, Bir–Billing, ' +
@@ -35,16 +58,29 @@ function json(statusCode, obj) {
 }
 
 async function converse(system, text, maxTokens) {
-  const out = await client.send(
-    new ConverseCommand({
-      modelId: MODEL,
-      system: [{ text: system }],
-      messages: [{ role: 'user', content: [{ text: text || '' }] }],
-      inferenceConfig: { maxTokens, temperature: 0.3 },
+  const key = await apiKey();
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': API_VERSION,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      temperature: 0.3,
+      system,
+      messages: [{ role: 'user', content: text || '' }],
     }),
-  );
-  return (out.output.message.content || [])
-    .map((c) => c.text)
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`anthropic ${res.status}: ${detail.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return (data.content || [])
+    .map((c) => (c && c.type === 'text' ? c.text : ''))
     .filter(Boolean)
     .join('')
     .trim();
@@ -90,6 +126,7 @@ exports.handler = async (event) => {
     }
     return json(404, { error: 'unknown ai path' });
   } catch (e) {
+    if (e && e.notConfigured) return json(503, { error: 'ai not configured', detail: String(e.message) });
     return json(502, { error: 'ai unavailable', detail: String((e && e.message) || e) });
   }
 };
