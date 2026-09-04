@@ -87,7 +87,10 @@ input:focus,textarea:focus,select:focus{outline:none; border-color:var(--slate)}
 .chip.hold{color:var(--warn); border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
 .chip.closed{color:var(--bad); border-color:color-mix(in srgb,var(--bad) 45%,transparent)}
 .pill{font-family:"IBM Plex Mono",monospace; font-size:11px; padding:3px 8px; border-radius:6px; background:var(--panel-2); border:1px solid var(--line); color:var(--muted)}
-.pill.good{color:var(--good)} .pill.bad{color:var(--bad)} .pill.info{color:var(--slate)}
+.pill.good{color:var(--good)} .pill.bad{color:var(--bad)} .pill.info{color:var(--slate)} .pill.warn{color:var(--warn)}
+/* management form card — a hairline accent to set "create/edit" apart from read panels */
+.card.mgr{border-left:3px solid var(--pine)}
+.card.mgr .field span{font-size:12px}
 
 /* ---------- cards / grid ---------- */
 .section-title{font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--marigold); margin:2px 0 12px}

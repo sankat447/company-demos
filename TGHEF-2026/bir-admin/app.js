@@ -5,8 +5,10 @@ const CFG = window.BIR_CONFIG;
 const SESSION_KEY = 'bir.admin.session.v2';
 const TIER_NAMES = { 1: 'Superadmin', 2: 'Admin', 3: 'Manager', 4: 'Coordinator' };
 const CAPS = {
-  'analytics.read': [1, 2, 3, 4], 'faq.write': [1, 2, 3],
-  'pass.revoke': [1, 2], 'flystatus.set': [1, 2], 'admin.manage': [1, 2, 3],
+  'analytics.read': [1, 2, 3, 4], 'admin.manage': [1, 2, 3],
+  'faq.write': [1, 2, 3], 'pass.revoke': [1, 2], 'flystatus.set': [1, 2],
+  'schedule.manage': [1, 2, 3], 'stalls.manage': [1, 2, 3], 'lodging.manage': [1, 2, 3],
+  'volunteers.manage': [1, 2, 3], 'incidents.manage': [1, 2, 3, 4], 'announce.write': [1, 2],
 };
 const state = { token: null, admin: null };
 
@@ -80,11 +82,12 @@ $('#signout').addEventListener('click', () => signOut());
 function enterApp() {
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
   $('#who').textContent = `${state.admin.name || state.admin.username} · ${TIER_NAMES[state.admin.tier]}`;
-  // hide panels the tier can't use
+  // hide panels the tier can't use (write-only panels stay hidden for read-only
+  // tiers; every tier keeps the monitor + incident-triage views)
+  const GATE = { admins: 'admin.manage', schedule: 'schedule.manage', announce: 'announce.write' };
   $$('.nav-item').forEach((b) => {
-    const v = b.dataset.view;
-    const hidden = (v === 'admins' && !cap('admin.manage'));
-    b.style.display = hidden ? 'none' : '';
+    const need = GATE[b.dataset.view];
+    b.style.display = need && !cap(need) ? 'none' : '';
   });
   refreshFlyChip(); setView('overview');
 }
@@ -93,9 +96,10 @@ $$('.nav-item').forEach((b) => b.addEventListener('click', () => setView(b.datas
 
 let currentView = 'overview';
 const TITLES = {
-  overview: 'Overview', visitors: 'Visitors & tickets', stalls: 'Stalls', lodging: 'Lodging',
-  volunteers: 'Volunteers', incidents: 'Incidents', fly: 'Fly-status', kb: 'Knowledge & AI',
-  passes: 'Passes', admins: 'Admins', reference: 'Schedule & tiers',
+  overview: 'Overview', visitors: 'Visitors & tickets', incidents: 'Incidents',
+  schedule: 'Schedule', stalls: 'Stalls', lodging: 'Lodging', volunteers: 'Volunteers',
+  fly: 'Fly-status', announce: 'Announcements', kb: 'Knowledge & AI',
+  passes: 'Passes', admins: 'Admins',
 };
 async function setView(name) {
   currentView = name;
@@ -170,77 +174,247 @@ VIEWS.visitors = async (v) => {
 };
 
 VIEWS.stalls = async (v) => {
-  const d = await api('GET', '/admin/stalls'); const st = d.items;
+  const [agg, d] = await Promise.all([api('GET', '/admin/stalls'), api('GET', '/admin/stalls/list')]);
+  const items = d.items; const w = cap('stalls.manage');
+  const orders = agg.items.reduce((n, s) => n + (s.ordersEstimate || 0), 0);
   v.innerHTML = `
     <div class="grid g-3">
-      ${kpiCard('Stalls', st.length, `${st.filter((s) => s.paid).length} fees paid`)}
-      ${kpiCard('Est. orders (3 days)', st.reduce((n, s) => n + s.ordersEstimate, 0).toLocaleString('en-IN'), 'across all stalls')}
-      ${kpiCard('Fees billed', inr(st.reduce((n, s) => n + s.feeInr, 0)), `${st.filter((s) => !s.paid).length} unpaid`)}
+      ${kpiCard('Stalls', items.length, `${items.filter((s) => s.paid).length} fees paid`)}
+      ${kpiCard('Est. orders (3 days)', orders.toLocaleString('en-IN'), 'across all stalls')}
+      ${kpiCard('Fees billed', inr(items.reduce((n, s) => n + s.feeInr, 0)), `${items.filter((s) => !s.paid).length} unpaid`)}
     </div>
-    <div class="card" style="margin-top:16px">
-      <div class="section-title">Food street (${st.length})</div>
-      <div class="scroll-x"><table class="tbl"><thead><tr><th>Stall</th><th>Category</th><th>Stage</th><th>Allocation</th><th>Fee</th><th>Est. orders</th><th>Footfall</th></tr></thead><tbody>
-        ${st.length ? st.map((s) => `<tr><td>${esc(s.stallName)}</td><td>${esc(s.category || '')}</td><td><span class="pill ${s.stage === 'approved' ? 'good' : 'info'}">${esc(s.stage || '—')}</span></td><td class="mono">${esc(s.allocationLabel || '')}</td><td class="mono">${inr(s.feeInr)} ${s.paid ? '<span class="pill good">paid</span>' : '<span class="pill bad">due</span>'}</td><td class="mono">${s.ordersEstimate.toLocaleString('en-IN')}</td><td>${footfallBar(s.footfallIndex)}</td></tr>`).join('') : '<tr><td colspan="7" class="empty">No stalls.</td></tr>'}
+    ${w ? `<div class="card mgr" style="margin-top:16px"><div class="section-title" id="stall-title">Add stall</div>
+      <input id="stall-id" type="hidden">
+      <div class="grid g-2">
+        <label class="field"><span>Stall name</span><input id="stall-stallName" placeholder="Kangra Kitchen"></label>
+        <label class="field"><span>Category</span><input id="stall-category" placeholder="Local food · siddu & dham"></label>
+        <label class="field"><span>Stage</span><select id="stall-stage"><option value="pending">pending</option><option value="approved">approved</option><option value="rejected">rejected</option></select></label>
+        <label class="field"><span>Allocation label</span><input id="stall-allocationLabel" placeholder="Food Street · Stall F-12"></label>
+        <label class="field"><span>Fee (₹)</span><input id="stall-feeInr" type="number" min="0" placeholder="3500"></label>
+        <label class="field row" style="align-items:center;gap:8px"><input id="stall-paid" type="checkbox"><span>Fee paid</span></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="stall-save">Save stall</button><button class="btn ghost" id="stall-clear">Clear</button></div>
+    </div>` : ''}
+    <div class="card" style="margin-top:16px"><div class="section-title">Food street (${items.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Stall</th><th>Category</th><th>Stage</th><th>Allocation</th><th>Fee</th>${w ? '<th>Actions</th>' : ''}</tr></thead><tbody>
+        ${items.length ? items.map((s) => `<tr data-id="${esc(s.id)}"><td>${esc(s.stallName)}</td><td>${esc(s.category || '')}</td><td><span class="pill ${s.stage === 'approved' ? 'good' : s.stage === 'rejected' ? 'bad' : 'info'}">${esc(s.stage || '—')}</span></td><td class="mono">${esc(s.allocationLabel || '')}</td><td class="mono">${inr(s.feeInr)} ${s.paid ? '<span class="pill good">paid</span>' : '<span class="pill bad">due</span>'}</td>${w ? `<td><div class="row wrap"><button class="btn ghost sm ed-edit">Edit</button><button class="btn ghost sm ed-del">Delete</button></div></td>` : ''}</tr>`).join('') : `<tr><td colspan="${w ? 6 : 5}" class="empty">No stalls yet.</td></tr>`}
       </tbody></table></div>
     </div>`;
+  if (w) wireCrud(v, {
+    kind: 'stall', path: '/admin/stalls', view: 'stalls', items, noun: 'stall',
+    collect: () => {
+      const stallName = $('#stall-stallName').value.trim();
+      if (!stallName) { toast('Stall name is required', 'bad'); return null; }
+      return { stallName, category: $('#stall-category').value.trim(), stage: $('#stall-stage').value, allocationLabel: $('#stall-allocationLabel').value.trim(), feeInr: Number($('#stall-feeInr').value) || 0, paid: $('#stall-paid').checked };
+    },
+    fill: (s) => { $('#stall-stallName').value = s.stallName || ''; $('#stall-category').value = s.category || ''; $('#stall-stage').value = s.stage || 'pending'; $('#stall-allocationLabel').value = s.allocationLabel || ''; $('#stall-feeInr').value = s.feeInr || ''; $('#stall-paid').checked = !!s.paid; },
+    clear: () => { ['stallName', 'category', 'allocationLabel', 'feeInr'].forEach((f) => $('#stall-' + f).value = ''); $('#stall-stage').value = 'pending'; $('#stall-paid').checked = false; },
+  });
 };
 
 VIEWS.lodging = async (v) => {
-  const d = await api('GET', '/admin/lodging');
-  const comp = d.partners.reduce((n, p) => n + p.complimentaryRooms, 0);
-  const checkedIn = d.partners.reduce((n, p) => n + p.checkedIn, 0);
-  const alloc = d.partners.reduce((n, p) => n + p.allocations, 0);
+  const [agg, d] = await Promise.all([api('GET', '/admin/lodging'), api('GET', '/admin/rooms')]);
+  const rooms = d.items; const w = cap('lodging.manage');
+  const assigned = rooms.filter((r) => r.guestName).length;
+  const checkedIn = rooms.filter((r) => r.checkedIn).length;
   v.innerHTML = `
     <div class="grid g-4">
-      ${kpiCard('Rooms', d.hotels.reduce((n, h) => n + h.rooms, 0), `${d.hotels.reduce((n, h) => n + h.capacity, 0)} beds · ${d.hotels.length} hotels`)}
-      ${kpiCard('Need lodging', d.pool.needLodging, `of ${d.pool.total} registrants`)}
-      ${kpiCard('Complimentary', comp, 'partner rooms')}
-      ${kpiCard('Checked in', checkedIn, `of ${alloc} allocations`)}
+      ${kpiCard('Rooms', rooms.length, `${new Set(rooms.map((r) => r.hotelName)).size} hotels · ${rooms.reduce((n, r) => n + r.capacity, 0)} beds`)}
+      ${kpiCard('Need lodging', agg.pool.needLodging, `of ${agg.pool.total} registrants`)}
+      ${kpiCard('Allocated', assigned, `${rooms.length - assigned} rooms free`)}
+      ${kpiCard('Checked in', checkedIn, `of ${assigned} allocations`)}
     </div>
-    <div class="grid g-2" style="margin-top:16px">
-      <div class="card"><div class="section-title">Beds by hotel</div>${bars(d.hotels.map((h) => ({ label: h.hotel, value: h.capacity })), 'mar')}</div>
-      <div class="card"><div class="section-title">Hospitality partners</div>
-        <div class="scroll-x"><table class="tbl"><thead><tr><th>Hotel</th><th>Comp.</th><th>Allocated</th><th>Checked in</th></tr></thead><tbody>
-          ${d.partners.length ? d.partners.map((p) => `<tr><td>${esc(p.hotelName || '')}</td><td class="mono">${p.complimentaryRooms}</td><td class="mono">${p.allocations}</td><td class="mono">${p.checkedIn}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">No partners.</td></tr>'}
-        </tbody></table></div>
+    ${w ? `<div class="card mgr" style="margin-top:16px"><div class="section-title" id="room-title">Add room</div>
+      <input id="room-id" type="hidden">
+      <div class="grid g-2">
+        <label class="field"><span>Hotel</span><input id="room-hotelName" placeholder="Deodar Homestay"></label>
+        <label class="field"><span>Room label</span><input id="room-roomLabel" placeholder="Cottage 2"></label>
+        <label class="field"><span>Type</span><input id="room-type" placeholder="twin"></label>
+        <label class="field"><span>Capacity</span><input id="room-capacity" type="number" min="1" placeholder="2"></label>
+        <label class="field"><span>Status</span><select id="room-status"><option value="active">active</option><option value="held">held</option><option value="offline">offline</option></select></label>
       </div>
-    </div>
-    <div class="card" style="margin-top:16px"><div class="section-title">Room inventory</div>
-      <div class="scroll-x"><table class="tbl"><thead><tr><th>Hotel</th><th>Rooms</th><th>Beds</th><th>Active</th></tr></thead><tbody>
-        ${d.hotels.map((h) => `<tr><td>${esc(h.hotel)}</td><td class="mono">${h.rooms}</td><td class="mono">${h.capacity}</td><td class="mono">${h.active}/${h.rooms}</td></tr>`).join('')}
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="room-save">Save room</button><button class="btn ghost" id="room-clear">Clear</button></div>
+    </div>` : ''}
+    <div class="card" style="margin-top:16px"><div class="section-title">Room inventory (${rooms.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Hotel</th><th>Room</th><th>Type</th><th>Cap</th><th>Status</th><th>Guest</th><th>Check-in</th>${w ? '<th>Actions</th>' : ''}</tr></thead><tbody>
+        ${rooms.length ? rooms.map((r) => `<tr data-id="${esc(r.id)}"><td>${esc(r.hotelName)}</td><td>${esc(r.roomLabel)}</td><td>${esc(r.type)}</td><td class="mono">${r.capacity}</td><td><span class="pill ${r.status === 'active' ? 'good' : 'warn'}">${esc(r.status)}</span></td><td>${r.guestName ? esc(r.guestName) : '<span class="pill">free</span>'}</td><td>${r.guestName ? (r.checkedIn ? '<span class="pill good">in</span>' : '<span class="pill warn">awaiting</span>') : '—'}</td>${w ? `<td><div class="row wrap"><button class="btn ghost sm rm-alloc">Allocate</button><button class="btn ghost sm ed-edit">Edit</button><button class="btn ghost sm ed-del">Delete</button></div></td>` : ''}</tr>`).join('') : `<tr><td colspan="${w ? 8 : 7}" class="empty">No rooms. Add inventory above or run seed-rooms.</td></tr>`}
       </tbody></table></div>
     </div>`;
+  if (w) {
+    wireCrud(v, {
+      kind: 'room', path: '/admin/rooms', view: 'lodging', items: rooms, noun: 'room',
+      collect: () => {
+        const hotelName = $('#room-hotelName').value.trim(); const roomLabel = $('#room-roomLabel').value.trim();
+        if (!hotelName || !roomLabel) { toast('Hotel and room label are required', 'bad'); return null; }
+        return { hotelName, roomLabel, type: $('#room-type').value.trim() || 'twin', capacity: Number($('#room-capacity').value) || 2, status: $('#room-status').value };
+      },
+      fill: (r) => { $('#room-hotelName').value = r.hotelName || ''; $('#room-roomLabel').value = r.roomLabel || ''; $('#room-type').value = r.type || ''; $('#room-capacity').value = r.capacity || ''; $('#room-status').value = r.status || 'active'; },
+      clear: () => { ['hotelName', 'roomLabel', 'type', 'capacity'].forEach((f) => $('#room-' + f).value = ''); $('#room-status').value = 'active'; },
+    });
+    $$('.rm-alloc', v).forEach((b) => b.addEventListener('click', async () => {
+      const id = b.closest('tr').dataset.id; const room = rooms.find((r) => r.id === id) || {};
+      const guestName = prompt(`Assign a guest to ${room.hotelName} ${room.roomLabel} (blank to clear):`, room.guestName || '');
+      if (guestName === null) return;
+      const checkedIn = guestName.trim() ? confirm('Mark this guest as checked in now? (Cancel = awaiting check-in)') : false;
+      try { await api('POST', `/admin/rooms/${encodeURIComponent(id)}/allocate`, { guestName: guestName.trim(), checkedIn }); toast(guestName.trim() ? 'Room allocated' : 'Allocation cleared', 'good'); setView('lodging'); }
+      catch (e) { toast(e.message, 'bad'); }
+    }));
+  }
 };
 
 VIEWS.volunteers = async (v) => {
-  const d = await api('GET', '/admin/volunteers');
+  const [agg, d] = await Promise.all([api('GET', '/admin/volunteers'), api('GET', '/admin/volunteers/list')]);
+  const vols = d.items; const w = cap('volunteers.manage');
+  const totalShifts = vols.reduce((n, x) => n + x.shifts.length, 0);
   v.innerHTML = `
     <div class="grid g-3">
-      ${kpiCard('Volunteers', d.total, `${d.idVerified} ID-verified`)}
-      ${kpiCard('Shifts assigned', d.items.reduce((n, x) => n + x.shifts, 0), 'across the roster')}
-      ${kpiCard('Attendance records', d.attendanceRecords, 'check-ins logged')}
+      ${kpiCard('Volunteers', vols.length, `${vols.filter((x) => x.idVerified).length} ID-verified`)}
+      ${kpiCard('Shifts assigned', totalShifts, 'across the roster')}
+      ${kpiCard('Attendance records', agg.attendanceRecords, 'check-ins logged')}
     </div>
-    <div class="card" style="margin-top:16px"><div class="section-title">Roster (${d.total})</div>
-      <div class="scroll-x"><table class="tbl"><thead><tr><th>Name</th><th>Team</th><th>Shifts</th><th>ID verified</th></tr></thead><tbody>
-        ${d.items.length ? d.items.map((x) => `<tr><td>${esc(x.name || '')}</td><td>${esc(x.team || '')}</td><td class="mono">${x.shifts}</td><td>${x.idVerified ? '<span class="pill good">yes</span>' : '<span class="pill">no</span>'}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">No volunteers.</td></tr>'}
+    ${w ? `<div class="card mgr" style="margin-top:16px"><div class="section-title" id="vol-title">Add volunteer</div>
+      <input id="vol-id" type="hidden">
+      <div class="grid g-2">
+        <label class="field"><span>Name</span><input id="vol-name" placeholder="Tenzin Dorje"></label>
+        <label class="field"><span>Team</span><input id="vol-team" placeholder="Gate & Access"></label>
+        <label class="field row" style="align-items:center;gap:8px"><input id="vol-idVerified" type="checkbox"><span>ID verified</span></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="vol-save">Save volunteer</button><button class="btn ghost" id="vol-clear">Clear</button></div>
+    </div>` : ''}
+    <div class="card" style="margin-top:16px"><div class="section-title">Roster (${vols.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Name</th><th>Team</th><th>Shifts</th><th>ID</th>${w ? '<th>Actions</th>' : ''}</tr></thead><tbody>
+        ${vols.length ? vols.map((x) => `<tr data-id="${esc(x.id)}"><td>${esc(x.name || '')}</td><td>${esc(x.team || '')}</td><td>${x.shifts.length ? x.shifts.map((s) => `<span class="pill info" title="${esc(s.date)} ${esc(s.role)}">${esc(s.zone || s.role || 'shift')}${w ? ` <a class="sh-del" data-vol="${esc(x.id)}" data-sh="${esc(s.id)}" title="remove">✕</a>` : ''}</span>`).join(' ') : '<span class="mono" style="color:var(--faint)">none</span>'}</td><td>${x.idVerified ? '<span class="pill good">yes</span>' : '<span class="pill">no</span>'}</td>${w ? `<td><div class="row wrap"><button class="btn ghost sm vol-shift">+ shift</button><button class="btn ghost sm ed-edit">Edit</button><button class="btn ghost sm ed-del">Delete</button></div></td>` : ''}</tr>`).join('') : `<tr><td colspan="${w ? 5 : 4}" class="empty">No volunteers yet.</td></tr>`}
       </tbody></table></div>
     </div>`;
+  if (w) {
+    wireCrud(v, {
+      kind: 'vol', path: '/admin/volunteers', view: 'volunteers', items: vols, noun: 'volunteer',
+      collect: () => {
+        const name = $('#vol-name').value.trim();
+        if (!name) { toast('Name is required', 'bad'); return null; }
+        return { name, team: $('#vol-team').value.trim(), idVerified: $('#vol-idVerified').checked };
+      },
+      fill: (x) => { $('#vol-name').value = x.name || ''; $('#vol-team').value = x.team || ''; $('#vol-idVerified').checked = !!x.idVerified; },
+      clear: () => { $('#vol-name').value = ''; $('#vol-team').value = ''; $('#vol-idVerified').checked = false; },
+    });
+    $$('.vol-shift', v).forEach((b) => b.addEventListener('click', async () => {
+      const id = b.closest('tr').dataset.id;
+      const date = prompt('Shift date (YYYY-MM-DD):', '2026-11-21'); if (!date) return;
+      const zone = prompt('Zone / checkpoint:', 'Chogan Gate A'); if (zone === null) return;
+      const role = prompt('Role:', 'Scanner') || 'Steward';
+      try { await api('POST', `/admin/volunteers/${encodeURIComponent(id)}/shift`, { date, zone, role }); toast('Shift added', 'good'); setView('volunteers'); }
+      catch (e) { toast(e.message, 'bad'); }
+    }));
+    $$('.sh-del', v).forEach((a) => a.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      if (!confirm('Remove this shift?')) return;
+      try { await api('DELETE', `/admin/volunteers/${encodeURIComponent(a.dataset.vol)}/shift/${encodeURIComponent(a.dataset.sh)}`); toast('Shift removed', 'good'); setView('volunteers'); }
+      catch (e) { toast(e.message, 'bad'); }
+    }));
+  }
 };
 
 VIEWS.incidents = async (v) => {
   const d = await api('GET', '/admin/incidents');
+  const w = cap('incidents.manage');
+  const STATUS = ['open', 'acknowledged', 'in-progress', 'resolved'];
+  const tone = { open: 'bad', acknowledged: 'warn', 'in-progress': 'info', resolved: 'good' };
   v.innerHTML = `
-    <div class="grid g-3">
+    <div class="grid g-4">
       ${kpiCard('Incidents', d.total, 'reported from the field')}
-      ${kpiCard('Categories', Object.keys(d.byCategory).length, 'distinct types')}
+      ${kpiCard('Open', d.open, 'need attention')}
+      ${kpiCard('Resolved', d.byStatus.resolved || 0, 'closed out')}
       ${kpiCard('Latest', d.items[0] ? fmtTime(d.items[0].ts) : '—', d.items[0] ? esc(d.items[0].zone || '') : 'none yet')}
     </div>
-    ${Object.keys(d.byCategory).length ? `<div class="card" style="margin-top:16px"><div class="section-title">By category</div>${bars(Object.entries(d.byCategory).map(([k, n]) => ({ label: k, value: n })), 'slate')}</div>` : ''}
-    <div class="card" style="margin-top:16px"><div class="section-title">Incident log</div>
-      <div class="scroll-x"><table class="tbl"><thead><tr><th>When</th><th>Category</th><th>Zone</th><th>Note</th></tr></thead><tbody>
-        ${d.items.length ? d.items.map((i) => `<tr><td class="mono">${fmtTime(i.ts)}</td><td><span class="pill info">${esc(i.category || '')}</span></td><td>${esc(i.zone || '')}</td><td>${esc(i.note || '')}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">No incidents reported — all clear.</td></tr>'}
+    ${Object.keys(d.byCategory).length ? `<div class="grid g-2" style="margin-top:16px">
+      <div class="card"><div class="section-title">By category</div>${bars(Object.entries(d.byCategory).map(([k, n]) => ({ label: k, value: n })), 'slate')}</div>
+      <div class="card"><div class="section-title">By status</div>${bars(STATUS.filter((s) => d.byStatus[s]).map((s) => ({ label: s, value: d.byStatus[s] })), 'pine')}</div>
+    </div>` : ''}
+    <div class="card" style="margin-top:16px"><div class="section-title">Incident log ${w ? '· triage' : ''}</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>When</th><th>Category</th><th>Zone</th><th>Note</th><th>Status</th>${w ? '<th>Triage</th>' : '<th>Assignee</th>'}</tr></thead><tbody>
+        ${d.items.length ? d.items.map((i) => `<tr data-id="${esc(i.id)}"><td class="mono">${fmtTime(i.ts)}</td><td><span class="pill info">${esc(i.category || '')}</span></td><td>${esc(i.zone || '')}</td><td>${esc(i.note || '')}${i.resolutionNote ? `<div class="hint" style="color:var(--good)">↳ ${esc(i.resolutionNote)}</div>` : ''}</td><td><span class="pill ${tone[i.status] || ''}">${esc(i.status)}</span></td>${w
+      ? `<td><div class="row wrap" style="gap:6px"><select class="inc-status">${STATUS.map((s) => `<option value="${s}" ${s === i.status ? 'selected' : ''}>${s}</option>`).join('')}</select><input class="inc-assignee" placeholder="assignee" value="${esc(i.assignee || '')}" style="width:96px"><button class="btn ghost sm inc-save">Update</button></div></td>`
+      : `<td>${esc(i.assignee || '—')}</td>`}</tr>`).join('') : `<tr><td colspan="6" class="empty">No incidents reported — all clear.</td></tr>`}
       </tbody></table></div>
     </div>`;
+  if (w) $$('.inc-save', v).forEach((b) => b.addEventListener('click', async () => {
+    const tr = b.closest('tr'); const id = tr.dataset.id;
+    const status = tr.querySelector('.inc-status').value;
+    const assignee = tr.querySelector('.inc-assignee').value.trim();
+    const body = { status, assignee };
+    if (status === 'resolved') { const note = prompt('Resolution note (optional):', ''); if (note) body.resolutionNote = note; }
+    b.disabled = true;
+    try { await api('POST', `/admin/incidents/${encodeURIComponent(id)}`, body); toast('Incident updated', 'good'); setView('incidents'); }
+    catch (e) { toast(e.message, 'bad'); b.disabled = false; }
+  }));
+};
+
+VIEWS.schedule = async (v) => {
+  if (!cap('schedule.manage')) { v.innerHTML = notPermitted('schedule'); return; }
+  const d = await api('GET', '/admin/schedule'); const items = d.items;
+  v.innerHTML = `
+    <div class="card mgr"><div class="section-title" id="sched-title">Add session</div>
+      <input id="sched-id" type="hidden">
+      <div class="grid g-2">
+        <label class="field"><span>Day</span><input id="sched-day" type="date" value="2026-11-21"></label>
+        <label class="field"><span>Venue</span><input id="sched-venue" placeholder="Chogan Ground"></label>
+        <label class="field"><span>Title (English)</span><input id="sched-titleEn" placeholder="Folk music of Kangra"></label>
+        <label class="field"><span>Title (Hindi)</span><input id="sched-titleHi" placeholder="कांगड़ा का लोक संगीत"></label>
+        <label class="field"><span>Start time</span><input id="sched-time" type="time" value="18:00"></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="sched-save">Save session</button><button class="btn ghost" id="sched-clear">Clear</button></div>
+      <p class="hint">Sessions appear on the festival schedule in the app. Times are Asia/Kolkata.</p>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="section-title">Programme (${items.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Day</th><th>Start</th><th>Title</th><th>Venue</th><th>Actions</th></tr></thead><tbody>
+        ${items.length ? items.map((s) => `<tr data-id="${esc(s.id)}"><td class="mono">${esc(s.day)}</td><td class="mono">${s.startsAt ? fmtTime(s.startsAt) : '—'}</td><td>${esc(s.titleEn)}${s.titleHi ? `<div class="hint">${esc(s.titleHi)}</div>` : ''}</td><td>${esc(s.venue || '')}</td><td><div class="row wrap"><button class="btn ghost sm ed-edit">Edit</button><button class="btn ghost sm ed-del">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="5" class="empty">No sessions yet.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+  wireCrud(v, {
+    kind: 'sched', path: '/admin/schedule', view: 'schedule', items, noun: 'session',
+    collect: () => {
+      const titleEn = $('#sched-titleEn').value.trim(); const day = $('#sched-day').value;
+      if (!titleEn || !day) { toast('Day and English title are required', 'bad'); return null; }
+      return { day, venue: $('#sched-venue').value.trim(), titleEn, titleHi: $('#sched-titleHi').value.trim(), startsAt: epochFrom(day, $('#sched-time').value) };
+    },
+    fill: (s) => { $('#sched-day').value = s.day || ''; $('#sched-venue').value = s.venue || ''; $('#sched-titleEn').value = s.titleEn || ''; $('#sched-titleHi').value = s.titleHi || ''; $('#sched-time').value = s.startsAt ? hhmmFrom(s.startsAt) : '18:00'; },
+    clear: () => { ['venue', 'titleEn', 'titleHi'].forEach((f) => $('#sched-' + f).value = ''); },
+  });
+};
+
+VIEWS.announce = async (v) => {
+  if (!cap('announce.write')) { v.innerHTML = notPermitted('announcements'); return; }
+  const d = await api('GET', '/admin/announcements'); const items = d.items;
+  v.innerHTML = `
+    <div class="card mgr"><div class="section-title" id="ann-title">Post announcement</div>
+      <input id="ann-id" type="hidden">
+      <div class="grid g-2">
+        <label class="field"><span>Title (English)</span><input id="ann-titleEn" placeholder="Gates open at 8 AM"></label>
+        <label class="field"><span>Title (Hindi)</span><input id="ann-titleHi" placeholder="गेट सुबह 8 बजे खुलेंगे"></label>
+      </div>
+      <label class="field"><span>Body (English)</span><textarea id="ann-bodyEn" placeholder="Please arrive early; parking fills quickly."></textarea></label>
+      <label class="field"><span>Body (Hindi)</span><textarea id="ann-bodyHi" placeholder="कृपया जल्दी पहुँचें।"></textarea></label>
+      <div class="grid g-2">
+        <label class="field"><span>Level</span><select id="ann-level"><option value="info">info</option><option value="alert">alert</option></select></label>
+        <label class="field row" style="align-items:center;gap:8px"><input id="ann-active" type="checkbox" checked><span>Active (visible in app)</span></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="ann-save">Post</button><button class="btn ghost" id="ann-clear">Clear</button></div>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="section-title">Announcements (${items.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Level</th><th>Title</th><th>Body</th><th>State</th><th>Updated</th><th>Actions</th></tr></thead><tbody>
+        ${items.length ? items.map((a) => `<tr data-id="${esc(a.id)}"><td><span class="pill ${a.level === 'alert' ? 'bad' : 'info'}">${esc(a.level)}</span></td><td>${esc(a.titleEn)}${a.titleHi ? `<div class="hint">${esc(a.titleHi)}</div>` : ''}</td><td>${esc(a.bodyEn)}</td><td>${a.active ? '<span class="pill good">active</span>' : '<span class="pill">hidden</span>'}</td><td class="mono">${fmtTime(a.updatedAt)}</td><td><div class="row wrap"><button class="btn ghost sm ed-edit">Edit</button><button class="btn ghost sm ed-del">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="6" class="empty">No announcements.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+  wireCrud(v, {
+    kind: 'ann', path: '/admin/announcements', view: 'announce', items, noun: 'announcement',
+    collect: () => {
+      const titleEn = $('#ann-titleEn').value.trim(); const bodyEn = $('#ann-bodyEn').value.trim();
+      if (!titleEn || !bodyEn) { toast('English title and body are required', 'bad'); return null; }
+      return { titleEn, titleHi: $('#ann-titleHi').value.trim(), bodyEn, bodyHi: $('#ann-bodyHi').value.trim(), level: $('#ann-level').value, active: $('#ann-active').checked };
+    },
+    fill: (a) => { $('#ann-titleEn').value = a.titleEn || ''; $('#ann-titleHi').value = a.titleHi || ''; $('#ann-bodyEn').value = a.bodyEn || ''; $('#ann-bodyHi').value = a.bodyHi || ''; $('#ann-level').value = a.level || 'info'; $('#ann-active').checked = a.active !== false; },
+    clear: () => { ['titleEn', 'titleHi', 'bodyEn', 'bodyHi'].forEach((f) => $('#ann-' + f).value = ''); $('#ann-level').value = 'info'; $('#ann-active').checked = true; },
+  });
 };
 
 VIEWS.fly = async (v) => {
@@ -381,9 +555,14 @@ function footfallBar(pct) {
   const p = Math.max(0, Math.min(100, pct || 0)); const tone = p >= 80 ? 'mar' : p >= 50 ? '' : 'slate';
   return `<span class="bar-track" style="display:inline-block;width:64px;vertical-align:middle"><span class="bar-fill ${tone}" style="width:${p}%"></span></span> <span class="mono">${p}</span>`;
 }
+const CAP_LABELS = {
+  'analytics.read': 'monitoring', 'admin.manage': 'manage lower tiers', 'faq.write': 'knowledge & FAQ',
+  'pass.revoke': 'revoke passes', 'flystatus.set': 'fly-status', 'schedule.manage': 'schedule',
+  'stalls.manage': 'stalls', 'lodging.manage': 'lodging', 'volunteers.manage': 'volunteers',
+  'incidents.manage': 'incident triage', 'announce.write': 'announcements',
+};
 function tierCaps(t) {
-  const c = Object.entries(CAPS).filter(([, ts]) => ts.includes(t)).map(([k]) => ({ 'analytics.read': 'monitoring', 'faq.write': 'knowledge & FAQ', 'pass.revoke': 'revoke passes', 'flystatus.set': 'fly-status', 'admin.manage': 'manage lower tiers' }[k]));
-  return c.join(' · ');
+  return Object.entries(CAPS).filter(([, ts]) => ts.includes(t)).map(([k]) => CAP_LABELS[k]).filter(Boolean).join(' · ');
 }
 function faqCard(f, writable) {
   return `<div class="faq" data-id="${esc(f.id)}"><div class="q">${esc(f.question)}</div><div class="a">${esc(f.answer)}</div>${writable ? '<div class="faq-actions"><button class="btn ghost sm faq-edit">Edit</button><button class="btn ghost sm faq-del">Delete</button></div>' : ''}</div>`;
@@ -426,6 +605,54 @@ async function runAsk(message, target) {
   target.innerHTML = '<p class="hint"><span class="spinner"></span> Thinking…</p>';
   try { const r = await api('POST', '/admin/ask', { message }); target.innerHTML = `${r.grounded ? '<span class="pill good">grounded in KB</span>' : '<span class="pill">general</span>'}<div class="reply" style="margin-top:8px">${esc(r.reply)}</div>`; }
   catch (e) { target.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+/* generic create/edit/delete wiring for the management views. Each view builds
+   a form (#{kind}-* inputs, a hidden #{kind}-id, #{kind}-save/#{kind}-clear) and
+   a table whose rows carry data-id + .ed-edit/.ed-del buttons. */
+function wireCrud(root, o) {
+  const idEl = $('#' + o.kind + '-id');
+  const titleEl = $('#' + o.kind + '-title');
+  const defTitle = titleEl ? titleEl.textContent : '';
+  const resetForm = () => { o.clear(); if (idEl) idEl.value = ''; if (titleEl) titleEl.textContent = defTitle; };
+  const saveBtn = $('#' + o.kind + '-save');
+  if (saveBtn) saveBtn.addEventListener('click', async () => {
+    const body = o.collect(); if (!body) return;
+    if (idEl && idEl.value) body.id = idEl.value;
+    saveBtn.disabled = true; const label = saveBtn.textContent; saveBtn.innerHTML = '<span class="spinner"></span> Saving…';
+    try { await api('POST', o.path, body); toast(`${cap0(o.noun)} saved`, 'good'); setView(o.view); }
+    catch (e) { toast(e.message, 'bad'); saveBtn.disabled = false; saveBtn.textContent = label; }
+  });
+  const clearBtn = $('#' + o.kind + '-clear');
+  if (clearBtn) clearBtn.addEventListener('click', resetForm);
+  $$('.ed-edit', root).forEach((b) => b.addEventListener('click', () => {
+    const id = b.closest('tr').dataset.id; const row = o.items.find((x) => String(x.id) === String(id));
+    if (!row) return;
+    o.fill(row); if (idEl) idEl.value = id; if (titleEl) titleEl.textContent = 'Edit ' + o.noun;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }));
+  $$('.ed-del', root).forEach((b) => b.addEventListener('click', async () => {
+    const id = b.closest('tr').dataset.id;
+    if (!confirm(`Delete this ${o.noun}? This cannot be undone.`)) return;
+    try { await api('DELETE', `${o.path}/${encodeURIComponent(id)}`); toast(`${cap0(o.noun)} deleted`, 'good'); setView(o.view); }
+    catch (e) { toast(e.message, 'bad'); }
+  }));
+}
+const cap0 = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+function notPermitted(what) {
+  return `<div class="card"><h3>Not available</h3><p class="hint">Your tier cannot manage ${esc(what)}.</p></div>`;
+}
+// Festival times are Asia/Kolkata (UTC+05:30). Convert to/from epoch seconds.
+function epochFrom(day, hhmm) {
+  if (!day) return 0;
+  const ms = Date.parse(`${day}T${hhmm || '00:00'}:00+05:30`);
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : 0;
+}
+function hhmmFrom(s) {
+  try {
+    const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(s * 1000));
+    return `${p.find((x) => x.type === 'hour').value}:${p.find((x) => x.type === 'minute').value}`;
+  } catch { return '18:00'; }
 }
 
 /* admins panel */
