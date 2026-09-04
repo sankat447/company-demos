@@ -1,0 +1,23 @@
+## B10: recordScan — a gate scanner (organiser-lite / safety-officer) logs a
+## pass scan for audit. Offline validation already happened on-device; this is
+## the server-side record. Idempotent: the app's idempotencyKey is the sort key,
+## so a re-drained offline batch upserts the same row (zero dupes on sync).
+#set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+#if(!$groups.contains("organiser-lite") && !$groups.contains("safety-officer"))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "PutItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("SCAN"),
+    "sk": $util.dynamodb.toDynamoDBJson($ctx.args.input.idempotencyKey)
+  },
+  "attributeValues": {
+    "jti": $util.dynamodb.toDynamoDBJson($ctx.args.input.jti),
+    "gate": $util.dynamodb.toDynamoDBJson($ctx.args.input.gate),
+    "ts": $util.dynamodb.toDynamoDBJson($ctx.args.input.ts),
+    "scannedBy": $util.dynamodb.toDynamoDBJson($util.defaultIfNull($ctx.identity.sub, "server")),
+    "recordedAt": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds())
+  }
+}

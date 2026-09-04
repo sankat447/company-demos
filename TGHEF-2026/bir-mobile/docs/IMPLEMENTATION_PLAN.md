@@ -267,8 +267,18 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       tracker (`bir-2026-shuttles`) → `geo.*`. Deployed + verified: `registerDevice` →
       `accepted:true`, `DEVICE#` row written with token/locale/roles/quiet hours; contract
       validates. The SNS fly-status fan-out (B10) consumes the `DEVICE#` rows.
-- [ ] **B10** Ops resolvers: `recordScan`, `setFlyStatus` (`safety-officer`-guarded) + SNS
-      fly-status fanout + refund auto-queue.
+- [x] **B10** Ops resolvers. `recordScan` (VTL, organiser-lite/safety-officer-guarded,
+      idempotent SCAN# audit row) → `ScanResult`; `flyStatus` (VTL public read of
+      FLYSTATUS/current). `setFlyStatus` (`terraform/lambda/set-fly-status`, **safety-officer**
+      only) writes FLYSTATUS/current (drives the banner + `onFlyStatusChanged` subscription),
+      and when the sky is `closed`/`no-fly`/`grounded` **auto-queues refunds** (idempotent
+      REFUNDQ job row on the declaration's idempotencyKey) + flags `refundsAutoQueued`, then
+      **publishes to the fly-status SNS topic** (`aws_sns_topic.fly_status`, ARN also in SSM
+      `/bir-2026/ops/flyStatusTopic`) for the push fan-out over the B9 `DEVICE#` registry.
+      Deployed + verified: safety-officer `closed` → `refundsAutoQueued:true` + REFUNDQ row +
+      SNS publish; `recordScan` accepted for organiser-lite; non-safety-officer rejected;
+      `flyStatus` reads current. (Client `SET_FLY_STATUS` selects a non-existent `accepted`
+      field — fix in the deferred B6–B10 client pass.)
 
 **Gate B:** for each domain, the client runs with its `mock*` flag OFF against the live
 stack (`contract:check` green on the emitted `stack-outputs.json`); every privileged

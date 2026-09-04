@@ -337,7 +337,7 @@ resource "aws_lambda_function_url" "payment_webhook" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
-  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai"])
+  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai", "set-fly-status"])
   name              = "/aws/lambda/${local.name}-${each.key}"
   retention_in_days = var.log_retention_days
 }
@@ -430,7 +430,7 @@ resource "aws_iam_role_policy" "appsync_lambda" {
   role = aws_iam_role.appsync_lambda.id
   policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = [aws_lambda_function.commit_allocation.arn, aws_lambda_function.lodging_occupancy.arn, aws_lambda_function.issue_badge.arn, aws_lambda_function.register_device.arn] }]
+    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = [aws_lambda_function.commit_allocation.arn, aws_lambda_function.lodging_occupancy.arn, aws_lambda_function.issue_badge.arn, aws_lambda_function.register_device.arn, aws_lambda_function.set_fly_status.arn] }]
   })
 }
 resource "aws_appsync_datasource" "commit_lambda" {
@@ -579,7 +579,7 @@ resource "aws_appsync_resolver" "issue_badge" {
 resource "aws_ssm_parameter" "fly_status_topic" {
   name  = "/${local.name}/ops/flyStatusTopic"
   type  = "String"
-  value = "REPLACE_WITH_SNS_TOPIC_ARN"
+  value = aws_sns_topic.fly_status.arn # B10: real fly-status fan-out topic
 }
 
 # The ES256 private key. Provisioned as a placeholder SecureString; deploy.sh
@@ -809,4 +809,62 @@ resource "aws_location_geofence_collection" "venues" {
 }
 resource "aws_location_tracker" "shuttles" {
   tracker_name = "${local.name}-shuttles"
+}
+
+# =====================================================================
+# B10: Ops resolvers — recordScan (gate audit), setFlyStatus (safety-officer,
+# refund auto-queue + SNS fan-out), flyStatus (public read).
+# =====================================================================
+resource "aws_sns_topic" "fly_status" {
+  name = "${local.name}-fly-status"
+}
+
+# recordScan + flyStatus are plain DynamoDB resolvers.
+resource "aws_appsync_resolver" "record_scan" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "recordScan"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/record-scan.req.vtl")
+  response_template = file("${path.module}/resolvers/record-scan.res.vtl")
+}
+resource "aws_appsync_resolver" "fly_status" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "flyStatus"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/fly-status.req.vtl")
+  response_template = file("${path.module}/resolvers/fly-status.res.vtl")
+}
+
+# setFlyStatus is Lambda-backed (multi-write + refund queue + SNS publish).
+data "archive_file" "set_fly_status" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/set-fly-status"
+  output_path = "${path.module}/.build/set-fly-status.zip"
+}
+resource "aws_lambda_function" "set_fly_status" {
+  function_name    = "${local.name}-set-fly-status"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.set_fly_status.output_path
+  source_code_hash = data.archive_file.set_fly_status.output_base64sha256
+  timeout          = 15
+  environment { variables = { TABLE = aws_dynamodb_table.main.name, FLY_TOPIC_ARN = aws_sns_topic.fly_status.arn } }
+}
+resource "aws_appsync_datasource" "set_fly_status_lambda" {
+  api_id           = aws_appsync_graphql_api.main.id
+  name             = "SetFlyStatusLambda"
+  type             = "AWS_LAMBDA"
+  service_role_arn = aws_iam_role.appsync_lambda.arn
+  lambda_config { function_arn = aws_lambda_function.set_fly_status.arn }
+}
+resource "aws_appsync_resolver" "set_fly_status" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "setFlyStatus"
+  data_source       = aws_appsync_datasource.set_fly_status_lambda.name
+  request_template  = file("${path.module}/resolvers/lambda-invoke.req.vtl")
+  response_template = file("${path.module}/resolvers/lambda-invoke.res.vtl")
 }
