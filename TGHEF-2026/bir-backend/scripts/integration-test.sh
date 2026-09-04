@@ -18,7 +18,7 @@ try:
 except Exception:
     print('')"; }
 ok() { if [ "$2" = "$3" ]; then PASS=$((PASS+1)); echo "  ✓ $1"; else FAIL=$((FAIL+1)); echo "  ✗ $1 (got '$2' want '$3')"; fi; }
-okc() { if echo "$2" | grep -q "$3"; then PASS=$((PASS+1)); echo "  ✓ $1"; else FAIL=$((FAIL+1)); echo "  ✗ $1 (missing '$3' in: $(echo "$2" | head -c 160))"; fi; }
+okc() { local h n; h=$(printf '%s' "$2" | tr -d '[:space:]'); n=$(printf '%s' "$3" | tr -d '[:space:]'); if printf '%s' "$h" | grep -qF "$n"; then PASS=$((PASS+1)); echo "  ✓ $1"; else FAIL=$((FAIL+1)); echo "  ✗ $1 (missing '$3' in: $(echo "$2" | head -c 160))"; fi; }
 api() { local m=$1 p=$2 b=${3:-}; curl -s -X "$m" "$API$p" -H "authorization: Bearer $TOK" -H 'content-type: application/json' ${b:+-d "$b"}; }
 
 echo "=== bootstrap / login ==="
