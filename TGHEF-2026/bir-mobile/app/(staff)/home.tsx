@@ -79,6 +79,16 @@ export default function StaffHome() {
           <Text style={styles.cardDesc}>{t('staff.dashboardsOpen')}</Text>
         </Pressable>
 
+        <Pressable
+          style={styles.card}
+          onPress={() => router.push('/(staff)/wristband')}
+          accessibilityRole="button"
+        >
+          <Text style={styles.cardIcon}>🧒</Text>
+          <Text style={styles.cardTitle}>{t('staff.lostChild')}</Text>
+          <Text style={styles.cardDesc}>{t('staff.lostChildOpen')}</Text>
+        </Pressable>
+
         <Pressable style={styles.ghost} onPress={switchMode} accessibilityRole="button">
           <Text style={styles.ghostText}>{t('staff.switchMode')}</Text>
         </Pressable>

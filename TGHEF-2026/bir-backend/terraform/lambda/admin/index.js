@@ -49,6 +49,8 @@ const CAPS = {
   // money-sensitive — Superadmin/Admin only
   'pricing.manage': [1, 2],
   'orders.manage': [1, 2],
+  // child-safety tool — every staff tier can register + look up a wristband
+  'wristband.manage': [1, 2, 3, 4],
 };
 const can = (tier, cap) => (CAPS[cap] || []).includes(tier);
 // A caller may create/manage a target at a strictly-lower tier; Superadmin (1)
@@ -800,6 +802,52 @@ async function refundProcess(me, orderId, body) {
   return json(200, { orderId, status: 'PROCESSED', reference: str(body.reference) });
 }
 
+/* ---- wristbands (lost-child / attendee safety lookup) ------------------ */
+// A band ties a short id (on a physical wristband) to a guardian contact so any
+// staff member can reunite a lost child fast. The full list doubles as the
+// device's offline snapshot (grab it on shift start). All staff tiers.
+const bandId = (s) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+async function wristbandsList(me) {
+  if (!can(me.tier, 'wristband.manage')) return json(403, { error: 'not permitted' });
+  return json(200, {
+    version: nowSec(),
+    items: (await items('WRISTBAND')).filter((b) => b.active !== false).map((b) => ({
+      bandId: b.sk, childName: b.childName || '', ageBand: b.ageBand || '',
+      guardianName: b.guardianName || '', guardianPhone: b.guardianPhone || '',
+      notes: b.notes || '', zone: b.zone || '', createdAt: b.createdAt || 0,
+    })),
+  });
+}
+async function wristbandGet(me, id) {
+  if (!can(me.tier, 'wristband.manage')) return json(403, { error: 'not permitted' });
+  const b = await getRow('WRISTBAND', bandId(id));
+  if (!b || b.active === false) return json(404, { error: 'wristband not found' });
+  return json(200, {
+    bandId: b.sk, childName: b.childName || '', ageBand: b.ageBand || '',
+    guardianName: b.guardianName || '', guardianPhone: b.guardianPhone || '',
+    notes: b.notes || '', zone: b.zone || '',
+  });
+}
+async function wristbandUpsert(me, body) {
+  if (!can(me.tier, 'wristband.manage')) return json(403, { error: 'not permitted' });
+  const id = bandId(body.bandId || body.id);
+  const childName = str(body.childName);
+  const guardianPhone = str(body.guardianPhone);
+  if (!id) return json(400, { error: 'bandId is required' });
+  if (!childName || !guardianPhone) return json(400, { error: 'childName and guardianPhone are required' });
+  const row = await putRow('WRISTBAND', id, {
+    childName, ageBand: str(body.ageBand), guardianName: str(body.guardianName),
+    guardianPhone, notes: str(body.notes), zone: str(body.zone), active: body.active !== false,
+    createdAt: nowSec(),
+  }, me);
+  return json(200, { bandId: id, ...row });
+}
+async function wristbandDelete(me, id) {
+  if (!can(me.tier, 'wristband.manage')) return json(403, { error: 'not permitted' });
+  await delRow('WRISTBAND', bandId(id));
+  return json(200, { bandId: bandId(id), deleted: true });
+}
+
 /* ------------------------- scanner (Phase 2) ---------------------------- */
 // Default gate checkpoints (any valid pass grants entry). Event checkpoints are
 // derived from what people actually register for (REG item ids).
@@ -987,6 +1035,12 @@ exports.handler = async (event) => {
     if (method === 'GET' && path.endsWith('/admin/tiers')) return tiersList();
     if (method === 'POST' && path.endsWith('/admin/tiers')) return tierUpsert(me, body);
     if (method === 'DELETE' && /\/admin\/tiers\/[^/]+$/.test(path)) return tierDelete(me, after(/\/admin\/tiers\/([^/]+)$/));
+
+    // --- wristbands (child-safety lookup, all staff tiers) ---
+    if (method === 'GET' && path.endsWith('/admin/wristbands')) return wristbandsList(me);
+    if (method === 'POST' && path.endsWith('/admin/wristbands')) return wristbandUpsert(me, body);
+    if (method === 'GET' && /\/admin\/wristbands\/[^/]+$/.test(path)) return wristbandGet(me, after(/\/admin\/wristbands\/([^/]+)$/));
+    if (method === 'DELETE' && /\/admin\/wristbands\/[^/]+$/.test(path)) return wristbandDelete(me, after(/\/admin\/wristbands\/([^/]+)$/));
 
     // --- orders + refund requests (money-sensitive, manual settlement) ---
     if (method === 'GET' && path.endsWith('/admin/orders')) return ordersList(me);

@@ -448,7 +448,9 @@
     "switchMode": "Switch to Visitor mode",
     "signOut": "Sign out",
     "scannerOpen": "QR check-in — tap to open",
-    "dashboardsOpen": "Festival monitoring — tap to open"
+    "dashboardsOpen": "Festival monitoring — tap to open",
+    "lostChild": "Lost child",
+    "lostChildOpen": "Reunite a child via wristband id"
   },
   "staffScan": {
     "title": "Scanner",
@@ -571,5 +573,28 @@
     "announcement": "announcement",
     "tab_schedule": "Schedule",
     "tab_announce": "Notices"
+  },
+  "wristband": {
+    "title": "Lost child · wristband",
+    "subtitle": "Enter or scan the band id to reach the guardian.",
+    "search": "Look up",
+    "bandId": "Band id",
+    "searchPlaceholder": "e.g. KID-042",
+    "notFound": "No band matches that id. Check the number, or re-sync.",
+    "child": "Child",
+    "ageBand": "Age",
+    "guardian": "Guardian",
+    "phone": "Phone",
+    "zone": "Zone",
+    "notes": "Notes",
+    "callGuardian": "Call guardian",
+    "register": "Register a band",
+    "registered": "Wristband registered",
+    "childName": "Child name",
+    "guardianName": "Guardian name",
+    "guardianPhone": "Guardian phone",
+    "resync": "Re-sync roster",
+    "synced": "Roster synced ({{n}})",
+    "offlineNote": "Works offline from the last synced roster."
   }
 }
