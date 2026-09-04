@@ -120,6 +120,8 @@ export default function More() {
         ) : null}
 
         <Group label={t('more.profile')}>
+          <Row icon="🪪" label={t('ticket.title')} onPress={() => router.push('/ticket')} />
+          <Row icon="👤" label={t('profile.title')} onPress={() => router.push('/profile')} />
           <Row
             icon="📋"
             label={t('highlights.myRegistrations')}

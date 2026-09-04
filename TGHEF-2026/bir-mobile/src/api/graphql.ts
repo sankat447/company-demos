@@ -59,6 +59,27 @@ export const REVOKE_PASS = /* GraphQL */ `
   }
 `;
 
+// Profile (Phase 1) — the DPDP-consented name + DOB the master ticket age-band
+// is derived from. Own-sub only; server keys it by the caller's identity.
+export const GET_PROFILE = /* GraphQL */ `
+  query GetProfile {
+    getProfile {
+      displayName
+      dob
+      consentDpdp
+    }
+  }
+`;
+export const SET_PROFILE = /* GraphQL */ `
+  mutation SetProfile($input: SetProfileInput!) {
+    setProfile(input: $input) {
+      displayName
+      dob
+      consentDpdp
+    }
+  }
+`;
+
 export const SCHEDULE_DELTA = /* GraphQL */ `
   query ScheduleDelta($since: AWSTimestamp) {
     scheduleDelta(since: $since) {

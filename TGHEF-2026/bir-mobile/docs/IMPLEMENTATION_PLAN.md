@@ -256,8 +256,7 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       `/ai/assistant`, `/ai/planner`, `/ai/translate`, `/ai/queue` on the HTTP API →
       the **Anthropic Messages API** (`var.anthropic_model`, default Haiku 4.5); festival
       system prompts; app never holds the key. The key lives in SSM SecureString
-      `/bir-2026/ai/anthropic-key` (operator sets it, never in repo/client), read at runtime
-      + cached. Deployed + verified: 401 without a token; 503 "ai not configured" with the
+      `/bir-2026/ai/anthropic-key` (operator sets it, never in repo/client), read at runtime + cached. Deployed + verified: 401 without a token; 503 "ai not configured" with the
       placeholder key (new path works up to the key). **Was originally on Bedrock Converse;
       repointed to the Anthropic API to bypass Bedrock's account use-case-form gate.** Live
       generation needs only the key set in SSM — no redeploy. (Unblocks P6.1–6.4.)

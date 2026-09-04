@@ -384,5 +384,61 @@
     "placeholder": "Ask about shows, food, flying…",
     "offlineFaq": "You're offline — answers come from the saved FAQ.",
     "talkToHuman": "Talk to a human"
+  },
+  "mode": {
+    "title": "Welcome to Bir Festival",
+    "subtitle": "How are you joining us today? You can switch anytime.",
+    "visitor": "I'm a Visitor",
+    "visitorDesc": "Tickets, schedule, and your festival pass.",
+    "staff": "I'm Staff",
+    "staffDesc": "Coordinators & organisers — scanner and admin tools."
+  },
+  "profile": {
+    "title": "Profile",
+    "lede": "Your name and date of birth power your festival ticket. Only your age-band ever appears on the QR.",
+    "name": "Full name",
+    "namePlaceholder": "As on your ID",
+    "dob": "Date of birth",
+    "dobHint": "Format: YYYY-MM-DD",
+    "ageBand": "Age band: {{band}}",
+    "consent": "Consent",
+    "consentText": "I agree to Bir Festival storing my name and date of birth to issue my pass (DPDP).",
+    "save": "Save profile",
+    "saving": "Saving…",
+    "saved": "Profile saved",
+    "needName": "Please enter your name.",
+    "invalidDob": "Enter a valid date of birth (YYYY-MM-DD).",
+    "needConsent": "Please give consent to continue."
+  },
+  "ageBand": {
+    "child": "Child",
+    "minor": "Minor",
+    "adult": "18+"
+  },
+  "ticket": {
+    "title": "My Ticket",
+    "subtitle": "Show this at gates and check-ins.",
+    "completeProfile": "Finish your profile first",
+    "completeProfileText": "Add your name and date of birth to get your festival ticket.",
+    "completeProfileCta": "Complete profile",
+    "unavailable": "Ticket unavailable — check your connection.",
+    "offlineNote": "Works offline once loaded."
+  },
+  "staff": {
+    "signInTitle": "Staff sign-in",
+    "signInSubtitle": "Use your admin username and password.",
+    "username": "Username",
+    "password": "Password",
+    "signIn": "Sign in",
+    "signingIn": "Signing in…",
+    "notStaff": "Not staff? Back to mode select",
+    "home": "Staff",
+    "welcome": "Welcome, {{name}}",
+    "scanner": "Scanner",
+    "scannerSoon": "QR check-in — coming in the next update.",
+    "dashboards": "Dashboards",
+    "dashboardsSoon": "Festival monitoring — coming in the next update.",
+    "switchMode": "Switch to Visitor mode",
+    "signOut": "Sign out"
   }
 }
