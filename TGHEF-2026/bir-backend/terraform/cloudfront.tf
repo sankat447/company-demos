@@ -40,6 +40,31 @@ resource "aws_cloudfront_distribution" "media" {
   viewer_certificate { cloudfront_default_certificate = true }
 }
 
+# OAC read grant so the app-dist CloudFront can serve the bucket (e.g. the
+# /admin/ ops console). Without this the distribution 403s every object.
+data "aws_iam_policy_document" "app_dist_oac" {
+  count = var.enable_cdn ? 1 : 0
+  statement {
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.app_dist.arn}/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.app_dist[0].arn]
+    }
+  }
+}
+resource "aws_s3_bucket_policy" "app_dist" {
+  count      = var.enable_cdn ? 1 : 0
+  bucket     = aws_s3_bucket.app_dist.id
+  policy     = data.aws_iam_policy_document.app_dist_oac[0].json
+  depends_on = [aws_s3_bucket_public_access_block.app_dist]
+}
+
 resource "aws_cloudfront_distribution" "app_dist" {
   count   = var.enable_cdn ? 1 : 0
   enabled = true
