@@ -47,7 +47,7 @@ variable "paytm_env" {
 }
 
 variable "sms_enabled" {
-  description = "B6: send real OTP over SNS SMS. Off for the demo/eval stack (fixed OTP, no SMS spend / India DLT). Turn on for production."
+  description = "Send real OTP over Fast2SMS. Off for the demo/eval stack (fixed OTP, no SMS spend). Turn on for production ONLY once the Fast2SMS account can deliver (DLT approved) and the key is set in SSM — see docs/OTP_SMS.md."
   type        = bool
   default     = false
 }
