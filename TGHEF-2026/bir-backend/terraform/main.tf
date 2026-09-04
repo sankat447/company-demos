@@ -227,12 +227,14 @@ resource "aws_lambda_function" "custom_auth" {
   environment {
     variables = {
       OTP_TTL_SECONDS = "300"
-      # B6: real OTP over SNS SMS. Off on the demo stack (fixed DEMO_OTP, no SMS
-      # spend / India DLT). Flip SMS_ENABLED=true for production. DEMO_NUMBERS
-      # always get the fixed code (store review + test users) even when SMS is on.
-      SMS_ENABLED  = var.sms_enabled ? "true" : "false"
-      DEMO_OTP     = var.demo_otp
-      DEMO_NUMBERS = join(",", var.demo_numbers)
+      # Real OTP over Fast2SMS (India, DLT-exempt `otp` route). Off on the demo
+      # stack (fixed DEMO_OTP, no SMS spend). Flip sms_enabled=true AND set the
+      # Fast2SMS key in SSM for production. DEMO_NUMBERS always get the fixed code
+      # (store review + test users) even when SMS is on.
+      SMS_ENABLED        = var.sms_enabled ? "true" : "false"
+      DEMO_OTP           = var.demo_otp
+      DEMO_NUMBERS       = join(",", var.demo_numbers)
+      FAST2SMS_KEY_PARAM = aws_ssm_parameter.fast2sms_key.name
     }
   }
 }
@@ -609,6 +611,19 @@ resource "aws_ssm_parameter" "anthropic_key" {
   name  = "/${local.name}/ai/anthropic-key"
   type  = "SecureString"
   value = "REPLACE_WITH_ANTHROPIC_API_KEY"
+  lifecycle { ignore_changes = [value] } # operator owns the real value
+}
+
+# OTP SMS via Fast2SMS (India). Placeholder SecureString — the operator sets the
+# real key out-of-band (never in the repo or client), then flips sms_enabled:
+#   aws ssm put-parameter --name /${local.name}/otp/fast2sms-key \
+#     --type SecureString --overwrite --value <FAST2SMS_API_KEY>
+# Fast2SMS's `otp` route is DLT-exempt (their own registered sender), so no DLT
+# registration is needed. DEMO_NUMBERS still get the fixed code even when live.
+resource "aws_ssm_parameter" "fast2sms_key" {
+  name  = "/${local.name}/otp/fast2sms-key"
+  type  = "SecureString"
+  value = "REPLACE_FAST2SMS_API_KEY"
   lifecycle { ignore_changes = [value] } # operator owns the real value
 }
 
