@@ -1,0 +1,7 @@
+{
+  "name": "bir-master-pass",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bir Festival master ticket issuance. No bundled deps: @aws-sdk clients are provided by the Node.js 20 Lambda runtime.",
+  "main": "index.js"
+}

@@ -13,6 +13,7 @@ type Query {
   # Highlights (CO-002)
   highlightsCatalog: Catalog
   myRegistrations: [Registration!]!
+  getProfile: Profile
   # Lodging (CO-003) — admin-hospitality guarded (resolver re-checks the group;
   # IAM callers are trusted server/admin). Reachable by both auth modes.
   lodgingPool: [PoolParticipant!]! @aws_cognito_user_pools @aws_iam
@@ -37,6 +38,7 @@ type Mutation {
   recordScan(input: RecordScanInput!): ScanResult
   reportSos(input: ReportSosInput!): Ack
   registerDevice(input: RegisterDeviceInput!): Ack
+  setProfile(input: SetProfileInput!): Profile
   # Lodging + badges (CO-003) — admin-hospitality guarded, server re-validates §3
   commitAllocation(input: CommitAllocationInput!): CommitResult
     @aws_cognito_user_pools
@@ -140,3 +142,7 @@ input PartnerCheckInInput { regId: ID! checkedIn: Boolean! idempotencyKey: Strin
 type Ack { accepted: Boolean! }
 input ReportSosInput { lat: Float! lng: Float! ts: AWSTimestamp! idempotencyKey: String! }
 input RegisterDeviceInput { token: String! platform: String! locale: String! roles: [String!]! quietStartHour: Int quietEndHour: Int idempotencyKey: String! }
+
+# Profile (DPDP-consented) — holds the DOB used to derive the master ticket age-band.
+type Profile { displayName: String dob: String consentDpdp: Boolean! updatedAt: AWSTimestamp }
+input SetProfileInput { displayName: String! dob: String! consentDpdp: Boolean! }

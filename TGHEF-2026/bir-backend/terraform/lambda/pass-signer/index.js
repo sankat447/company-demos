@@ -44,6 +44,25 @@ exports.handler = async (event) => {
       // TODO(prod): enforce confirmed+lodging-resolved, then:
       // return signPass({ typ:'participant', sub, evt:'bir-festival-2026', ... });
       throw new Error('issueBadge: business logic pending');
+    case 'issueMasterPass': {
+      // The one per-user "master ticket". Minimal identity (name + age-band) so
+      // the offline scanner can eyeball the holder; entitlements are resolved
+      // separately (device snapshot / online). Zones ['festival'] = all-access;
+      // the scanner treats a master pass as valid for any gate zone.
+      const nbf = Math.floor(Date.now() / 1000);
+      const exp = 1795564800; // 2026-11-24 end of festival window
+      return signPass({
+        typ: 'master',
+        sub: event.sub,
+        evt: 'bir-festival-2026',
+        name: event.name || '',
+        ageBand: event.ageBand || '',
+        zones: ['festival'],
+        jti: `master-${event.sub}-${nbf}`,
+        nbf,
+        exp,
+      });
+    }
     case 'issuePass': {
       // B5: mint the pass token(s) for a webhook-confirmed order. Called only by
       // the payment webhook (which has already re-verified the txn with Paytm).

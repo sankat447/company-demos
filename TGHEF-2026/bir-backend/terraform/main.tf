@@ -347,7 +347,7 @@ resource "aws_lambda_function_url" "payment_webhook" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
-  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai", "set-fly-status", "kb-ingest", "admin"])
+  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai", "set-fly-status", "kb-ingest", "admin", "master-pass"])
   name              = "/aws/lambda/${local.name}-${each.key}"
   retention_in_days = var.log_retention_days
 }
@@ -1073,6 +1073,65 @@ resource "aws_lambda_permission" "apigw_admin" {
   statement_id  = "AllowApiGwAdmin"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.admin.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.pay.execution_arn}/*/*"
+}
+
+# =====================================================================
+# Phase 1: master ticket + profile (all on the existing stack).
+#   - getProfile/setProfile resolvers on the existing ddb datasource
+#   - master-pass Lambda mints the one master pass via the EXISTING pass-signer
+#     (same key/JWKS); GET /pass/master on the existing HTTP API.
+# =====================================================================
+resource "aws_appsync_resolver" "set_profile" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "setProfile"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/set-profile.req.vtl")
+  response_template = file("${path.module}/resolvers/set-profile.res.vtl")
+}
+resource "aws_appsync_resolver" "get_profile" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "getProfile"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/get-profile.req.vtl")
+  response_template = file("${path.module}/resolvers/get-profile.res.vtl")
+}
+
+data "archive_file" "master_pass" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/master-pass"
+  output_path = "${path.module}/.build/master-pass.zip"
+}
+resource "aws_lambda_function" "master_pass" {
+  function_name    = "${local.name}-master-pass"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.master_pass.output_path
+  source_code_hash = data.archive_file.master_pass.output_base64sha256
+  timeout          = 15
+  environment { variables = { TABLE = aws_dynamodb_table.main.name, SIGNER_FN = aws_lambda_function.pass_signer.function_name } }
+}
+resource "aws_apigatewayv2_integration" "master_pass" {
+  api_id                 = aws_apigatewayv2_api.pay.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.master_pass.invoke_arn
+  payload_format_version = "2.0"
+}
+resource "aws_apigatewayv2_route" "master_pass" {
+  api_id             = aws_apigatewayv2_api.pay.id
+  route_key          = "GET /pass/master"
+  target             = "integrations/${aws_apigatewayv2_integration.master_pass.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+resource "aws_lambda_permission" "apigw_master_pass" {
+  statement_id  = "AllowApiGwMasterPass"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.master_pass.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.pay.execution_arn}/*/*"
 }

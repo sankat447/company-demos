@@ -1,0 +1,12 @@
+## Phase 1: getProfile — the caller's own profile.
+#if($util.isNull($ctx.identity.sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "GetItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("PROFILE#$ctx.identity.sub"),
+    "sk": $util.dynamodb.toDynamoDBJson("PROFILE")
+  }
+}
