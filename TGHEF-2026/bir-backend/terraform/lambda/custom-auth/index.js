@@ -94,6 +94,21 @@ exports.handler = async (event) => {
       event.response.answerCorrect = event.request.challengeAnswer === expected;
       break;
     }
+    case 'PreSignUp_SignUp':
+    case 'PreSignUp_ExternalProvider': {
+      // Self-service onboarding for visitors: this is a phone-OTP pool with no
+      // password login and no separate SMS confirmation step, so auto-confirm the
+      // account and mark the phone verified on sign-up. Identity is still proven
+      // on every login by the OTP custom challenge above — sign-up only creates
+      // the record so a first-time number isn't a phantom (anti-enumeration) user
+      // whose challenge can never issue tokens. Admin-created users keep their own
+      // AdminCreateUser confirm path and are intentionally not matched here.
+      event.response.autoConfirmUser = true;
+      if (event.request.userAttributes && event.request.userAttributes.phone_number) {
+        event.response.autoVerifyPhone = true;
+      }
+      break;
+    }
     default:
       break;
   }

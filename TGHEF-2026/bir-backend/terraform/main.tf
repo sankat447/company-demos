@@ -19,8 +19,13 @@ resource "aws_cognito_user_pool" "main" {
     mutable             = false
   }
 
-  # Custom-auth OTP flow — the Lambda triggers below implement it.
+  # Custom-auth OTP flow — the Lambda triggers below implement it. pre_sign_up
+  # lets a first-time visitor self-register (their phone becomes a real user and
+  # is auto-confirmed) so the OTP challenge can actually issue tokens; without it,
+  # prevent_user_existence_errors below turns every new number into a phantom
+  # user whose OTP never validates.
   lambda_config {
+    pre_sign_up                    = aws_lambda_function.custom_auth.arn
     define_auth_challenge          = aws_lambda_function.custom_auth.arn
     create_auth_challenge          = aws_lambda_function.custom_auth.arn
     verify_auth_challenge_response = aws_lambda_function.custom_auth.arn
