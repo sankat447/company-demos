@@ -199,6 +199,8 @@ resource "aws_iam_role_policy" "lambda" {
       # the server-only confirmOrder mutation (AppSync IAM).
       { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = "arn:aws:lambda:*:*:function:${local.name}-pass-signer" },
       { Effect = "Allow", Action = ["appsync:GraphQL"], Resource = "${aws_appsync_graphql_api.main.arn}/*" },
+      # B8: AI endpoints invoke Bedrock (via a cross-region inference profile).
+      { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"], Resource = ["arn:aws:bedrock:*::foundation-model/anthropic.*", "arn:aws:bedrock:*:*:inference-profile/*"] },
       { Effect = "Allow", Action = ["sns:Publish"], Resource = "*" }
     ]
   })
@@ -713,4 +715,45 @@ resource "aws_appsync_resolver" "revoke_pass" {
   data_source       = aws_appsync_datasource.ddb.name
   request_template  = file("${path.module}/resolvers/revoke-pass.req.vtl")
   response_template = file("${path.module}/resolvers/revoke-pass.res.vtl")
+}
+
+# =====================================================================
+# B8: AI endpoints — one Lambda -> Bedrock, behind /ai/* on the HTTP API.
+# =====================================================================
+data "archive_file" "ai" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/ai"
+  output_path = "${path.module}/.build/ai.zip"
+}
+resource "aws_lambda_function" "ai" {
+  function_name    = "${local.name}-ai"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.ai.output_path
+  source_code_hash = data.archive_file.ai.output_base64sha256
+  timeout          = 30
+  memory_size      = 256
+  environment { variables = { BEDROCK_MODEL = var.bedrock_model } }
+}
+resource "aws_apigatewayv2_integration" "ai" {
+  api_id                 = aws_apigatewayv2_api.pay.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.ai.invoke_arn
+  payload_format_version = "2.0"
+}
+resource "aws_apigatewayv2_route" "ai" {
+  for_each           = toset(["/ai/assistant", "/ai/planner", "/ai/translate", "/ai/queue"])
+  api_id             = aws_apigatewayv2_api.pay.id
+  route_key          = "POST ${each.value}"
+  target             = "integrations/${aws_apigatewayv2_integration.ai.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+resource "aws_lambda_permission" "apigw_ai" {
+  statement_id  = "AllowApiGwAi"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.ai.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.pay.execution_arn}/*/*"
 }

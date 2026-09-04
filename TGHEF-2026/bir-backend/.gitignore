@@ -7,3 +7,4 @@ terraform/terraform.tfvars
 terraform/tfplan
 *.pem
 cdk-outputs.json
+terraform/lambda/*/node_modules/

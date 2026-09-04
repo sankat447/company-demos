@@ -61,3 +61,9 @@ variable "demo_numbers" {
   type        = list(string)
   default     = ["+911100000007"]
 }
+
+variable "bedrock_model" {
+  description = "B8: Bedrock model / inference-profile id for the AI endpoints."
+  type        = string
+  default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+}
