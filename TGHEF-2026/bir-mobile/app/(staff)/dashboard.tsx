@@ -5,13 +5,23 @@ import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { adminCan, adminFetch, getAdminSession } from '@/auth/adminAuth';
+import { ManagePanel } from '@/features/staffManage/ManagePanel';
 import { ParagliderSpinner } from '@/ui/ParagliderSpinner';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
 
 const inr = (n: number) => '₹' + Number(n || 0).toLocaleString('en-IN');
-type PanelKey = 'visitors' | 'stalls' | 'lodging' | 'volunteers' | 'incidents';
-const PANELS: PanelKey[] = ['visitors', 'stalls', 'lodging', 'volunteers', 'incidents'];
+type PanelKey =
+  'visitors' | 'incidents' | 'schedule' | 'stalls' | 'lodging' | 'volunteers' | 'announce';
+const PANELS: PanelKey[] = [
+  'visitors',
+  'incidents',
+  'schedule',
+  'stalls',
+  'lodging',
+  'volunteers',
+  'announce',
+];
 
 /** Native Staff dashboard (Phase 2b): the same festival-wide monitoring as the
  *  web console, tier-gated, from the admin API. Fly-status is set here by
@@ -133,7 +143,7 @@ export default function StaffDashboard() {
               ))}
             </View>
 
-            <PanelView panel={panel} />
+            <PanelView panel={panel} me={session.data.username} tier={tier} />
           </>
         )}
       </ScrollView>
@@ -141,11 +151,18 @@ export default function StaffDashboard() {
   );
 }
 
-function PanelView({ panel }: { panel: PanelKey }) {
+function PanelView({ panel, me, tier }: { panel: PanelKey; me: string; tier: number }) {
+  // Visitors stays an analytics roll-up; every other panel is a live management
+  // list (item-level records + tier-gated write actions).
+  if (panel === 'visitors') return <VisitorsPanel />;
+  return <ManagePanel panel={panel} me={me} tier={tier} />;
+}
+
+function VisitorsPanel() {
   const { t } = useTranslation();
-  const q = useQuery<Record<string, unknown>>({
-    queryKey: ['admin', panel],
-    queryFn: () => adminFetch('GET', `/admin/${panel}`),
+  const q = useQuery<Visitors>({
+    queryKey: ['admin', 'visitors'],
+    queryFn: () => adminFetch('GET', '/admin/visitors'),
     networkMode: 'always',
   });
   if (q.isLoading || !q.data)
@@ -154,44 +171,10 @@ function PanelView({ panel }: { panel: PanelKey }) {
         <ParagliderSpinner />
       </View>
     );
-  const d = q.data as never;
-  if (panel === 'visitors')
-    return (
-      <Table
-        rows={(d as Visitors).registrations.byItem.map((x) => [x.item, String(x.total)])}
-        head={[t('staffDash.activity'), t('staffDash.count')]}
-      />
-    );
-  if (panel === 'stalls')
-    return (
-      <Table
-        rows={(d as Stalls).items.map((x) => [
-          x.stallName,
-          x.stage,
-          inr(x.feeInr) + (x.paid ? ' ✓' : ''),
-        ])}
-        head={[t('staffDash.stall'), t('staffDash.stage'), t('staffDash.fee')]}
-      />
-    );
-  if (panel === 'lodging')
-    return (
-      <Table
-        rows={(d as Lodging).hotels.map((h) => [h.hotel, String(h.rooms), String(h.capacity)])}
-        head={[t('staffDash.hotel'), t('staffDash.rooms'), t('staffDash.beds')]}
-      />
-    );
-  if (panel === 'volunteers')
-    return (
-      <Table
-        rows={(d as Volunteers).items.map((v) => [v.name, v.team, String(v.shifts)])}
-        head={[t('staffDash.name'), t('staffDash.team'), t('staffDash.shifts')]}
-      />
-    );
   return (
     <Table
-      rows={(d as Incidents).items.map((i) => [i.category || '', i.zone || '', i.note || ''])}
-      head={[t('staffDash.category'), t('staffDash.zone'), t('staffDash.note')]}
-      empty={t('staffDash.allClear')}
+      rows={q.data.registrations.byItem.map((x) => [x.item, String(x.total)])}
+      head={[t('staffDash.activity'), t('staffDash.count')]}
     />
   );
 }
@@ -259,18 +242,6 @@ interface Summary {
 }
 interface Visitors {
   registrations: { byItem: { item: string; total: number }[] };
-}
-interface Stalls {
-  items: { stallName: string; stage: string; feeInr: number; paid: boolean }[];
-}
-interface Lodging {
-  hotels: { hotel: string; rooms: number; capacity: number }[];
-}
-interface Volunteers {
-  items: { name: string; team: string; shifts: number }[];
-}
-interface Incidents {
-  items: { category?: string; zone?: string; note?: string }[];
 }
 
 const styles = StyleSheet.create({

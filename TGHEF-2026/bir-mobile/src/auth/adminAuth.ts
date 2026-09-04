@@ -27,10 +27,16 @@ export const TIER_NAMES: Record<number, string> = {
 };
 export const CAPS: Record<string, number[]> = {
   'analytics.read': [1, 2, 3, 4],
+  'admin.manage': [1, 2, 3],
   'faq.write': [1, 2, 3],
   'pass.revoke': [1, 2],
   'flystatus.set': [1, 2],
-  'admin.manage': [1, 2, 3],
+  'schedule.manage': [1, 2, 3],
+  'stalls.manage': [1, 2, 3],
+  'lodging.manage': [1, 2, 3],
+  'volunteers.manage': [1, 2, 3],
+  'incidents.manage': [1, 2, 3, 4],
+  'announce.write': [1, 2],
 };
 export const adminCan = (tier: number, cap: string): boolean => (CAPS[cap] || []).includes(tier);
 
