@@ -133,17 +133,15 @@ recovers correctly). **CO-002 extension:** e2e `register-free-offline.yaml` and
 ## Phase 6 — AI, ops enhancements & polish
 
 - [ ] **P6.1** AI Assistant: streaming chat (SSE), voice input (hi/en), FAQ offline
-      fallback, "talk to a human" handoff deep link. **DEFERRED** (client) pending the
-      Bedrock model-access use-case form (owner action) — backend B8 `/ai/assistant` is
-      deployed. Note: B8 returns a single JSON `{reply}` (HTTP API can't stream true SSE),
+      fallback, "talk to a human" handoff deep link. **DEFERRED** (client) pending the Anthropic API key
+      being set in SSM (/bir-2026/ai/anthropic-key) — backend B8 `/ai/assistant` is deployed. Note: B8 returns a single JSON `{reply}` (HTTP API can't stream true SSE),
       so the client build will use a JSON `askAi()` client, not `src/api/sse.ts`.
 - [ ] **P6.2** AI Travel Planner: constraints form → 3-day festival itinerary cards →
-      book-all fan-out. **DEFERRED** pending the Bedrock form (backend `/ai/planner` live).
+      book-all fan-out. **DEFERRED** pending the Anthropic key in SSM (backend `/ai/planner` live).
 - [ ] **P6.3** AI Translate: camera → menu/sign translation; cache; usage disclaimer.
-      **DEFERRED** pending the Bedrock form (backend `/ai/translate` live).
+      **DEFERRED** pending the Anthropic key in SSM (backend `/ai/translate` live).
 - [ ] **P6.4** Crowd/queue view: venue heatmap tiles + best-time hints; landing-road
-      shuttle ETA from Location tracker. **DEFERRED** (queue-predict part) pending the
-      Bedrock form (backend `/ai/queue` live).
+      shuttle ETA from Location tracker. **DEFERRED** (queue-predict part) pending the Anthropic key in SSM (backend `/ai/queue` live).
 - [ ] **P6.5** Accessibility & perf pass: cold start ≤2.5 s (Android Go), bundle ≤40 MB,
       screen-reader walkthrough of ticket→gate journey.
 - [ ] **P6.6** Store metadata: icons/splash (paraglider mark), screenshots (en+hi),
@@ -256,12 +254,13 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       the fuller festival set until organizers fill the real workbook.)
 - [x] **B8** AI endpoints: one Cognito-authorized Lambda (`terraform/lambda/ai`) behind
       `/ai/assistant`, `/ai/planner`, `/ai/translate`, `/ai/queue` on the HTTP API →
-      Bedrock **Converse** with the cross-region inference profile (`var.bedrock_model`,
-      default Haiku 4.5); festival system prompts; app never holds keys. Deployed +
-      verified: 401 without a token, all four routes reachable and reach Bedrock with the
-      test-user ID token. Live generation is gated on the account's Bedrock model-access
-      **use-case form** (owner console action) — same account-gate class as Paytm; no code
-      change needed once approved. (Unblocks P6.1–6.4.)
+      the **Anthropic Messages API** (`var.anthropic_model`, default Haiku 4.5); festival
+      system prompts; app never holds the key. The key lives in SSM SecureString
+      `/bir-2026/ai/anthropic-key` (operator sets it, never in repo/client), read at runtime
+      + cached. Deployed + verified: 401 without a token; 503 "ai not configured" with the
+      placeholder key (new path works up to the key). **Was originally on Bedrock Converse;
+      repointed to the Anthropic API to bypass Bedrock's account use-case-form gate.** Live
+      generation needs only the key set in SSM — no redeploy. (Unblocks P6.1–6.4.)
 - [x] **B9** Push + geo services. `registerDevice` (AppSync → `terraform/lambda/register-device`)
       records the user's push token + prefs (locale, roles, quiet hours) in a backend-owned
       DynamoDB device registry (`DEVICE#<sub>`/`<platform>`) — deliberately **not** on
@@ -294,7 +293,7 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       Confirmed already-correct: B6 revocations pull, B9 `registerDevice` dispatch (writes the
       `DEVICE#` row), B10 `recordScan` + `flyStatus` banner + `onFlyStatusChanged`. Gate green
       (tsc, 138 jest, i18n 342, contract). **AI client (P6.1–6.4) deferred** pending the
-      Bedrock use-case form; when built it uses a JSON `askAi()` client (B8 returns `{reply}`,
+      Anthropic key in SSM; when built it uses a JSON `askAi()` client (B8 returns `{reply}`,
       not SSE), not `src/api/sse.ts`.
 
 **Gate B:** for each domain, the client runs with its `mock*` flag OFF against the live
