@@ -400,6 +400,106 @@ async function revocationsView() {
   return json(200, { total: out.length, items: out });
 }
 
+/* ------------------------- scanner (Phase 2) ---------------------------- */
+// Default gate checkpoints (any valid pass grants entry). Event checkpoints are
+// derived from what people actually register for (REG item ids).
+const GATES = [
+  { type: 'gate', id: 'gate:main', label: 'Main Gate' },
+  { type: 'gate', id: 'gate:chogan', label: 'Chogan Ground' },
+  { type: 'gate', id: 'gate:billing', label: 'Billing Landing' },
+];
+function regSubItem(r) {
+  const parts = String(r.sk).split(':'); // reg:<sub>:<itemId>:<slot>
+  return { sub: parts[1], item: parts[2] || r.itemId || r.competitionId };
+}
+
+let jwksCache = null;
+async function jwksKeys() {
+  if (jwksCache) return jwksCache;
+  const r = await fetch(process.env.JWKS_URL);
+  jwksCache = (await r.json()).keys || [];
+  return jwksCache;
+}
+async function verifyPass(token) {
+  const [h, p, s] = String(token || '').split('.');
+  if (!h || !p || !s) return { ok: false, reason: 'malformed' };
+  let header, claims;
+  try {
+    header = JSON.parse(Buffer.from(h, 'base64url').toString());
+    claims = JSON.parse(Buffer.from(p, 'base64url').toString());
+  } catch {
+    return { ok: false, reason: 'malformed' };
+  }
+  if (header.alg !== 'ES256') return { ok: false, reason: 'bad-signature' };
+  const key = (await jwksKeys()).find((k) => k.kid === header.kid && k.kty === 'EC');
+  if (!key) return { ok: false, reason: 'bad-signature' };
+  const pub = crypto.createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: key.x, y: key.y }, format: 'jwk' });
+  const valid = crypto.verify('SHA256', Buffer.from(`${h}.${p}`), { key: pub, dsaEncoding: 'ieee-p1363' }, Buffer.from(s, 'base64url'));
+  if (!valid) return { ok: false, reason: 'bad-signature' };
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.exp && claims.exp < now) return { ok: false, reason: 'expired' };
+  if (claims.nbf && claims.nbf > now + 60) return { ok: false, reason: 'not-yet-valid' };
+  return { ok: true, claims };
+}
+const passId = (jti) => 'PASS-' + String(jti || '').slice(-8).toUpperCase();
+
+async function checkpointsView() {
+  const eventIds = [...new Set((await items('REG')).map((r) => regSubItem(r).item).filter(Boolean))];
+  return json(200, {
+    checkpoints: [...GATES, ...eventIds.map((id) => ({ type: 'event', id: `item:${id}`, label: id }))],
+  });
+}
+/** Names-free: <sub> → [entitled event checkpoint ids]. Gates are universal, so
+ *  they are NOT in the snapshot — the device grants any valid pass at a gate. */
+async function entitlementsSnapshot() {
+  const map = {};
+  (await items('REG'))
+    .filter((r) => r.status === 'confirmed')
+    .forEach((r) => {
+      const { sub, item } = regSubItem(r);
+      if (!sub || !item) return;
+      (map[sub] = map[sub] || []).push(`item:${item}`);
+    });
+  Object.keys(map).forEach((k) => (map[k] = [...new Set(map[k])]));
+  return json(200, { version: Math.floor(Date.now() / 1000), entitlements: map });
+}
+async function scan(me, body) {
+  const checkpoint = String(body.checkpoint || '');
+  const v = await verifyPass(body.qrToken);
+  if (!v.ok) {
+    return json(200, { verdict: v.reason, accepted: false });
+  }
+  const { claims } = v;
+  const now = Math.floor(Date.now() / 1000);
+  // Revocation (the same feed offline verifiers pull).
+  const rev = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk: { S: `REV#${claims.jti}` }, sk: { S: 'REV' } } }));
+  if (rev.Item) return json(200, { verdict: 'revoked', accepted: false, identity: identityOf(claims) });
+
+  let verdict = 'valid';
+  if (checkpoint.startsWith('item:')) {
+    const entitled = (await items('REG'))
+      .filter((r) => r.status === 'confirmed')
+      .some((r) => {
+        const { sub, item } = regSubItem(r);
+        return sub === claims.sub && `item:${item}` === checkpoint;
+      });
+    if (!entitled) verdict = 'not-entitled';
+  }
+  // Record the scan (feeds the analytics scan count + the access log).
+  await ddb.send(new PutItemCommand({
+    TableName: TABLE,
+    Item: {
+      pk: { S: 'SCAN' }, sk: { S: `${claims.jti}:${checkpoint}:${body.ts || now}` },
+      jti: { S: String(claims.jti) }, checkpoint: { S: checkpoint }, verdict: { S: verdict },
+      ts: { N: String(body.ts || now) }, scannedBy: { S: `admin:${me.sub}` },
+    },
+  }));
+  return json(200, { verdict, accepted: verdict === 'valid', identity: identityOf(claims) });
+}
+function identityOf(claims) {
+  return { name: claims.name || '', ageBand: claims.ageBand || '', passId: passId(claims.jti), sub: claims.sub };
+}
+
 /* ------------------------------ router ---------------------------------- */
 exports.handler = async (event) => {
   const http = (event.requestContext && event.requestContext.http) || {};
@@ -431,6 +531,11 @@ exports.handler = async (event) => {
     if (method === 'POST' && /\/admin\/admins\/[^/]+\/password$/.test(path)) return adminSetPassword(me, CLEAN_USER(pp.username), body);
     if (method === 'POST' && /\/admin\/admins\/[^/]+\/active$/.test(path)) return adminSetActive(me, CLEAN_USER(pp.username), body);
     if (method === 'DELETE' && /\/admin\/admins\/[^/]+$/.test(path)) return adminDelete(me, CLEAN_USER(pp.username));
+
+    // scanner (any signed-in staff, incl. Coordinators)
+    if (method === 'GET' && path.endsWith('/admin/checkpoints')) return checkpointsView();
+    if (method === 'GET' && path.endsWith('/admin/entitlements/snapshot')) return entitlementsSnapshot();
+    if (method === 'POST' && path.endsWith('/admin/scan')) return scan(me, body);
 
     // festival actions
     if (method === 'POST' && path.endsWith('/admin/fly')) return fly(me, body);

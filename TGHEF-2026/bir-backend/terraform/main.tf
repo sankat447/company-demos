@@ -1042,6 +1042,7 @@ resource "aws_lambda_function" "admin" {
     JWT_PARAM  = aws_ssm_parameter.admin_jwt.name
     SET_FLY_FN = aws_lambda_function.set_fly_status.function_name
     AI_FN      = aws_lambda_function.ai.function_name
+    JWKS_URL   = "https://${var.enable_cdn ? aws_cloudfront_distribution.media[0].domain_name : aws_s3_bucket.media.bucket_regional_domain_name}/.well-known/bir-passes/jwks.json"
   } }
 }
 resource "aws_apigatewayv2_integration" "admin" {
@@ -1063,6 +1064,7 @@ resource "aws_apigatewayv2_route" "admin" {
     "GET /admin/summary", "GET /admin/visitors", "GET /admin/stalls",
     "GET /admin/lodging", "GET /admin/incidents", "GET /admin/volunteers",
     "GET /admin/revocations",
+    "GET /admin/checkpoints", "GET /admin/entitlements/snapshot", "POST /admin/scan",
   ])
   api_id             = aws_apigatewayv2_api.pay.id
   route_key          = each.value
