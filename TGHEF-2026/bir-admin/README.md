@@ -35,11 +35,40 @@ Role gating mirrors the server: `safety-officer` for fly-status,
 for lodging. The server re-checks every privileged call — the UI only hides what
 you can't do.
 
-## Sign-in
+## Sign-in & the admin hierarchy
 
-Cognito OTP (phone → one-time code). Test/demo numbers get the fixed code
-`000000`; real numbers get an SMS once `sms_enabled=true` on the backend. Your
-account needs one of the organiser roles above.
+Admins sign in with a **username and password** (no OTP). Auth is self-contained
+in the admin Lambda: scrypt-hashed passwords, an HS256 JWT signed with a secret
+in SSM. There are **4 tiers**, and you can create/manage admins **strictly below
+your own tier** (the Superadmin also manages peers; the last active Superadmin
+can't be removed):
+
+| Tier | Role | Manages | Powers |
+|---|---|---|---|
+| **1** | Superadmin (master) | everyone, incl. other Superadmins | everything |
+| **2** | Admin | Managers + Coordinators | fly-status, revoke, FAQ/KB, monitoring, admin mgmt |
+| **3** | Manager | Coordinators | FAQ/KB, monitoring, admin mgmt |
+| **4** | Coordinator | — | monitoring only |
+
+Manage admins from the **Admins** panel (visible to tiers 1–3): create, reset
+password, enable/disable, delete. The UI hides what your tier can't do and the
+server re-checks every call.
+
+### First-time setup — create the master admin
+
+The console ships with **no default admin**. On first use, click **"First-time
+setup — create master admin"** on the login screen and set your own master
+username + password (this works only once, while no admin exists). Or from a
+terminal:
+
+```bash
+REST=$(cd ../bir-backend/terraform && terraform output -raw payments_rest_base)
+curl -X POST "$REST/admin/auth/bootstrap" -H 'Content-Type: application/json' \
+  -d '{"username":"master","name":"Master Admin","password":"YOUR-STRONG-PASSWORD"}'
+```
+
+After that, sign in and create the rest of your admins from the Admins panel.
+Passwords are never stored in plaintext and never leave the backend.
 
 ## Run it locally
 
