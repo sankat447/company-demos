@@ -8,7 +8,7 @@ import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { G, Rect } from 'react-native-svg';
 
-import { useAuth } from '@/auth/useAuth';
+import { hasRole, useAuth } from '@/auth/useAuth';
 import { festivalConcluded } from '@/config/flags';
 import { FESTIVAL_DAYS, festivalDayFor } from '@/features/cultural-nights/schedule';
 import {
@@ -226,6 +226,17 @@ export default function Home() {
               <Text style={styles.refundText}>{t('festival.concludedShort')}</Text>
             </View>
           ) : null}
+          {['volunteer', 'partner', 'organiser-lite', 'admin-hospitality', 'safety-officer'].some(
+            (rr) => hasRole(auth, rr as Parameters<typeof hasRole>[1]),
+          ) ? (
+            <Pressable
+              style={styles.staffCard}
+              onPress={() => router.push('/(visitor)/more')}
+              accessibilityRole="button"
+            >
+              <Text style={styles.staffText}>🛡️ {t('home.staffAccess')} ›</Text>
+            </Pressable>
+          ) : null}
           {flyStatus && flyStatus.state !== 'flying' && flyStatus.refundsAutoQueued ? (
             <View style={styles.refund}>
               <Text style={styles.refundText}>{t('home.flyRefundAuto')}</Text>
@@ -442,6 +453,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   refundText: { color: palette.ink, fontSize: 12.5, lineHeight: 18 },
+  staffCard: {
+    backgroundColor: palette.ink,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  staffText: { color: '#EAF3EC', fontSize: 14, fontWeight: '700' },
   notice: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,

@@ -23,7 +23,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSCameraUsageDescription:
         'Scanning festival passes and translating menus/signs requires the camera. / त्योहार पास स्कैन करने और मेनू/साइन अनुवाद के लिए कैमरा आवश्यक है।',
       NSLocationWhenInUseUsageDescription:
-        'Your location is used only for SOS reporting (with consent) and shuttle ETAs. / आपका स्थान केवल SOS रिपोर्ट (सहमति से) और शटल ETA के लिए उपयोग होता है।',
+        'Your location is used only for a consented SOS report. / आपका स्थान केवल सहमति-आधारित SOS रिपोर्ट के लिए उपयोग होता है।',
       UIBackgroundModes: ['remote-notification'],
     },
   },

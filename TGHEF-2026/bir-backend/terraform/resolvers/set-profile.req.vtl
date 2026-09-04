@@ -14,6 +14,12 @@
     "displayName": $util.dynamodb.toDynamoDBJson($ctx.args.input.displayName),
     "dob": $util.dynamodb.toDynamoDBJson($ctx.args.input.dob),
     "consentDpdp": $util.dynamodb.toDynamoDBJson($ctx.args.input.consentDpdp),
+## DPDP (M6): a defensible consent artifact — the notice version consented to and
+## the moment of consent. Only stamped when consent is actually given.
+#if($ctx.args.input.consentDpdp == true)
+    "consentVersion": $util.dynamodb.toDynamoDBJson("2026-v1"),
+    "consentAt": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds()),
+#end
     "updatedAt": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds())
   }
 }

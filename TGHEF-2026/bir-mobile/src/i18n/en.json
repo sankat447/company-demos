@@ -102,7 +102,8 @@
     "highlightsSub": "मुख्य आकर्षण — शेड्यूल, उड़ान, अनुभव, स्वाद और बहुत कुछ",
     "sosStrip": "Emergency? One tap alerts the medical grid — posts at Billing, Chogan & Main Venue. मदद बस एक टैप दूर है।",
     "missionHi": "हर विज़िटर ट्रैवलर · हर निवासी होस्ट · हर परंपरा अनुभव",
-    "missionEn": "A festival by the valley, for the valley — Bir Festival 2026"
+    "missionEn": "A festival by the valley, for the valley — Bir Festival 2026",
+    "staffAccess": "You have staff access — open your tools"
   },
   "highlights": {
     "title": "Highlights",
@@ -390,7 +391,15 @@
     "title": "Festival assistant",
     "placeholder": "Ask about shows, food, flying…",
     "offlineFaq": "You're offline — answers come from the saved FAQ.",
-    "talkToHuman": "Talk to a human"
+    "talkToHuman": "Talk to a human",
+    "inputPlaceholder": "Ask about shows, food, flying…",
+    "send": "Ask",
+    "thinking": "Thinking…",
+    "grounded": "from festival info",
+    "general": "general help",
+    "error": "Assistant is unavailable right now. Please try again.",
+    "rateLimited": "You’re asking quickly — give it a moment.",
+    "intro": "Hi! Ask me anything about Bir Festival 2026 — schedules, food stalls, flying, rules."
   },
   "mode": {
     "title": "Welcome to Bir Festival",

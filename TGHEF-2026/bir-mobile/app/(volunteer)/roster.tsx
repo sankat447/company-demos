@@ -3,8 +3,9 @@ import { fetchAuthSession } from 'aws-amplify/auth';
 import { router } from 'expo-router';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { getLocationOnce, triggerSos } from '@/features/sos/sos';
 import { loadRoster } from '@/features/volunteers/roster';
 import { markAttendance, recordedAttendance, type Shift } from '@/features/volunteers/volunteer';
 import { kvStore } from '@/offline/db';
@@ -42,6 +43,15 @@ export default function Roster() {
     await queryClient.invalidateQueries({ queryKey: ['volunteer', 'attendance'] });
   };
 
+  const sos = async () => {
+    const session = await fetchAuthSession().catch(() => null);
+    const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'anonymous');
+    await triggerSos(
+      { outbox, openUrl: (url) => Linking.openURL(url), getLocation: getLocationOnce },
+      { sub, nowMs: Date.now() },
+    );
+  };
+
   const profile = roster.data;
 
   return (
@@ -74,6 +84,14 @@ export default function Roster() {
                 accessibilityLabel={t('volunteer.reportIncident')}
               >
                 <Text style={styles.actionText}>{t('volunteer.reportIncident')}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.action, styles.sosAction]}
+                onPress={sos}
+                accessibilityRole="button"
+                accessibilityLabel={t('home.sos')}
+              >
+                <Text style={styles.sosText}>{t('home.sos')}</Text>
               </Pressable>
             </View>
 
@@ -167,6 +185,8 @@ const styles = StyleSheet.create({
     borderColor: palette.marigold,
   },
   actionText: { ...typeScale.body, color: palette.marigold, fontWeight: '600' },
+  sosAction: { backgroundColor: '#F7E7E0', borderColor: palette.flagRed },
+  sosText: { ...typeScale.body, color: palette.flagRed, fontWeight: '800' },
   certLink: { marginTop: spacing.md, minHeight: MIN_TOUCH_TARGET, justifyContent: 'center' },
   certText: { ...typeScale.body, color: color.info, fontWeight: '600' },
   certPending: { ...typeScale.caption, color: color.textMuted, marginTop: spacing.md },
