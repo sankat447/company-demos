@@ -46,6 +46,9 @@ const CAPS = {
   'volunteers.manage': [1, 2, 3],
   'incidents.manage': [1, 2, 3, 4], // coordinators triage incidents on the ground
   'announce.write': [1, 2],
+  // money-sensitive — Superadmin/Admin only
+  'pricing.manage': [1, 2],
+  'orders.manage': [1, 2],
 };
 const can = (tier, cap) => (CAPS[cap] || []).includes(tier);
 // A caller may create/manage a target at a strictly-lower tier; Superadmin (1)
@@ -671,6 +674,50 @@ async function announcementDelete(me, id) {
   return json(200, { id, deleted: true });
 }
 
+/* ---- pricing: activity fees/gating (ITEMCFG) + ticket tiers (TIER) ------ */
+async function itemsList() {
+  return json(200, {
+    items: (await items('ITEMCFG')).map((i) => ({
+      id: i.sk, titleEn: i.titleEn || '', titleHi: i.titleHi || '',
+      feeInr: i.feeInr || 0, gateChecked: !!i.gateChecked,
+      regMode: i.regMode || 'register', capacity: i.capacity || 0,
+    })),
+  });
+}
+async function itemUpsert(me, body) {
+  if (!can(me.tier, 'pricing.manage')) return json(403, { error: 'not permitted' });
+  const id = str(body.id || body.itemId);
+  if (!id) return json(400, { error: 'itemId is required' });
+  const prev = (await getRow('ITEMCFG', id)) || {};
+  const row = await putRow('ITEMCFG', id, {
+    itemId: id, titleEn: str(body.titleEn) || prev.titleEn || id, titleHi: str(body.titleHi) || prev.titleHi || '',
+    feeInr: num(body.feeInr), gateChecked: !!body.gateChecked,
+    regMode: str(body.regMode) || prev.regMode || 'register', capacity: num(body.capacity),
+  }, me);
+  return json(200, row);
+}
+async function tiersList() {
+  return json(200, {
+    items: (await items('TIER')).map((t) => ({
+      id: t.sk, titleEn: t.titleEn || '', titleHi: t.titleHi || '', priceInr: t.priceInr || 0,
+    })),
+  });
+}
+async function tierUpsert(me, body) {
+  if (!can(me.tier, 'pricing.manage')) return json(403, { error: 'not permitted' });
+  const id = str(body.id) || slug(str(body.titleEn));
+  if (!id) return json(400, { error: 'id or titleEn is required' });
+  const row = await putRow('TIER', id, {
+    titleEn: str(body.titleEn), titleHi: str(body.titleHi), priceInr: num(body.priceInr),
+  }, me);
+  return json(200, row);
+}
+async function tierDelete(me, id) {
+  if (!can(me.tier, 'pricing.manage')) return json(403, { error: 'not permitted' });
+  await delRow('TIER', id);
+  return json(200, { id, deleted: true });
+}
+
 /* ------------------------- scanner (Phase 2) ---------------------------- */
 // Default gate checkpoints (any valid pass grants entry). Event checkpoints are
 // derived from what people actually register for (REG item ids).
@@ -681,7 +728,9 @@ const GATES = [
 ];
 function regSubItem(r) {
   const parts = String(r.sk).split(':'); // reg:<sub>:<itemId>:<slot>
-  return { sub: parts[1], item: parts[2] || r.itemId || r.competitionId };
+  // Prefer the top-level (server-written, authenticated) sub/itemId; fall back to
+  // parsing the sk for older rows written before the server-authoritative resolver.
+  return { sub: r.sub || parts[1], item: r.itemId || r.competitionId || parts[2] };
 }
 
 let jwksCache = null;
@@ -849,6 +898,13 @@ exports.handler = async (event) => {
     if (method === 'GET' && path.endsWith('/admin/announcements')) return announcementsList();
     if (method === 'POST' && path.endsWith('/admin/announcements')) return announcementUpsert(me, body);
     if (method === 'DELETE' && /\/admin\/announcements\/[^/]+$/.test(path)) return announcementDelete(me, after(/\/admin\/announcements\/([^/]+)$/));
+
+    // --- pricing: activity fees/gating + ticket tiers (money-sensitive) ---
+    if (method === 'GET' && path.endsWith('/admin/items')) return itemsList();
+    if (method === 'POST' && path.endsWith('/admin/items')) return itemUpsert(me, body);
+    if (method === 'GET' && path.endsWith('/admin/tiers')) return tiersList();
+    if (method === 'POST' && path.endsWith('/admin/tiers')) return tierUpsert(me, body);
+    if (method === 'DELETE' && /\/admin\/tiers\/[^/]+$/.test(path)) return tierDelete(me, after(/\/admin\/tiers\/([^/]+)$/));
 
     // analytics
     if (!can(me.tier, 'analytics.read')) return json(403, { error: 'not permitted' });

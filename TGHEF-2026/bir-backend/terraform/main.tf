@@ -349,7 +349,7 @@ resource "aws_lambda_function_url" "payment_webhook" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
-  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai", "set-fly-status", "kb-ingest", "admin", "master-pass"])
+  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai", "set-fly-status", "kb-ingest", "admin", "master-pass", "register-activity"])
   name              = "/aws/lambda/${local.name}-${each.key}"
   retention_in_days = var.log_retention_days
 }
@@ -395,18 +395,42 @@ resource "aws_appsync_datasource" "ddb" {
   service_role_arn = aws_iam_role.appsync_ddb.arn
   dynamodb_config { table_name = aws_dynamodb_table.main.name }
 }
+# register-activity: server-authoritative createRegistration. Writes a confirmed
+# REG (the gate entitlement) only for FREE items and only for the VERIFIED sub;
+# paid items are confirmed by the payment webhook. Replaces the old client-trusting
+# VTL resolver (which self-confirmed any item for any client-supplied sub).
+data "archive_file" "register_activity" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/register-activity"
+  output_path = "${path.module}/.build/register-activity.zip"
+}
+resource "aws_lambda_function" "register_activity" {
+  function_name    = "${local.name}-register-activity"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.register_activity.output_path
+  source_code_hash = data.archive_file.register_activity.output_base64sha256
+  timeout          = 10
+  environment { variables = { TABLE = aws_dynamodb_table.main.name } }
+}
+resource "aws_appsync_datasource" "register_activity_lambda" {
+  api_id           = aws_appsync_graphql_api.main.id
+  name             = "RegisterActivityLambda"
+  type             = "AWS_LAMBDA"
+  service_role_arn = aws_iam_role.appsync_lambda.arn
+  lambda_config { function_arn = aws_lambda_function.register_activity.arn }
+}
+
 # ---------- Resolvers ----------
-# B1 (Highlights writes): createRegistration / cancelRegistration → DynamoDB.
-# VTL unit resolvers on the DDB datasource; the app's idempotencyKey is the REG
-# sort key so drains/replays reconcile. Privileged domains (lodging/ops) will
-# use Lambda data sources that re-check the Cognito group — TODO in B2/B10.
+# createRegistration → server-authoritative Lambda (entitlement gate).
 resource "aws_appsync_resolver" "create_registration" {
   api_id            = aws_appsync_graphql_api.main.id
   type              = "Mutation"
   field             = "createRegistration"
-  data_source       = aws_appsync_datasource.ddb.name
-  request_template  = file("${path.module}/resolvers/create-registration.req.vtl")
-  response_template = file("${path.module}/resolvers/create-registration.res.vtl")
+  data_source       = aws_appsync_datasource.register_activity_lambda.name
+  request_template  = file("${path.module}/resolvers/register-activity.req.vtl")
+  response_template = file("${path.module}/resolvers/register-activity.res.vtl")
 }
 
 resource "aws_appsync_resolver" "cancel_registration" {
@@ -442,7 +466,7 @@ resource "aws_iam_role_policy" "appsync_lambda" {
   role = aws_iam_role.appsync_lambda.id
   policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = [aws_lambda_function.commit_allocation.arn, aws_lambda_function.lodging_occupancy.arn, aws_lambda_function.issue_badge.arn, aws_lambda_function.register_device.arn, aws_lambda_function.set_fly_status.arn] }]
+    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = [aws_lambda_function.commit_allocation.arn, aws_lambda_function.lodging_occupancy.arn, aws_lambda_function.issue_badge.arn, aws_lambda_function.register_device.arn, aws_lambda_function.set_fly_status.arn, aws_lambda_function.register_activity.arn] }]
   })
 }
 resource "aws_appsync_datasource" "commit_lambda" {

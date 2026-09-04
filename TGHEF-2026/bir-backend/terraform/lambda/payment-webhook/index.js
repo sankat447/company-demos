@@ -9,7 +9,7 @@
 'use strict';
 const querystring = require('node:querystring');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, GetCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 
@@ -107,6 +107,23 @@ exports.handler = async (event) => {
           'mutation C($orderId: ID!, $status: String!, $passTokens: [String!]) { confirmOrder(orderId: $orderId, status: $status, passTokens: $passTokens) { orderId status } }',
         variables: { orderId, status: 'CONFIRMED', passTokens },
       });
+      // 5. For a PAID activity, payment is what earns the entitlement — write the
+      // confirmed REG row the gate scanner reads (server-authoritative, same key
+      // shape as the free path). Tickets are entry passes, not activity REGs.
+      if (order.Item.kind === 'registration' || order.Item.kind === 'activity') {
+        const sk = `reg:${order.Item.sub}:${order.Item.itemId}:${order.Item.slotId || 'na'}`;
+        await ddb.send(
+          new PutCommand({
+            TableName: TABLE,
+            Item: {
+              pk: 'REG', sk, registrationId: sk,
+              sub: order.Item.sub, itemId: order.Item.itemId, slotId: order.Item.slotId || 'na',
+              status: 'confirmed', source: 'paid', orderId,
+              createdAt: Math.floor(Date.now() / 1000),
+            },
+          }),
+        );
+      }
     }
     return redirect(orderId, 'success');
   }

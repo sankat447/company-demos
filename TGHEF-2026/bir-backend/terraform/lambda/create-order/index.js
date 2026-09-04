@@ -37,11 +37,24 @@ async function paytmCreds() {
   return creds;
 }
 
-/** Server-side price (paise-free INR). tickets → TIER; else a PRICE row. */
+/** Server-side price (paise-free INR). Never trusts a client amount.
+ *   ticket            → TIER.priceInr
+ *   registration/activity → ITEMCFG.feeInr (the same row the entitlement gate reads)
+ *   anything else     → PRICE#<kind>#<itemId>.priceInr
+ * Returns null for a missing/zero price → caller 422s (a free item has no order). */
 async function priceInr(kind, itemId) {
-  const key = kind === 'ticket' ? { pk: 'TIER', sk: itemId } : { pk: 'PRICE', sk: `${kind}#${itemId}` };
+  let key;
+  let field = 'priceInr';
+  if (kind === 'ticket') {
+    key = { pk: 'TIER', sk: itemId };
+  } else if (kind === 'registration' || kind === 'activity') {
+    key = { pk: 'ITEMCFG', sk: itemId };
+    field = 'feeInr';
+  } else {
+    key = { pk: 'PRICE', sk: `${kind}#${itemId}` };
+  }
   const out = await ddb.send(new GetCommand({ TableName: TABLE, Key: key }));
-  const p = out.Item && Number(out.Item.priceInr);
+  const p = out.Item && Number(out.Item[field]);
   return Number.isFinite(p) && p > 0 ? p : null;
 }
 
@@ -66,7 +79,7 @@ exports.handler = async (event) => {
   } catch {
     return json(400, { error: 'bad json' });
   }
-  const { kind, itemId, quantity, idempotencyKey } = input;
+  const { kind, itemId, quantity, idempotencyKey, slotId } = input;
   if (!kind || !itemId || !idempotencyKey) return json(400, { error: 'kind, itemId, idempotencyKey required' });
   const qty = Math.max(1, Number(quantity) || 1);
 
@@ -93,6 +106,7 @@ exports.handler = async (event) => {
         sub,
         kind,
         itemId,
+        slotId: slotId || 'na',
         quantity: qty,
         amountInr,
         status: 'PENDING',

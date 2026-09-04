@@ -1,0 +1,10 @@
+## createRegistration → register-activity Lambda. Passes the VERIFIED identity
+## sub (never the client key) so entitlement is written for the real caller.
+{
+  "version": "2018-05-29",
+  "operation": "Invoke",
+  "payload": {
+    "sub": $util.toJson($ctx.identity.sub),
+    "input": $util.toJson($ctx.args.input)
+  }
+}
