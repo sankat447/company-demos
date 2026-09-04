@@ -13,6 +13,7 @@ import {
   rememberPendingOrder,
   type TicketTier,
 } from '@/features/tickets/purchase';
+import { festivalConcluded } from '@/config/flags';
 import { currentLocale } from '@/i18n';
 import { kvStore } from '@/offline/db';
 import { ensureFreshJwks } from '@/offline/jwks';
@@ -35,6 +36,7 @@ export default function Buy() {
   const [state, setState] = useState<FlowState>('idle');
 
   const pay = async () => {
+    if (festivalConcluded()) return; // close-out: bookings disabled (defense-in-depth)
     if (!selected || state === 'paying' || state === 'confirming') return;
     setState('paying');
     try {
@@ -73,6 +75,17 @@ export default function Buy() {
       setState(timedOut ? 'stillPending' : 'failed');
     }
   };
+
+  if (festivalConcluded()) {
+    return (
+      <Screen title={t('buy.title')}>
+        <View style={styles.center}>
+          <Text style={styles.concludedTitle}>{t('festival.concludedTitle')}</Text>
+          <Text style={styles.concludedBody}>{t('festival.concludedBody')}</Text>
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen title={t('buy.title')}>
@@ -146,6 +159,19 @@ export default function Buy() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  concludedTitle: {
+    ...typeScale.heading,
+    color: color.text,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  concludedBody: {
+    ...typeScale.body,
+    color: color.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: spacing.xl,
+    lineHeight: 22,
+  },
   tier: {
     borderWidth: 1,
     borderColor: color.cardBorder,

@@ -2,6 +2,12 @@
 ## optional zone + photo). The app's idempotencyKey (inc:<sub>:<ts>) is the
 ## sort key so an offline-queued report drains exactly once. The photo is a
 ## local URI for now; the signed-URL upload is a follow-up (BACKEND_ASKS #34).
+## Server-side authz (M1): only field staff may file incidents — a plain visitor
+## must not be able to poison the ops incident feed.
+#set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+#if(!$groups.contains("volunteer") && !$groups.contains("organiser-lite") && !$groups.contains("safety-officer"))
+  $util.unauthorized()
+#end
 {
   "version": "2018-05-29",
   "operation": "PutItem",

@@ -24,7 +24,7 @@ import {
 } from '@/features/highlights/registration';
 import type { FormField, HighlightItem } from '@/features/highlights/types';
 import { currentLocale, pickLang } from '@/i18n';
-import { isEnabled } from '@/config/flags';
+import { festivalConcluded, isEnabled } from '@/config/flags';
 import { kvStore } from '@/offline/db';
 import { ensureFreshJwks } from '@/offline/jwks';
 import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
@@ -133,6 +133,15 @@ export default function Register() {
     );
   }
 
+  if (festivalConcluded()) {
+    return (
+      <Screen title={t('highlights.title')}>
+        <Text style={styles.concludedTitle}>{t('festival.concludedTitle')}</Text>
+        <Text style={styles.muted}>{t('festival.concludedBody')}</Text>
+      </Screen>
+    );
+  }
+
   const paid = requiresPayment(item);
   const mockMode = isEnabled('mockHighlights');
   // Full item that takes a waitlist: joining is free (you pay only if promoted),
@@ -142,6 +151,7 @@ export default function Register() {
   const weatherHold = weatherBlocked(item, fly.data?.state ?? null);
 
   const submit = async (target: HighlightItem) => {
+    if (festivalConcluded()) return; // close-out: registration disabled (defense-in-depth)
     const input = { answers, consent, guardianConsent };
     const found = validateForm(target, input, target.slots?.length ? slotId : undefined);
     setErrors(found);
@@ -392,6 +402,7 @@ export default function Register() {
 
 const styles = StyleSheet.create({
   muted: { ...typeScale.body, color: color.textMuted, paddingVertical: spacing.md },
+  concludedTitle: { ...typeScale.heading, color: color.text, marginTop: spacing.md },
   scroll: { paddingBottom: spacing.xl },
   fieldWrap: { marginBottom: spacing.md },
   fieldLabel: { ...typeScale.caption, color: color.text, fontWeight: '600', marginBottom: 6 },

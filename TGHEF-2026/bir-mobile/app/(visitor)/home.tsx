@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { G, Rect } from 'react-native-svg';
 
 import { useAuth } from '@/auth/useAuth';
+import { festivalConcluded } from '@/config/flags';
 import { FESTIVAL_DAYS, festivalDayFor } from '@/features/cultural-nights/schedule';
 import {
   getFlyStatus,
@@ -218,6 +219,11 @@ export default function Home() {
           {auth.demo ? (
             <View style={styles.demoBanner}>
               <Text style={styles.demoText}>{t('common.demoNotice')}</Text>
+            </View>
+          ) : null}
+          {festivalConcluded() ? (
+            <View style={styles.refund}>
+              <Text style={styles.refundText}>{t('festival.concludedShort')}</Text>
             </View>
           ) : null}
           {flyStatus && flyStatus.state !== 'flying' && flyStatus.refundsAutoQueued ? (

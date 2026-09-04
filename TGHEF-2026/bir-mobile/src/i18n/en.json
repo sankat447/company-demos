@@ -596,5 +596,10 @@
     "resync": "Re-sync roster",
     "synced": "Roster synced ({{n}})",
     "offlineNote": "Works offline from the last synced roster."
+  },
+  "festival": {
+    "concludedTitle": "Festival concluded",
+    "concludedBody": "Bir Festival 2026 has ended. Bookings and payments are closed — your passes and certificates remain available.",
+    "concludedShort": "Festival concluded — bookings are closed."
   }
 }

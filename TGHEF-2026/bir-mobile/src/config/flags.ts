@@ -9,3 +9,12 @@ export type FlagName = 'festivalMode' | 'experiencesMarketplace' | (string & {})
 export function isEnabled(flag: FlagName): boolean {
   return getStack().flags[flag] === true;
 }
+
+/**
+ * After close-out the backend flips `flags.festivalMode` to false and the app
+ * goes archival: new bookings and payments are disabled, while passes,
+ * certificates, and the public report stay viewable (CLAUDE.md close-out mode).
+ */
+export function festivalConcluded(): boolean {
+  return !isEnabled('festivalMode');
+}

@@ -203,10 +203,15 @@ async function bootstrap(body) {
 }
 async function login(body) {
   const username = CLEAN_USER(body.username);
+  if ((await loginFailCount(username)) >= LOGIN_MAX) {
+    return json(429, { error: 'too many attempts — try again in a few minutes' });
+  }
   const a = await getAdmin(username);
   if (!a || a.active === false || !verifyPw(String(body.password || ''), a.pwHash)) {
+    await bumpLoginFail(username);
     return json(401, { error: 'invalid username or password' });
   }
+  await clearLoginFail(username);
   const token = await signJwt({ sub: username, tier: a.tier, name: a.name });
   return json(200, { token, admin: { username, name: a.name, tier: a.tier, tierName: TIER_NAMES[a.tier] } });
 }
@@ -232,6 +237,7 @@ async function adminCreate(me, body) {
   if (!username || password.length < 8) return json(400, { error: 'username and a password (min 8 chars) are required' });
   if (await getAdmin(username)) return json(409, { error: 'that username already exists' });
   await putAdmin({ username, name: body.name || username, tier, pwHash: hashPw(password), active: true, createdBy: me.sub });
+  await audit(me, 'admin.create', `${username} (tier ${tier})`);
   return json(200, { ok: true, admin: { username, name: body.name || username, tier, tierName: TIER_NAMES[tier] } });
 }
 async function guardTarget(me, username) {
@@ -249,6 +255,7 @@ async function adminSetPassword(me, username, body) {
   if (password.length < 8) return json(400, { error: 'password must be at least 8 chars' });
   target.pwHash = hashPw(password);
   await putAdmin({ ...target, username });
+  await audit(me, 'admin.password_reset', username);
   return json(200, { ok: true, username });
 }
 async function adminSetActive(me, username, body) {
@@ -264,6 +271,7 @@ async function adminSetActive(me, username, body) {
     TableName: TABLE, Key: { pk: { S: 'ADMIN' }, sk: { S: username } },
     UpdateExpression: 'SET active = :a', ExpressionAttributeValues: { ':a': { BOOL: active } },
   }));
+  await audit(me, active ? 'admin.enable' : 'admin.disable', username);
   return json(200, { ok: true, username, active });
 }
 async function adminDelete(me, username) {
@@ -275,6 +283,7 @@ async function adminDelete(me, username) {
     if (supers.length <= 1) return json(400, { error: 'cannot delete the last active Superadmin' });
   }
   await ddb.send(new DeleteItemCommand({ TableName: TABLE, Key: { pk: { S: 'ADMIN' }, sk: { S: username } } }));
+  await audit(me, 'admin.delete', username);
   return json(200, { ok: true, username, deleted: true });
 }
 
@@ -314,6 +323,7 @@ async function revoke(me, body) {
       gsi1pk: { S: 'REVOCATION' }, gsi1sk: { S: now }, revokedBy: { S: `admin:${me.sub}` },
     },
   }));
+  await audit(me, 'pass.revoke', jti);
   return json(200, { jti, accepted: true });
 }
 async function fly(me, body) {
@@ -328,6 +338,7 @@ async function fly(me, body) {
   const out = await lambda.send(new InvokeCommand({ FunctionName: SET_FLY_FN, Payload: Buffer.from(JSON.stringify(event)) }));
   const res = JSON.parse(Buffer.from(out.Payload).toString() || '{}');
   if (res.errorMessage) return json(502, { error: 'fly-status failed', detail: res.errorMessage });
+  await audit(me, 'flystatus.set', str(body.state));
   return json(200, res);
 }
 async function ask(me, body) {
@@ -462,6 +473,57 @@ async function delRow(pk, sk) {
 }
 const str = (v) => String(v == null ? '' : v).trim();
 const num = (v) => (Number.isFinite(+v) ? +v : 0);
+
+/* ---- audit log (M1): append-only record of sensitive admin actions ------ */
+async function audit(me, action, detail) {
+  try {
+    await ddb.send(new PutItemCommand({
+      TableName: TABLE,
+      Item: {
+        pk: { S: 'AUDIT' }, sk: { S: `${Date.now()}#${me.sub}` },
+        actor: { S: String(me.sub) }, tier: { N: String(me.tier || 0) },
+        action: { S: String(action) }, detail: { S: String(detail || '') },
+        ts: { N: String(nowSec()) },
+        // keep ~13 months (past the 30 Nov close-out), then self-expire
+        ttl: { N: String(nowSec() + 60 * 60 * 24 * 400) },
+      },
+    }));
+  } catch {
+    /* audit must never break the action it records */
+  }
+}
+async function auditList(me) {
+  if (me.tier > 2) return json(403, { error: 'not permitted' }); // Superadmin/Admin only
+  const rows = (await items('AUDIT')).sort((a, b) => String(b.sk).localeCompare(String(a.sk)));
+  return json(200, {
+    items: rows.slice(0, 300).map((r) => ({
+      ts: r.ts || 0, actor: r.actor || '', tier: r.tier || 0,
+      action: r.action || '', detail: r.detail || '',
+    })),
+  });
+}
+
+/* ---- login throttle (M1): lock a username after repeated failures -------- */
+const LOGIN_MAX = 8;
+const LOGIN_WINDOW = 900; // 15 min sliding window
+async function loginFailCount(username) {
+  const r = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk: { S: 'LOGINFAIL' }, sk: { S: username } } }));
+  if (!r.Item) return 0;
+  const exp = Number((r.Item.ttl && r.Item.ttl.N) || 0);
+  if (exp && exp < nowSec()) return 0; // window elapsed (TTL cleanup is eventual)
+  return Number((r.Item.count && r.Item.count.N) || 0);
+}
+async function bumpLoginFail(username) {
+  await ddb.send(new UpdateItemCommand({
+    TableName: TABLE, Key: { pk: { S: 'LOGINFAIL' }, sk: { S: username } },
+    UpdateExpression: 'ADD #c :one SET #t = :ttl',
+    ExpressionAttributeNames: { '#c': 'count', '#t': 'ttl' },
+    ExpressionAttributeValues: { ':one': { N: '1' }, ':ttl': { N: String(nowSec() + LOGIN_WINDOW) } },
+  }));
+}
+async function clearLoginFail(username) {
+  await ddb.send(new DeleteItemCommand({ TableName: TABLE, Key: { pk: { S: 'LOGINFAIL' }, sk: { S: username } } })).catch(() => {});
+}
 
 /* ---- schedule (sessions/agenda) --------------------------------------- */
 async function scheduleList() {
@@ -760,6 +822,7 @@ async function orderSetStatus(me, orderId, body) {
     ExpressionAttributeNames: { '#s': 'status' },
     ExpressionAttributeValues: { ':s': { S: status }, ':u': { N: String(nowSec()) }, ':b': { S: `admin:${me.sub}` } },
   }));
+  await audit(me, 'order.status', `${orderId} → ${status}`);
   return json(200, { orderId, status });
 }
 async function refundRequest(me, orderId, body) {
@@ -799,6 +862,7 @@ async function refundProcess(me, orderId, body) {
       ':a': { N: String(nowSec()) }, ':b': { S: `admin:${me.sub}` },
     },
   }));
+  await audit(me, 'refund.process', `${orderId} ref=${str(body.reference)}`);
   return json(200, { orderId, status: 'PROCESSED', reference: str(body.reference) });
 }
 
@@ -974,9 +1038,21 @@ exports.handler = async (event) => {
   } catch (e) {
     return json(401, { error: 'unauthenticated', detail: String(e.message) });
   }
+  // Session revocation (M1): a stateless JWT can't be revoked on its own, so
+  // re-check the ADMIN row every request — a disabled or deleted admin loses
+  // access immediately (not after the 12h TTL). Tier is refreshed from the row
+  // too, so a demotion takes effect at once.
+  try {
+    const acct = await getAdmin(me.sub);
+    if (!acct || acct.active === false) return json(401, { error: 'account disabled' });
+    me.tier = acct.tier;
+  } catch (e) {
+    return json(502, { error: 'auth check failed', detail: String((e && e.message) || e) });
+  }
 
   try {
     if (method === 'GET' && path.endsWith('/admin/me')) return json(200, { username: me.sub, tier: me.tier, tierName: TIER_NAMES[me.tier], caps: Object.keys(CAPS).filter((c) => can(me.tier, c)) });
+    if (method === 'GET' && path.endsWith('/admin/audit')) return auditList(me);
 
     // admin management
     if (method === 'GET' && path.endsWith('/admin/admins')) return adminsList(me);

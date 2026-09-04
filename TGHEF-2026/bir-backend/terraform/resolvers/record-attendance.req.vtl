@@ -2,6 +2,12 @@
 ## The app's idempotencyKey (att:<sub>:<shiftId>:<kind>) IS the sort key, so a
 ## re-drain of the same queued mutation upserts the same row (idempotent; the
 ## field-sim gate requires zero dupes across an offline batch + sync).
+## Server-side authz (M1): only field staff may write attendance — a plain
+## visitor must not be able to inject shift check-ins.
+#set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+#if(!$groups.contains("volunteer") && !$groups.contains("organiser-lite") && !$groups.contains("safety-officer"))
+  $util.unauthorized()
+#end
 {
   "version": "2018-05-29",
   "operation": "PutItem",
