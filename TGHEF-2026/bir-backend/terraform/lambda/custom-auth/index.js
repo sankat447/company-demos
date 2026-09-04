@@ -7,6 +7,26 @@
  */
 'use strict';
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
+const {
+  CognitoIdentityProviderClient,
+  AdminAddUserToGroupCommand,
+} = require('@aws-sdk/client-cognito-identity-provider');
+
+// DEMO: when DEMO_ALL_ROLES=true, a newly-confirmed user is added to EVERY role
+// group so the demo build can show every surface (visitor + staff + partner +
+// volunteer + organiser) from one login. Production leaves this unset — users
+// then default to the visitor role and organisers are granted groups explicitly.
+const ALL_ROLES = ['visitor', 'partner', 'volunteer', 'organiser-lite', 'admin-hospitality', 'safety-officer'];
+const cognito = new CognitoIdentityProviderClient({});
+async function grantAllRoles(userPoolId, username) {
+  await Promise.all(
+    ALL_ROLES.map((g) =>
+      cognito
+        .send(new AdminAddUserToGroupCommand({ UserPoolId: userPoolId, Username: username, GroupName: g }))
+        .catch((e) => console.error('grantAllRoles', g, e.message)),
+    ),
+  );
+}
 
 // Fast2SMS API key (SecureString in SSM). Cached only once a REAL value is read,
 // so a placeholder→real rotation is picked up WITHOUT a redeploy.
@@ -92,6 +112,13 @@ exports.handler = async (event) => {
     case 'VerifyAuthChallengeResponse_Authentication': {
       const expected = (event.request.privateChallengeParameters || {}).code;
       event.response.answerCorrect = event.request.challengeAnswer === expected;
+      break;
+    }
+    case 'PostConfirmation_ConfirmSignUp': {
+      // Demo-only: give the fresh account every role so all surfaces are visible.
+      if (process.env.DEMO_ALL_ROLES === 'true') {
+        await grantAllRoles(event.userPoolId, event.userName);
+      }
       break;
     }
     case 'PreSignUp_SignUp':

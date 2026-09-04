@@ -26,6 +26,7 @@ resource "aws_cognito_user_pool" "main" {
   # user whose OTP never validates.
   lambda_config {
     pre_sign_up                    = aws_lambda_function.custom_auth.arn
+    post_confirmation              = aws_lambda_function.custom_auth.arn
     define_auth_challenge          = aws_lambda_function.custom_auth.arn
     create_auth_challenge          = aws_lambda_function.custom_auth.arn
     verify_auth_challenge_response = aws_lambda_function.custom_auth.arn
@@ -57,6 +58,66 @@ resource "aws_cognito_identity_pool" "main" {
   cognito_identity_providers {
     client_id     = aws_cognito_user_pool_client.app.id
     provider_name = aws_cognito_user_pool.main.endpoint
+  }
+}
+
+# The identity pool MUST have an authenticated role attached, otherwise Amplify's
+# fetchAuthSession() throws InvalidIdentityPoolConfigurationException for every
+# signed-in user — which the app reads as "signed out" and bounces to the OTP
+# screen. The app authorises AppSync/REST with the user-pool token (not IAM), so
+# this role is intentionally minimal; it exists so credential resolution succeeds.
+data "aws_iam_policy_document" "cognito_authenticated_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = ["cognito-identity.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "cognito-identity.amazonaws.com:aud"
+      values   = [aws_cognito_identity_pool.main.id]
+    }
+    condition {
+      test     = "ForAnyValue:StringLike"
+      variable = "cognito-identity.amazonaws.com:amr"
+      values   = ["authenticated"]
+    }
+  }
+}
+
+resource "aws_iam_role" "cognito_authenticated" {
+  name               = "${local.name}-cognito-authenticated"
+  assume_role_policy = data.aws_iam_policy_document.cognito_authenticated_trust.json
+}
+
+# Minimal: allow a signed-in identity to reach AppSync (belt-and-braces with the
+# user-pool auth already on the API) and read its own Cognito-Sync datasets.
+resource "aws_iam_role_policy" "cognito_authenticated" {
+  name = "authenticated-scoped"
+  role = aws_iam_role.cognito_authenticated.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["appsync:GraphQL"]
+        Resource = "${aws_appsync_graphql_api.main.arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["cognito-identity:GetCredentialsForIdentity", "cognito-identity:GetId"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_cognito_identity_pool_roles_attachment" "main" {
+  identity_pool_id = aws_cognito_identity_pool.main.id
+  roles = {
+    authenticated = aws_iam_role.cognito_authenticated.arn
   }
 }
 
@@ -255,6 +316,10 @@ resource "aws_lambda_function" "custom_auth" {
       DEMO_OTP           = var.demo_otp
       DEMO_NUMBERS       = join(",", var.demo_numbers)
       FAST2SMS_KEY_PARAM = aws_ssm_parameter.fast2sms_key.name
+      # DEMO: grant every new signup all role groups so one login shows all
+      # surfaces. Set false (or remove) for production — organisers get groups
+      # explicitly via the admin control plane then.
+      DEMO_ALL_ROLES = var.demo_all_roles ? "true" : "false"
     }
   }
 }

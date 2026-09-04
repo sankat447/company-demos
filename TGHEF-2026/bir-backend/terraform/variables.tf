@@ -61,6 +61,11 @@ variable "demo_numbers" {
   type        = list(string)
   default     = ["+911100000007"]
 }
+variable "demo_all_roles" {
+  description = "DEMO: add every new signup to all role groups so one login shows all app surfaces. Set false for production (organisers get groups via the admin console)."
+  type        = bool
+  default     = true
+}
 
 variable "anthropic_model" {
   description = "B8: Anthropic model id the AI endpoints call (Anthropic Messages API)."

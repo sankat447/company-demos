@@ -54,7 +54,9 @@ export async function pullScheduleDelta(nowMs: number): Promise<number> {
           item.endsAt ?? null,
           item.titleEn ?? null,
           item.titleHi ?? null,
-          item.data ?? null,
+          // `data` may arrive as a JSON string (AWSJSON) or already-parsed object
+          // depending on the resolver — SQLite can only bind a string, so coerce.
+          item.data == null ? null : typeof item.data === 'string' ? item.data : JSON.stringify(item.data),
           nowMs,
         ],
       );

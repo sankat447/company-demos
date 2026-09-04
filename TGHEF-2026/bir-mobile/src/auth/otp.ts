@@ -66,7 +66,7 @@ async function ensureAccount(username: string): Promise<void> {
  * PreSignUp trigger and server-authoritative OTP are already deployed). Keep the
  * two paths in sync: the OTP screen renders demo vs. SMS purely off this result.
  */
-const DEMO_AUTH: boolean = true;
+const DEMO_AUTH: boolean = false;
 
 export async function requestOtp(phone: string): Promise<'sms' | 'demo-fallback'> {
   const username = normalizePhone(phone);
