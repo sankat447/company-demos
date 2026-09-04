@@ -19,11 +19,21 @@ const {
   DynamoDBClient, QueryCommand, GetItemCommand, PutItemCommand,
   UpdateItemCommand, DeleteItemCommand,
 } = require('@aws-sdk/client-dynamodb');
+const {
+  CognitoIdentityProviderClient, AdminCreateUserCommand, AdminSetUserPasswordCommand,
+  AdminGetUserCommand, AdminAddUserToGroupCommand, AdminRemoveUserFromGroupCommand,
+  AdminListGroupsForUserCommand, AdminDisableUserCommand, AdminEnableUserCommand,
+  AdminDeleteUserCommand, ListUsersInGroupCommand, ListUsersCommand,
+} = require('@aws-sdk/client-cognito-identity-provider');
 
 const ddb = new DynamoDBClient({});
 const ssm = new SSMClient({});
 const lambda = new LambdaClient({});
+const cognito = new CognitoIdentityProviderClient({});
 const TABLE = process.env.TABLE;
+const USER_POOL_ID = process.env.USER_POOL_ID;
+// The role groups the admin may assign (mirrors the Cognito user pool groups).
+const ROLE_GROUPS = ['visitor', 'partner', 'volunteer', 'organiser-lite', 'admin-hospitality', 'safety-officer'];
 const JWT_PARAM = process.env.JWT_PARAM;
 const SET_FLY_FN = process.env.SET_FLY_FN;
 const AI_FN = process.env.AI_FN;
@@ -51,6 +61,8 @@ const CAPS = {
   'orders.manage': [1, 2],
   // child-safety tool — every staff tier can register + look up a wristband
   'wristband.manage': [1, 2, 3, 4],
+  // identity — creating/grouping real Cognito app users is powerful
+  'users.manage': [1, 2],
 };
 const can = (tier, cap) => (CAPS[cap] || []).includes(tier);
 // A caller may create/manage a target at a strictly-lower tier; Superadmin (1)
@@ -566,7 +578,14 @@ async function stallUpsert(me, body) {
   if (!can(me.tier, 'stalls.manage')) return json(403, { error: 'not permitted' });
   const stallName = str(body.stallName);
   if (!stallName) return json(400, { error: 'stallName is required' });
-  const id = str(body.id) || `stall-${slug(stallName)}-${nowSec().toString(36)}`;
+  // Creating a vendor provisions a real Cognito `partner` login and keys the
+  // STALL row on that sub, so it shows up in the vendor's own app console.
+  // Editing (id given) leaves the identity alone.
+  let id = str(body.id);
+  if (!id) {
+    if (!body.phone) return json(400, { error: 'phone is required to create a vendor (they need a login)' });
+    id = (await ensureCognitoUser(body.phone, stallName, ['partner'])).sub;
+  }
   // Preserve fields we don't manage here (analytics, rules) on edit.
   const prev = (await getRow('STALL', id)) || {};
   const paid = !!body.paid;
@@ -661,7 +680,13 @@ async function volunteerUpsert(me, body) {
   if (!can(me.tier, 'volunteers.manage')) return json(403, { error: 'not permitted' });
   const name = str(body.name);
   if (!name) return json(400, { error: 'name is required' });
-  const id = str(body.id) || str(body.sub) || `vol-${slug(name)}-${nowSec().toString(36)}`;
+  // Creating a volunteer provisions a real Cognito `volunteer` login and keys
+  // the VOL row on that sub, so their roster loads in their own app.
+  let id = str(body.id) || str(body.sub);
+  if (!id) {
+    if (!body.phone) return json(400, { error: 'phone is required to create a volunteer (they need a login)' });
+    id = (await ensureCognitoUser(body.phone, name, ['volunteer'])).sub;
+  }
   const prev = (await getRow('VOL', id)) || {};
   const row = await putRow('VOL', id, {
     sub: id, name, team: str(body.team), idVerified: !!body.idVerified,
@@ -912,6 +937,113 @@ async function wristbandDelete(me, id) {
   return json(200, { bandId: bandId(id), deleted: true });
 }
 
+/* ===================== identity bridge (Cognito users) =================== */
+const normPhone = (s) => {
+  const d = String(s || '').replace(/\D/g, '');
+  if (d.length === 10) return `+91${d}`;
+  if (d.length === 12 && d.startsWith('91')) return `+${d}`;
+  if (String(s || '').trim().startsWith('+')) return String(s).trim();
+  return d ? `+${d}` : '';
+};
+const attrOf = (list, name) => ((list || []).find((a) => a.Name === name) || {}).Value;
+function userRow(u) {
+  return {
+    username: u.Username, sub: attrOf(u.Attributes, 'sub'),
+    name: attrOf(u.Attributes, 'name') || '', phone: attrOf(u.Attributes, 'phone_number') || '',
+    enabled: u.Enabled !== false, status: u.UserStatus || '',
+  };
+}
+
+// Create-or-find the Cognito user for a phone, confirm it (OTP-only auth needs no
+// usable password), and set its role groups. Returns the real sub — vendor/
+// volunteer rows key on this, so an admin-created record finally matches what
+// the person's app reads (closes the shadow-record split-brain).
+async function ensureCognitoUser(phone, name, groups) {
+  const Username = normPhone(phone);
+  if (!Username) throw new Error('valid phone required');
+  let sub;
+  try {
+    const got = await cognito.send(new AdminGetUserCommand({ UserPoolId: USER_POOL_ID, Username }));
+    sub = attrOf(got.UserAttributes, 'sub');
+  } catch {
+    const created = await cognito.send(new AdminCreateUserCommand({
+      UserPoolId: USER_POOL_ID, Username, MessageAction: 'SUPPRESS',
+      UserAttributes: [
+        { Name: 'phone_number', Value: Username },
+        { Name: 'phone_number_verified', Value: 'true' },
+        ...(name ? [{ Name: 'name', Value: String(name) }] : []),
+      ],
+    }));
+    sub = attrOf(created.User && created.User.Attributes, 'sub');
+    await cognito.send(new AdminSetUserPasswordCommand({
+      UserPoolId: USER_POOL_ID, Username,
+      Password: `Aa1!${crypto.randomBytes(15).toString('base64').replace(/[^A-Za-z0-9]/g, '')}9`,
+      Permanent: true,
+    }));
+  }
+  for (const g of (groups || []).filter((x) => ROLE_GROUPS.includes(x))) {
+    await cognito.send(new AdminAddUserToGroupCommand({ UserPoolId: USER_POOL_ID, Username, GroupName: g })).catch(() => {});
+  }
+  return { sub, username: Username };
+}
+
+async function usersList(me, group) {
+  if (!can(me.tier, 'users.manage')) return json(403, { error: 'not permitted' });
+  const g = ROLE_GROUPS.includes(group) ? group : '';
+  const out = [];
+  if (g) {
+    let NextToken;
+    do {
+      const r = await cognito.send(new ListUsersInGroupCommand({ UserPoolId: USER_POOL_ID, GroupName: g, NextToken }));
+      (r.Users || []).forEach((u) => out.push(userRow(u)));
+      NextToken = r.NextToken;
+    } while (NextToken && out.length < 500);
+  } else {
+    let PaginationToken;
+    do {
+      const r = await cognito.send(new ListUsersCommand({ UserPoolId: USER_POOL_ID, Limit: 60, PaginationToken }));
+      (r.Users || []).forEach((u) => out.push(userRow(u)));
+      PaginationToken = r.PaginationToken;
+    } while (PaginationToken && out.length < 500);
+  }
+  return json(200, { group: g || 'all', items: out });
+}
+async function userCreate(me, body) {
+  if (!can(me.tier, 'users.manage')) return json(403, { error: 'not permitted' });
+  const phone = normPhone(body.phone);
+  if (!phone) return json(400, { error: 'a valid phone is required' });
+  const groups = (Array.isArray(body.groups) ? body.groups : []).filter((g) => ROLE_GROUPS.includes(g));
+  const { sub, username } = await ensureCognitoUser(phone, body.name, groups);
+  await audit(me, 'user.create', `${username} [${groups.join(',')}]`);
+  return json(200, { sub, username, phone, groups });
+}
+async function userSetGroups(me, username, body) {
+  if (!can(me.tier, 'users.manage')) return json(403, { error: 'not permitted' });
+  const want = (Array.isArray(body.groups) ? body.groups : []).filter((g) => ROLE_GROUPS.includes(g));
+  const cur = await cognito
+    .send(new AdminListGroupsForUserCommand({ UserPoolId: USER_POOL_ID, Username: username }))
+    .catch(() => ({ Groups: [] }));
+  const curNames = (cur.Groups || []).map((g) => g.GroupName);
+  for (const g of want) if (!curNames.includes(g)) await cognito.send(new AdminAddUserToGroupCommand({ UserPoolId: USER_POOL_ID, Username: username, GroupName: g }));
+  for (const g of curNames) if (ROLE_GROUPS.includes(g) && !want.includes(g)) await cognito.send(new AdminRemoveUserFromGroupCommand({ UserPoolId: USER_POOL_ID, Username: username, GroupName: g }));
+  await audit(me, 'user.groups', `${username} → [${want.join(',')}]`);
+  return json(200, { username, groups: want });
+}
+async function userSetEnabled(me, username, enabled) {
+  if (!can(me.tier, 'users.manage')) return json(403, { error: 'not permitted' });
+  await cognito.send(enabled
+    ? new AdminEnableUserCommand({ UserPoolId: USER_POOL_ID, Username: username })
+    : new AdminDisableUserCommand({ UserPoolId: USER_POOL_ID, Username: username }));
+  await audit(me, enabled ? 'user.enable' : 'user.disable', username);
+  return json(200, { username, enabled });
+}
+async function userDelete(me, username) {
+  if (!can(me.tier, 'users.manage')) return json(403, { error: 'not permitted' });
+  await cognito.send(new AdminDeleteUserCommand({ UserPoolId: USER_POOL_ID, Username: username }));
+  await audit(me, 'user.delete', username);
+  return json(200, { username, deleted: true });
+}
+
 /* ------------------------- scanner (Phase 2) ---------------------------- */
 // Default gate checkpoints (any valid pass grants entry). Event checkpoints are
 // derived from what people actually register for (REG item ids).
@@ -1111,6 +1243,13 @@ exports.handler = async (event) => {
     if (method === 'GET' && path.endsWith('/admin/tiers')) return tiersList();
     if (method === 'POST' && path.endsWith('/admin/tiers')) return tierUpsert(me, body);
     if (method === 'DELETE' && /\/admin\/tiers\/[^/]+$/.test(path)) return tierDelete(me, after(/\/admin\/tiers\/([^/]+)$/));
+
+    // --- identity: Cognito app users (users.manage) ---
+    if (method === 'GET' && path.endsWith('/admin/users')) return usersList(me, (event.queryStringParameters || {}).group);
+    if (method === 'POST' && path.endsWith('/admin/users')) return userCreate(me, body);
+    if (method === 'POST' && /\/admin\/users\/[^/]+\/groups$/.test(path)) return userSetGroups(me, after(/\/admin\/users\/([^/]+)\/groups$/), body);
+    if (method === 'POST' && /\/admin\/users\/[^/]+\/enabled$/.test(path)) return userSetEnabled(me, after(/\/admin\/users\/([^/]+)\/enabled$/), body.enabled !== false);
+    if (method === 'DELETE' && /\/admin\/users\/[^/]+$/.test(path)) return userDelete(me, after(/\/admin\/users\/([^/]+)$/));
 
     // --- wristbands (child-safety lookup, all staff tiers) ---
     if (method === 'GET' && path.endsWith('/admin/wristbands')) return wristbandsList(me);

@@ -9,8 +9,9 @@ const CAPS = {
   'faq.write': [1, 2, 3], 'pass.revoke': [1, 2], 'flystatus.set': [1, 2],
   'schedule.manage': [1, 2, 3], 'stalls.manage': [1, 2, 3], 'lodging.manage': [1, 2, 3],
   'volunteers.manage': [1, 2, 3], 'incidents.manage': [1, 2, 3, 4], 'announce.write': [1, 2],
-  'pricing.manage': [1, 2], 'orders.manage': [1, 2],
+  'pricing.manage': [1, 2], 'orders.manage': [1, 2], 'users.manage': [1, 2],
 };
+const ROLE_GROUPS = ['partner', 'volunteer', 'organiser-lite', 'admin-hospitality', 'safety-officer'];
 const state = { token: null, admin: null };
 
 /* helpers */
@@ -85,7 +86,7 @@ function enterApp() {
   $('#who').textContent = `${state.admin.name || state.admin.username} · ${TIER_NAMES[state.admin.tier]}`;
   // hide panels the tier can't use (write-only panels stay hidden for read-only
   // tiers; every tier keeps the monitor + incident-triage views)
-  const GATE = { admins: 'admin.manage', schedule: 'schedule.manage', announce: 'announce.write', pricing: 'pricing.manage', orders: 'orders.manage', refunds: 'orders.manage' };
+  const GATE = { admins: 'admin.manage', schedule: 'schedule.manage', announce: 'announce.write', pricing: 'pricing.manage', orders: 'orders.manage', refunds: 'orders.manage', people: 'users.manage' };
   $$('.nav-item').forEach((b) => {
     const need = GATE[b.dataset.view];
     b.style.display = need && !cap(need) ? 'none' : '';
@@ -100,7 +101,7 @@ const TITLES = {
   overview: 'Overview', visitors: 'Visitors & tickets', incidents: 'Incidents',
   schedule: 'Schedule', stalls: 'Stalls', lodging: 'Lodging', volunteers: 'Volunteers',
   fly: 'Fly-status', announce: 'Announcements', kb: 'Knowledge & AI',
-  passes: 'Passes', orders: 'Orders', refunds: 'Refunds', pricing: 'Prices', admins: 'Admins',
+  passes: 'Passes', orders: 'Orders', refunds: 'Refunds', pricing: 'Prices', people: 'People', admins: 'Admins',
 };
 async function setView(name) {
   currentView = name;
@@ -188,6 +189,7 @@ VIEWS.stalls = async (v) => {
       <input id="stall-id" type="hidden">
       <div class="grid g-2">
         <label class="field"><span>Stall name</span><input id="stall-stallName" placeholder="Kangra Kitchen"></label>
+        <label class="field"><span>Vendor phone <span class="hint">(new vendor only — creates their login)</span></span><input id="stall-phone" placeholder="9876500000"></label>
         <label class="field"><span>Category</span><input id="stall-category" placeholder="Local food · siddu & dham"></label>
         <label class="field"><span>Stage</span><select id="stall-stage"><option value="pending">pending</option><option value="approved">approved</option><option value="rejected">rejected</option></select></label>
         <label class="field"><span>Allocation label</span><input id="stall-allocationLabel" placeholder="Food Street · Stall F-12"></label>
@@ -206,10 +208,10 @@ VIEWS.stalls = async (v) => {
     collect: () => {
       const stallName = $('#stall-stallName').value.trim();
       if (!stallName) { toast('Stall name is required', 'bad'); return null; }
-      return { stallName, category: $('#stall-category').value.trim(), stage: $('#stall-stage').value, allocationLabel: $('#stall-allocationLabel').value.trim(), feeInr: Number($('#stall-feeInr').value) || 0, paid: $('#stall-paid').checked };
+      return { stallName, phone: $('#stall-phone').value.trim(), category: $('#stall-category').value.trim(), stage: $('#stall-stage').value, allocationLabel: $('#stall-allocationLabel').value.trim(), feeInr: Number($('#stall-feeInr').value) || 0, paid: $('#stall-paid').checked };
     },
-    fill: (s) => { $('#stall-stallName').value = s.stallName || ''; $('#stall-category').value = s.category || ''; $('#stall-stage').value = s.stage || 'pending'; $('#stall-allocationLabel').value = s.allocationLabel || ''; $('#stall-feeInr').value = s.feeInr || ''; $('#stall-paid').checked = !!s.paid; },
-    clear: () => { ['stallName', 'category', 'allocationLabel', 'feeInr'].forEach((f) => $('#stall-' + f).value = ''); $('#stall-stage').value = 'pending'; $('#stall-paid').checked = false; },
+    fill: (s) => { $('#stall-stallName').value = s.stallName || ''; $('#stall-phone').value = ''; $('#stall-category').value = s.category || ''; $('#stall-stage').value = s.stage || 'pending'; $('#stall-allocationLabel').value = s.allocationLabel || ''; $('#stall-feeInr').value = s.feeInr || ''; $('#stall-paid').checked = !!s.paid; },
+    clear: () => { ['stallName', 'phone', 'category', 'allocationLabel', 'feeInr'].forEach((f) => $('#stall-' + f).value = ''); $('#stall-stage').value = 'pending'; $('#stall-paid').checked = false; },
   });
 };
 
@@ -277,6 +279,7 @@ VIEWS.volunteers = async (v) => {
       <input id="vol-id" type="hidden">
       <div class="grid g-2">
         <label class="field"><span>Name</span><input id="vol-name" placeholder="Tenzin Dorje"></label>
+        <label class="field"><span>Phone <span class="hint">(new volunteer only — creates their login)</span></span><input id="vol-phone" placeholder="9876500000"></label>
         <label class="field"><span>Team</span><input id="vol-team" placeholder="Gate & Access"></label>
         <label class="field row" style="align-items:center;gap:8px"><input id="vol-idVerified" type="checkbox"><span>ID verified</span></label>
       </div>
@@ -293,10 +296,10 @@ VIEWS.volunteers = async (v) => {
       collect: () => {
         const name = $('#vol-name').value.trim();
         if (!name) { toast('Name is required', 'bad'); return null; }
-        return { name, team: $('#vol-team').value.trim(), idVerified: $('#vol-idVerified').checked };
+        return { name, phone: $('#vol-phone').value.trim(), team: $('#vol-team').value.trim(), idVerified: $('#vol-idVerified').checked };
       },
-      fill: (x) => { $('#vol-name').value = x.name || ''; $('#vol-team').value = x.team || ''; $('#vol-idVerified').checked = !!x.idVerified; },
-      clear: () => { $('#vol-name').value = ''; $('#vol-team').value = ''; $('#vol-idVerified').checked = false; },
+      fill: (x) => { $('#vol-name').value = x.name || ''; $('#vol-phone').value = ''; $('#vol-team').value = x.team || ''; $('#vol-idVerified').checked = !!x.idVerified; },
+      clear: () => { $('#vol-name').value = ''; $('#vol-phone').value = ''; $('#vol-team').value = ''; $('#vol-idVerified').checked = false; },
     });
     $$('.vol-shift', v).forEach((b) => b.addEventListener('click', async () => {
       const id = b.closest('tr').dataset.id;
@@ -656,6 +659,62 @@ VIEWS.pricing = async (v) => {
   });
 };
 
+VIEWS.people = async (v) => {
+  if (!cap('users.manage')) { v.innerHTML = notPermitted('people'); return; }
+  const group = VIEWS.people._group || '';
+  const d = await api('GET', '/admin/users' + (group ? `?group=${encodeURIComponent(group)}` : ''));
+  const users = d.items;
+  const chip = (g) => `<button class="chip ${group === g ? 'on' : ''}" data-grp="${g}">${g || 'all'}</button>`;
+  v.innerHTML = `
+    <div class="card mgr"><div class="section-title">Add a person — creates a real app login</div>
+      <div class="grid g-2">
+        <label class="field"><span>Phone (10-digit)</span><input id="usr-phone" placeholder="9876500000"></label>
+        <label class="field"><span>Name</span><input id="usr-name" placeholder="Priya Sharma"></label>
+      </div>
+      <label class="field"><span>Roles</span></label>
+      <div class="row wrap" id="usr-roles" style="margin-top:-6px">
+        ${ROLE_GROUPS.map((g) => `<label class="chip" style="cursor:pointer"><input type="checkbox" value="${g}" style="margin-right:6px;vertical-align:middle">${g}</label>`).join('')}
+      </div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="usr-create">Create login</button></div>
+      <p class="hint">Sign-in is OTP-only (phone). Assigning a role here is what gives a vendor/volunteer their console — no spreadsheet import needed.</p>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">People ${group ? `· ${esc(group)}` : ''}</div>
+      <div class="row wrap" style="margin-bottom:12px">${['', ...ROLE_GROUPS].map(chip).join('')}</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Phone</th><th>Name</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+        ${users.length ? users.map((u) => `<tr data-u="${esc(u.username)}"><td class="mono">${esc(u.phone || u.username)}</td><td>${esc(u.name || '')}</td><td>${u.enabled ? '<span class="pill good">active</span>' : '<span class="pill bad">disabled</span>'}</td><td><div class="row wrap"><button class="btn ghost sm pe-roles">Roles</button><button class="btn ghost sm pe-toggle">${u.enabled ? 'Disable' : 'Enable'}</button><button class="btn ghost sm pe-del">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="4" class="empty">No users in this view.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+  $$('.chip[data-grp]', v).forEach((b) => b.addEventListener('click', () => { VIEWS.people._group = b.dataset.grp; setView('people'); }));
+  $('#usr-create').addEventListener('click', async () => {
+    const phone = $('#usr-phone').value.trim();
+    if (!phone) return toast('Phone is required', 'bad');
+    const groups = $$('#usr-roles input:checked', v).map((c) => c.value);
+    const b = $('#usr-create'); b.disabled = true; b.innerHTML = '<span class="spinner"></span> Creating…';
+    try { await api('POST', '/admin/users', { phone, name: $('#usr-name').value.trim(), groups }); toast('Login created', 'good'); setView('people'); }
+    catch (e) { toast(e.message, 'bad'); b.disabled = false; b.textContent = 'Create login'; }
+  });
+  $$('.pe-roles', v).forEach((b) => b.addEventListener('click', async () => {
+    const u = b.closest('tr').dataset.u;
+    const roles = prompt(`Set roles for ${u} (space-separated from: ${ROLE_GROUPS.join(' ')}):`, group || '');
+    if (roles === null) return;
+    const groups = roles.split(/\s+/).filter((g) => ROLE_GROUPS.includes(g));
+    try { await api('POST', `/admin/users/${encodeURIComponent(u)}/groups`, { groups }); toast('Roles updated', 'good'); setView('people'); }
+    catch (e) { toast(e.message, 'bad'); }
+  }));
+  $$('.pe-toggle', v).forEach((b) => b.addEventListener('click', async () => {
+    const tr = b.closest('tr'); const u = tr.dataset.u; const enable = b.textContent === 'Enable';
+    try { await api('POST', `/admin/users/${encodeURIComponent(u)}/enabled`, { enabled: enable }); toast(enable ? 'Enabled' : 'Disabled', 'good'); setView('people'); }
+    catch (e) { toast(e.message, 'bad'); }
+  }));
+  $$('.pe-del', v).forEach((b) => b.addEventListener('click', async () => {
+    const u = b.closest('tr').dataset.u;
+    if (!confirm(`Delete the login for ${u}? This removes their app access.`)) return;
+    try { await api('DELETE', `/admin/users/${encodeURIComponent(u)}`); toast('Login deleted', 'good'); setView('people'); }
+    catch (e) { toast(e.message, 'bad'); }
+  }));
+};
+
 /* -------------------------------- helpers -------------------------------- */
 function kpiCard(k, val, sub = '', flyCls = '') {
   const color = { flying: 'good', hold: 'warn', closed: 'bad' }[flyCls];
@@ -676,7 +735,7 @@ const CAP_LABELS = {
   'pass.revoke': 'revoke passes', 'flystatus.set': 'fly-status', 'schedule.manage': 'schedule',
   'stalls.manage': 'stalls', 'lodging.manage': 'lodging', 'volunteers.manage': 'volunteers',
   'incidents.manage': 'incident triage', 'announce.write': 'announcements',
-  'pricing.manage': 'prices', 'orders.manage': 'orders & refunds',
+  'pricing.manage': 'prices', 'orders.manage': 'orders & refunds', 'users.manage': 'app users & roles',
 };
 function tierCaps(t) {
   return Object.entries(CAPS).filter(([, ts]) => ts.includes(t)).map(([k]) => CAP_LABELS[k]).filter(Boolean).join(' · ');

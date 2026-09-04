@@ -211,7 +211,18 @@ resource "aws_iam_role_policy" "lambda" {
       # the AI Lambda calls the Anthropic API directly over HTTPS.
       # RAG: the kb-ingest Lambda reads dropped docs from the KB bucket.
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.kb.arn}/*" },
-      { Effect = "Allow", Action = ["sns:Publish"], Resource = "*" }
+      { Effect = "Allow", Action = ["sns:Publish"], Resource = "*" },
+      # Step 4 (B1): the admin control plane onboards real app users — create a
+      # Cognito user, set an unused password (OTP-only auth), and manage role
+      # group membership. Scoped to this pool.
+      { Effect = "Allow", Action = [
+        "cognito-idp:AdminCreateUser", "cognito-idp:AdminSetUserPassword",
+        "cognito-idp:AdminGetUser", "cognito-idp:AdminUpdateUserAttributes",
+        "cognito-idp:AdminAddUserToGroup", "cognito-idp:AdminRemoveUserFromGroup",
+        "cognito-idp:AdminListGroupsForUser", "cognito-idp:AdminDisableUser",
+        "cognito-idp:AdminEnableUser", "cognito-idp:AdminDeleteUser",
+        "cognito-idp:ListUsers", "cognito-idp:ListUsersInGroup",
+      ], Resource = aws_cognito_user_pool.main.arn }
     ]
   })
 }
@@ -1085,11 +1096,12 @@ resource "aws_lambda_function" "admin" {
   timeout          = 30
   memory_size      = 256
   environment { variables = {
-    TABLE      = aws_dynamodb_table.main.name
-    JWT_PARAM  = aws_ssm_parameter.admin_jwt.name
-    SET_FLY_FN = aws_lambda_function.set_fly_status.function_name
-    AI_FN      = aws_lambda_function.ai.function_name
-    JWKS_URL   = "https://${var.enable_cdn ? aws_cloudfront_distribution.media[0].domain_name : aws_s3_bucket.media.bucket_regional_domain_name}/.well-known/bir-passes/jwks.json"
+    TABLE        = aws_dynamodb_table.main.name
+    JWT_PARAM    = aws_ssm_parameter.admin_jwt.name
+    SET_FLY_FN   = aws_lambda_function.set_fly_status.function_name
+    AI_FN        = aws_lambda_function.ai.function_name
+    USER_POOL_ID = aws_cognito_user_pool.main.id
+    JWKS_URL     = "https://${var.enable_cdn ? aws_cloudfront_distribution.media[0].domain_name : aws_s3_bucket.media.bucket_regional_domain_name}/.well-known/bir-passes/jwks.json"
   } }
 }
 resource "aws_apigatewayv2_integration" "admin" {
