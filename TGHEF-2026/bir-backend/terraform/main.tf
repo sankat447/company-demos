@@ -1053,21 +1053,18 @@ resource "aws_apigatewayv2_integration" "admin" {
 }
 # The admin Lambda verifies its own admin JWT + enforces tier caps, so the
 # routes carry no API-GW authorizer (authorization_type NONE).
+# One greedy route for the whole admin surface. The Lambda routes internally and
+# enforces its own admin JWT + tier capabilities per action, so the ops console
+# and Staff mode can grow endpoints (schedule, stalls, lodging, volunteers,
+# incidents, announcements, …) without a Terraform change each time. CORS
+# preflight (OPTIONS) is handled by the API's CORS config, not this route.
 resource "aws_apigatewayv2_route" "admin" {
-  for_each = toset([
-    "POST /admin/auth/bootstrap", "POST /admin/auth/login", "GET /admin/me",
-    "GET /admin/admins", "POST /admin/admins",
-    "POST /admin/admins/{username}/password", "POST /admin/admins/{username}/active",
-    "DELETE /admin/admins/{username}",
-    "POST /admin/fly", "POST /admin/revoke", "POST /admin/ask",
-    "GET /admin/faq", "POST /admin/faq", "DELETE /admin/faq/{id}",
-    "GET /admin/summary", "GET /admin/visitors", "GET /admin/stalls",
-    "GET /admin/lodging", "GET /admin/incidents", "GET /admin/volunteers",
-    "GET /admin/revocations",
-    "GET /admin/checkpoints", "GET /admin/entitlements/snapshot", "POST /admin/scan",
-  ])
+  # Method-specific (NOT "ANY") so no OPTIONS route exists — the API's CORS
+  # config then auto-answers browser preflight. Adding OPTIONS here would send
+  # preflight to the Lambda (401, no CORS headers) and break the web console.
+  for_each           = toset(["GET", "POST", "DELETE"])
   api_id             = aws_apigatewayv2_api.pay.id
-  route_key          = each.value
+  route_key          = "${each.value} /admin/{proxy+}"
   target             = "integrations/${aws_apigatewayv2_integration.admin.id}"
   authorization_type = "NONE"
 }

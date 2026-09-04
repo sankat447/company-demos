@@ -30,12 +30,22 @@ const AI_FN = process.env.AI_FN;
 const TOKEN_TTL = 12 * 3600;
 
 const TIER_NAMES = { 1: 'Superadmin', 2: 'Admin', 3: 'Manager', 4: 'Coordinator' };
+// Capability → tiers that hold it. Tier 1 Superadmin · 2 Admin · 3 Manager ·
+// 4 Coordinator (ground staff). Read is universal; write actions widen down the
+// hierarchy only as far as the role that owns that job on the ground.
 const CAPS = {
   'analytics.read': [1, 2, 3, 4],
+  'admin.manage': [1, 2, 3],
   'faq.write': [1, 2, 3],
   'pass.revoke': [1, 2],
   'flystatus.set': [1, 2],
-  'admin.manage': [1, 2, 3],
+  // festival control plane (added for the ops console + Staff mode)
+  'schedule.manage': [1, 2, 3],
+  'stalls.manage': [1, 2, 3],
+  'lodging.manage': [1, 2, 3],
+  'volunteers.manage': [1, 2, 3],
+  'incidents.manage': [1, 2, 3, 4], // coordinators triage incidents on the ground
+  'announce.write': [1, 2],
 };
 const can = (tier, cap) => (CAPS[cap] || []).includes(tier);
 // A caller may create/manage a target at a strictly-lower tier; Superadmin (1)
@@ -107,6 +117,21 @@ function uv(a) {
   return null;
 }
 function uo(m) { const o = {}; for (const k in m) o[k] = uv(m[k]); return o; }
+// JS value → DynamoDB AttributeValue (inverse of uv). Empty strings are dropped
+// by callers; here an empty string still marshals to {S:''} — guard upstream.
+function mv(v) {
+  if (v === null || v === undefined) return { NULL: true };
+  if (typeof v === 'string') return { S: v };
+  if (typeof v === 'number') return { N: String(v) };
+  if (typeof v === 'boolean') return { BOOL: v };
+  if (Array.isArray(v)) return { L: v.map(mv) };
+  if (typeof v === 'object') return { M: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mv(x)])) };
+  return { NULL: true };
+}
+function mo(obj) { return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, mv(v)])); }
+const nowSec = () => Math.floor(Date.now() / 1000);
+// slugify for generated ids
+const slug = (s) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
 async function items(pk) {
   const out = []; let ExclusiveStartKey;
   do {
@@ -381,7 +406,19 @@ async function lodgingView() {
 }
 async function incidentsView() {
   const rows = (await items('INC')).sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  return json(200, { total: rows.length, byCategory: tally(rows, 'category'), items: rows.slice(0, 50).map((i) => ({ category: i.category, note: i.note, zone: i.zone || '', ts: i.ts, reportedBy: i.reportedBy })) });
+  const withStatus = rows.map((i) => ({ ...i, status: i.status || 'open' }));
+  return json(200, {
+    total: rows.length,
+    byCategory: tally(rows, 'category'),
+    byStatus: tally(withStatus, 'status'),
+    open: withStatus.filter((i) => i.status !== 'resolved').length,
+    items: withStatus.slice(0, 100).map((i) => ({
+      id: i.sk, category: i.category, note: i.note, zone: i.zone || '', ts: i.ts,
+      reportedBy: i.reportedBy, photoUri: i.photoUri || '',
+      status: i.status, assignee: i.assignee || '', resolutionNote: i.resolutionNote || '',
+      updatedAt: i.updatedAt || 0, updatedBy: i.updatedBy || '',
+    })),
+  });
 }
 async function volunteersView() {
   const [vols, att] = await Promise.all([items('VOL'), count('ATT')]);
@@ -398,6 +435,240 @@ async function revocationsView() {
     ExclusiveStartKey = r.LastEvaluatedKey;
   } while (ExclusiveStartKey);
   return json(200, { total: out.length, items: out });
+}
+
+/* ===================== festival control plane (CRUD) ===================== */
+// A thin, uniform CRUD layer over the single table. Each manager guards on its
+// capability, whitelists writable fields, stamps updatedAt/By, and returns the
+// stored row. Ids are the sort key; generated when the client doesn't supply one.
+async function putRow(pk, sk, fields, me) {
+  const item = mo({ ...fields, updatedAt: nowSec(), updatedBy: `admin:${me.sub}` });
+  item.pk = { S: pk };
+  item.sk = { S: sk };
+  await ddb.send(new PutItemCommand({ TableName: TABLE, Item: item }));
+  return { id: sk, ...fields };
+}
+async function getRow(pk, sk) {
+  const r = await ddb.send(new GetItemCommand({ TableName: TABLE, Key: { pk: { S: pk }, sk: { S: sk } } }));
+  return r.Item ? uo(r.Item) : null;
+}
+async function delRow(pk, sk) {
+  await ddb.send(new DeleteItemCommand({ TableName: TABLE, Key: { pk: { S: pk }, sk: { S: sk } } }));
+}
+const str = (v) => String(v == null ? '' : v).trim();
+const num = (v) => (Number.isFinite(+v) ? +v : 0);
+
+/* ---- schedule (sessions/agenda) --------------------------------------- */
+async function scheduleList() {
+  const rows = (await items('SCHEDULE')).sort((a, b) => (a.startsAt || 0) - (b.startsAt || 0));
+  return json(200, {
+    items: rows.map((s) => ({
+      id: s.sk, day: s.day || '', venue: s.venue || '',
+      titleEn: s.titleEn || '', titleHi: s.titleHi || '', startsAt: s.startsAt || 0,
+    })),
+  });
+}
+async function scheduleUpsert(me, body) {
+  if (!can(me.tier, 'schedule.manage')) return json(403, { error: 'not permitted' });
+  const titleEn = str(body.titleEn);
+  const day = str(body.day);
+  if (!titleEn || !day) return json(400, { error: 'day and titleEn are required' });
+  const id = str(body.id) || `${day}#${slug(titleEn)}`;
+  const row = await putRow('SCHEDULE', id, {
+    day, venue: str(body.venue), titleEn, titleHi: str(body.titleHi), startsAt: num(body.startsAt),
+  }, me);
+  return json(200, row);
+}
+async function scheduleDelete(me, id) {
+  if (!can(me.tier, 'schedule.manage')) return json(403, { error: 'not permitted' });
+  await delRow('SCHEDULE', id);
+  return json(200, { id, deleted: true });
+}
+
+/* ---- stalls ------------------------------------------------------------ */
+async function stallsManageList() {
+  return json(200, {
+    items: (await items('STALL')).map((s) => ({
+      id: s.sk, stallName: s.stallName || '', category: s.category || '', stage: s.stage || 'pending',
+      allocationLabel: s.allocationLabel || '', feeInr: s.feeInr || 0, paid: !!s.paid,
+    })),
+  });
+}
+async function stallUpsert(me, body) {
+  if (!can(me.tier, 'stalls.manage')) return json(403, { error: 'not permitted' });
+  const stallName = str(body.stallName);
+  if (!stallName) return json(400, { error: 'stallName is required' });
+  const id = str(body.id) || `stall-${slug(stallName)}-${nowSec().toString(36)}`;
+  // Preserve fields we don't manage here (analytics, rules) on edit.
+  const prev = (await getRow('STALL', id)) || {};
+  const row = await putRow('STALL', id, {
+    stallName, category: str(body.category), stage: str(body.stage) || 'pending',
+    allocationLabel: str(body.allocationLabel), feeInr: num(body.feeInr), paid: !!body.paid,
+    ...(prev.analytics ? { analytics: prev.analytics } : {}),
+    ...(prev.rules ? { rules: prev.rules } : {}),
+    ...(prev.rulesHi ? { rulesHi: prev.rulesHi } : {}),
+  }, me);
+  return json(200, row);
+}
+async function stallDelete(me, id) {
+  if (!can(me.tier, 'stalls.manage')) return json(403, { error: 'not permitted' });
+  await delRow('STALL', id);
+  return json(200, { id, deleted: true });
+}
+
+/* ---- rooms (lodging inventory + allocation) ---------------------------- */
+async function roomsList() {
+  const rooms = (await items('ROOM')).sort((a, b) => str(a.hotelName).localeCompare(str(b.hotelName)));
+  return json(200, {
+    items: rooms.map((r) => ({
+      id: r.sk, hotelName: r.hotelName || '', roomLabel: r.roomLabel || '', type: r.type || '',
+      capacity: r.capacity || 0, status: r.status || 'active',
+      assignedTo: r.assignedTo || '', guestName: r.guestName || '', checkedIn: !!r.checkedIn,
+    })),
+  });
+}
+async function roomUpsert(me, body) {
+  if (!can(me.tier, 'lodging.manage')) return json(403, { error: 'not permitted' });
+  const hotelName = str(body.hotelName);
+  const roomLabel = str(body.roomLabel);
+  if (!hotelName || !roomLabel) return json(400, { error: 'hotelName and roomLabel are required' });
+  const id = str(body.id) || `room-${slug(hotelName)}-${slug(roomLabel)}`;
+  const prev = (await getRow('ROOM', id)) || {};
+  const row = await putRow('ROOM', id, {
+    hotelName, roomLabel, type: str(body.type) || 'twin', capacity: num(body.capacity) || 2,
+    status: str(body.status) || 'active',
+    assignedTo: prev.assignedTo || '', guestName: prev.guestName || '', checkedIn: !!prev.checkedIn,
+    ...(prev.availability ? { availability: prev.availability } : {}),
+    ...(prev.contactPhone ? { contactPhone: prev.contactPhone } : {}),
+  }, me);
+  return json(200, row);
+}
+async function roomAllocate(me, id, body) {
+  if (!can(me.tier, 'lodging.manage')) return json(403, { error: 'not permitted' });
+  const room = await getRow('ROOM', id);
+  if (!room) return json(404, { error: 'room not found' });
+  // Clear allocation when guestName is blank; toggle check-in otherwise.
+  const guestName = str(body.guestName);
+  await ddb.send(new UpdateItemCommand({
+    TableName: TABLE, Key: { pk: { S: 'ROOM' }, sk: { S: id } },
+    UpdateExpression: 'SET assignedTo = :a, guestName = :g, checkedIn = :c, updatedAt = :u, updatedBy = :b',
+    ExpressionAttributeValues: {
+      ':a': { S: str(body.assignedTo) }, ':g': { S: guestName },
+      ':c': { BOOL: guestName ? !!body.checkedIn : false },
+      ':u': { N: String(nowSec()) }, ':b': { S: `admin:${me.sub}` },
+    },
+  }));
+  return json(200, { id, assignedTo: str(body.assignedTo), guestName, checkedIn: guestName ? !!body.checkedIn : false });
+}
+async function roomDelete(me, id) {
+  if (!can(me.tier, 'lodging.manage')) return json(403, { error: 'not permitted' });
+  await delRow('ROOM', id);
+  return json(200, { id, deleted: true });
+}
+
+/* ---- volunteers + shifts ---------------------------------------------- */
+async function volunteersManageList() {
+  return json(200, {
+    items: (await items('VOL')).map((v) => ({
+      id: v.sk, name: v.name || '', team: v.team || '', idVerified: !!v.idVerified,
+      shifts: (v.shifts || []).map((s) => ({
+        id: s.id || '', date: s.date || '', zone: s.zone || '', role: s.role || '',
+        startsAtSec: s.startsAtSec || 0, endsAtSec: s.endsAtSec || 0,
+      })),
+    })),
+  });
+}
+async function volunteerUpsert(me, body) {
+  if (!can(me.tier, 'volunteers.manage')) return json(403, { error: 'not permitted' });
+  const name = str(body.name);
+  if (!name) return json(400, { error: 'name is required' });
+  const id = str(body.id) || str(body.sub) || `vol-${slug(name)}-${nowSec().toString(36)}`;
+  const prev = (await getRow('VOL', id)) || {};
+  const row = await putRow('VOL', id, {
+    sub: id, name, team: str(body.team), idVerified: !!body.idVerified,
+    shifts: prev.shifts || [],
+  }, me);
+  return json(200, row);
+}
+async function volunteerShiftAdd(me, id, body) {
+  if (!can(me.tier, 'volunteers.manage')) return json(403, { error: 'not permitted' });
+  const vol = await getRow('VOL', id);
+  if (!vol) return json(404, { error: 'volunteer not found' });
+  const shift = {
+    id: `sh-${nowSec().toString(36)}-${slug(str(body.zone)) || 'x'}`,
+    date: str(body.date), zone: str(body.zone), role: str(body.role) || 'Steward',
+    startsAtSec: num(body.startsAtSec), endsAtSec: num(body.endsAtSec),
+  };
+  const shifts = [...(vol.shifts || []), shift];
+  await putRow('VOL', id, { sub: id, name: vol.name, team: vol.team || '', idVerified: !!vol.idVerified, shifts }, me);
+  return json(200, { id, shift, shifts });
+}
+async function volunteerShiftDelete(me, id, shiftId) {
+  if (!can(me.tier, 'volunteers.manage')) return json(403, { error: 'not permitted' });
+  const vol = await getRow('VOL', id);
+  if (!vol) return json(404, { error: 'volunteer not found' });
+  const shifts = (vol.shifts || []).filter((s) => s.id !== shiftId);
+  await putRow('VOL', id, { sub: id, name: vol.name, team: vol.team || '', idVerified: !!vol.idVerified, shifts }, me);
+  return json(200, { id, shiftId, deleted: true, shifts });
+}
+async function volunteerDelete(me, id) {
+  if (!can(me.tier, 'volunteers.manage')) return json(403, { error: 'not permitted' });
+  await delRow('VOL', id);
+  return json(200, { id, deleted: true });
+}
+
+/* ---- incidents (triage/resolve) --------------------------------------- */
+const INC_STATUS = ['open', 'acknowledged', 'in-progress', 'resolved'];
+async function incidentUpdate(me, id, body) {
+  if (!can(me.tier, 'incidents.manage')) return json(403, { error: 'not permitted' });
+  const inc = await getRow('INC', id);
+  if (!inc) return json(404, { error: 'incident not found' });
+  const sets = ['updatedAt = :u', 'updatedBy = :b'];
+  const vals = { ':u': { N: String(nowSec()) }, ':b': { S: `admin:${me.sub}` } };
+  if (body.status !== undefined) {
+    const status = str(body.status);
+    if (!INC_STATUS.includes(status)) return json(400, { error: `status must be one of ${INC_STATUS.join(', ')}` });
+    sets.push('#s = :s'); vals[':s'] = { S: status };
+  }
+  if (body.assignee !== undefined) { sets.push('assignee = :a'); vals[':a'] = { S: str(body.assignee) }; }
+  if (body.resolutionNote !== undefined) { sets.push('resolutionNote = :r'); vals[':r'] = { S: str(body.resolutionNote) }; }
+  await ddb.send(new UpdateItemCommand({
+    TableName: TABLE, Key: { pk: { S: 'INC' }, sk: { S: id } },
+    UpdateExpression: `SET ${sets.join(', ')}`,
+    ExpressionAttributeValues: vals,
+    ...(body.status !== undefined ? { ExpressionAttributeNames: { '#s': 'status' } } : {}),
+  }));
+  return json(200, { id, status: str(body.status) || inc.status || 'open', assignee: body.assignee !== undefined ? str(body.assignee) : (inc.assignee || '') });
+}
+
+/* ---- announcements (festival-wide notices) ----------------------------- */
+async function announcementsList() {
+  const rows = (await items('ANNOUNCE')).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return json(200, {
+    items: rows.map((a) => ({
+      id: a.sk, titleEn: a.titleEn || '', titleHi: a.titleHi || '',
+      bodyEn: a.bodyEn || '', bodyHi: a.bodyHi || '', level: a.level || 'info',
+      active: a.active !== false, updatedAt: a.updatedAt || 0, updatedBy: a.updatedBy || '',
+    })),
+  });
+}
+async function announcementUpsert(me, body) {
+  if (!can(me.tier, 'announce.write')) return json(403, { error: 'not permitted' });
+  const titleEn = str(body.titleEn);
+  const bodyEn = str(body.bodyEn);
+  if (!titleEn || !bodyEn) return json(400, { error: 'titleEn and bodyEn are required' });
+  const id = str(body.id) || `ann-${nowSec().toString(36)}`;
+  const row = await putRow('ANNOUNCE', id, {
+    titleEn, titleHi: str(body.titleHi), bodyEn, bodyHi: str(body.bodyHi),
+    level: ['info', 'alert'].includes(str(body.level)) ? str(body.level) : 'info',
+    active: body.active !== false,
+  }, me);
+  return json(200, row);
+}
+async function announcementDelete(me, id) {
+  if (!can(me.tier, 'announce.write')) return json(403, { error: 'not permitted' });
+  await delRow('ANNOUNCE', id);
+  return json(200, { id, deleted: true });
 }
 
 /* ------------------------- scanner (Phase 2) ---------------------------- */
@@ -505,7 +776,10 @@ exports.handler = async (event) => {
   const http = (event.requestContext && event.requestContext.http) || {};
   const path = http.path || event.rawPath || '';
   const method = http.method || 'GET';
-  const pp = event.pathParameters || {};
+  // Ids are parsed from the path (the route is a greedy /admin/{proxy+}, so
+  // named path-params aren't reliably present).
+  const after = (re) => { const m = path.match(re); return m ? decodeURIComponent(m[1]) : ''; };
+  const after2 = (re) => { const m = path.match(re); return m ? [decodeURIComponent(m[1]), decodeURIComponent(m[2])] : ['', '']; };
   let body = {};
   try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'bad json' }); }
 
@@ -528,9 +802,9 @@ exports.handler = async (event) => {
     // admin management
     if (method === 'GET' && path.endsWith('/admin/admins')) return adminsList(me);
     if (method === 'POST' && path.endsWith('/admin/admins')) return adminCreate(me, body);
-    if (method === 'POST' && /\/admin\/admins\/[^/]+\/password$/.test(path)) return adminSetPassword(me, CLEAN_USER(pp.username), body);
-    if (method === 'POST' && /\/admin\/admins\/[^/]+\/active$/.test(path)) return adminSetActive(me, CLEAN_USER(pp.username), body);
-    if (method === 'DELETE' && /\/admin\/admins\/[^/]+$/.test(path)) return adminDelete(me, CLEAN_USER(pp.username));
+    if (method === 'POST' && /\/admin\/admins\/[^/]+\/password$/.test(path)) return adminSetPassword(me, CLEAN_USER(after(/\/admin\/admins\/([^/]+)\/password$/)), body);
+    if (method === 'POST' && /\/admin\/admins\/[^/]+\/active$/.test(path)) return adminSetActive(me, CLEAN_USER(after(/\/admin\/admins\/([^/]+)\/active$/)), body);
+    if (method === 'DELETE' && /\/admin\/admins\/[^/]+$/.test(path)) return adminDelete(me, CLEAN_USER(after(/\/admin\/admins\/([^/]+)$/)));
 
     // scanner (any signed-in staff, incl. Coordinators)
     if (method === 'GET' && path.endsWith('/admin/checkpoints')) return checkpointsView();
@@ -543,7 +817,38 @@ exports.handler = async (event) => {
     if (method === 'POST' && path.endsWith('/admin/ask')) return ask(me, body);
     if (method === 'GET' && path.endsWith('/admin/faq')) return faqList();
     if (method === 'POST' && path.endsWith('/admin/faq')) return faqUpsert(me, body);
-    if (method === 'DELETE' && /\/admin\/faq\/[^/]+$/.test(path)) return faqDelete(me, decodeURIComponent(pp.id || ''));
+    if (method === 'DELETE' && /\/admin\/faq\/[^/]+$/.test(path)) return faqDelete(me, after(/\/admin\/faq\/([^/]+)$/));
+
+    // --- control plane: schedule ---
+    if (method === 'GET' && path.endsWith('/admin/schedule')) return scheduleList();
+    if (method === 'POST' && path.endsWith('/admin/schedule')) return scheduleUpsert(me, body);
+    if (method === 'DELETE' && /\/admin\/schedule\/[^/]+$/.test(path)) return scheduleDelete(me, after(/\/admin\/schedule\/([^/]+)$/));
+
+    // --- control plane: stalls ---
+    if (method === 'GET' && path.endsWith('/admin/stalls/list')) return stallsManageList();
+    if (method === 'POST' && path.endsWith('/admin/stalls')) return stallUpsert(me, body);
+    if (method === 'DELETE' && /\/admin\/stalls\/[^/]+$/.test(path)) return stallDelete(me, after(/\/admin\/stalls\/([^/]+)$/));
+
+    // --- control plane: rooms/lodging ---
+    if (method === 'GET' && path.endsWith('/admin/rooms')) return roomsList();
+    if (method === 'POST' && /\/admin\/rooms\/[^/]+\/allocate$/.test(path)) return roomAllocate(me, after(/\/admin\/rooms\/([^/]+)\/allocate$/), body);
+    if (method === 'POST' && path.endsWith('/admin/rooms')) return roomUpsert(me, body);
+    if (method === 'DELETE' && /\/admin\/rooms\/[^/]+$/.test(path)) return roomDelete(me, after(/\/admin\/rooms\/([^/]+)$/));
+
+    // --- control plane: volunteers + shifts ---
+    if (method === 'GET' && path.endsWith('/admin/volunteers/list')) return volunteersManageList();
+    if (method === 'POST' && /\/admin\/volunteers\/[^/]+\/shift$/.test(path)) return volunteerShiftAdd(me, after(/\/admin\/volunteers\/([^/]+)\/shift$/), body);
+    if (method === 'DELETE' && /\/admin\/volunteers\/[^/]+\/shift\/[^/]+$/.test(path)) { const [v, s] = after2(/\/admin\/volunteers\/([^/]+)\/shift\/([^/]+)$/); return volunteerShiftDelete(me, v, s); }
+    if (method === 'POST' && path.endsWith('/admin/volunteers')) return volunteerUpsert(me, body);
+    if (method === 'DELETE' && /\/admin\/volunteers\/[^/]+$/.test(path)) return volunteerDelete(me, after(/\/admin\/volunteers\/([^/]+)$/));
+
+    // --- control plane: incidents (triage/resolve) ---
+    if (method === 'POST' && /\/admin\/incidents\/[^/]+$/.test(path)) return incidentUpdate(me, after(/\/admin\/incidents\/([^/]+)$/), body);
+
+    // --- control plane: announcements ---
+    if (method === 'GET' && path.endsWith('/admin/announcements')) return announcementsList();
+    if (method === 'POST' && path.endsWith('/admin/announcements')) return announcementUpsert(me, body);
+    if (method === 'DELETE' && /\/admin\/announcements\/[^/]+$/.test(path)) return announcementDelete(me, after(/\/admin\/announcements\/([^/]+)$/));
 
     // analytics
     if (!can(me.tier, 'analytics.read')) return json(403, { error: 'not permitted' });
