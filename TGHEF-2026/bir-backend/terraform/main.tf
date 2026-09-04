@@ -222,7 +222,11 @@ resource "aws_iam_role_policy" "lambda" {
         "cognito-idp:AdminListGroupsForUser", "cognito-idp:AdminDisableUser",
         "cognito-idp:AdminEnableUser", "cognito-idp:AdminDeleteUser",
         "cognito-idp:ListUsers", "cognito-idp:ListUsersInGroup",
-      ], Resource = aws_cognito_user_pool.main.arn }
+      ], Resource = aws_cognito_user_pool.main.arn },
+      # Step 5 (M3): the admin authors the highlights catalog — write the regenerated
+      # catalog.json to the media bucket + invalidate the CDN so the app sees it.
+      { Effect = "Allow", Action = ["s3:PutObject", "s3:GetObject"], Resource = "${aws_s3_bucket.media.arn}/config/*" },
+      { Effect = "Allow", Action = ["cloudfront:CreateInvalidation"], Resource = "*" }
     ]
   })
 }
@@ -1096,12 +1100,15 @@ resource "aws_lambda_function" "admin" {
   timeout          = 30
   memory_size      = 256
   environment { variables = {
-    TABLE        = aws_dynamodb_table.main.name
-    JWT_PARAM    = aws_ssm_parameter.admin_jwt.name
-    SET_FLY_FN   = aws_lambda_function.set_fly_status.function_name
-    AI_FN        = aws_lambda_function.ai.function_name
-    USER_POOL_ID = aws_cognito_user_pool.main.id
-    JWKS_URL     = "https://${var.enable_cdn ? aws_cloudfront_distribution.media[0].domain_name : aws_s3_bucket.media.bucket_regional_domain_name}/.well-known/bir-passes/jwks.json"
+    TABLE         = aws_dynamodb_table.main.name
+    JWT_PARAM     = aws_ssm_parameter.admin_jwt.name
+    SET_FLY_FN    = aws_lambda_function.set_fly_status.function_name
+    AI_FN         = aws_lambda_function.ai.function_name
+    USER_POOL_ID  = aws_cognito_user_pool.main.id
+    MEDIA_BUCKET  = aws_s3_bucket.media.bucket
+    MEDIA_DIST_ID = var.enable_cdn ? aws_cloudfront_distribution.media[0].id : ""
+    CATALOG_KEY   = "config/highlights/catalog.json"
+    JWKS_URL      = "https://${var.enable_cdn ? aws_cloudfront_distribution.media[0].domain_name : aws_s3_bucket.media.bucket_regional_domain_name}/.well-known/bir-passes/jwks.json"
   } }
 }
 resource "aws_apigatewayv2_integration" "admin" {

@@ -9,7 +9,7 @@ const CAPS = {
   'faq.write': [1, 2, 3], 'pass.revoke': [1, 2], 'flystatus.set': [1, 2],
   'schedule.manage': [1, 2, 3], 'stalls.manage': [1, 2, 3], 'lodging.manage': [1, 2, 3],
   'volunteers.manage': [1, 2, 3], 'incidents.manage': [1, 2, 3, 4], 'announce.write': [1, 2],
-  'pricing.manage': [1, 2], 'orders.manage': [1, 2], 'users.manage': [1, 2],
+  'pricing.manage': [1, 2], 'orders.manage': [1, 2], 'users.manage': [1, 2], 'catalog.manage': [1, 2, 3],
 };
 const ROLE_GROUPS = ['partner', 'volunteer', 'organiser-lite', 'admin-hospitality', 'safety-officer'];
 const state = { token: null, admin: null };
@@ -86,7 +86,7 @@ function enterApp() {
   $('#who').textContent = `${state.admin.name || state.admin.username} · ${TIER_NAMES[state.admin.tier]}`;
   // hide panels the tier can't use (write-only panels stay hidden for read-only
   // tiers; every tier keeps the monitor + incident-triage views)
-  const GATE = { admins: 'admin.manage', schedule: 'schedule.manage', announce: 'announce.write', pricing: 'pricing.manage', orders: 'orders.manage', refunds: 'orders.manage', people: 'users.manage' };
+  const GATE = { admins: 'admin.manage', schedule: 'schedule.manage', announce: 'announce.write', pricing: 'pricing.manage', orders: 'orders.manage', refunds: 'orders.manage', people: 'users.manage', catalog: 'catalog.manage' };
   $$('.nav-item').forEach((b) => {
     const need = GATE[b.dataset.view];
     b.style.display = need && !cap(need) ? 'none' : '';
@@ -102,6 +102,7 @@ const TITLES = {
   schedule: 'Schedule', stalls: 'Stalls', lodging: 'Lodging', volunteers: 'Volunteers',
   fly: 'Fly-status', announce: 'Announcements', kb: 'Knowledge & AI',
   passes: 'Passes', orders: 'Orders', refunds: 'Refunds', pricing: 'Prices', people: 'People', admins: 'Admins',
+  catalog: 'Catalog & gates',
 };
 async function setView(name) {
   currentView = name;
@@ -216,8 +217,8 @@ VIEWS.stalls = async (v) => {
 };
 
 VIEWS.lodging = async (v) => {
-  const [agg, d] = await Promise.all([api('GET', '/admin/lodging'), api('GET', '/admin/rooms')]);
-  const rooms = d.items; const w = cap('lodging.manage');
+  const [agg, d, poolD] = await Promise.all([api('GET', '/admin/lodging'), api('GET', '/admin/rooms'), api('GET', '/admin/lodging/pool').catch(() => ({ items: [] }))]);
+  const rooms = d.items; const w = cap('lodging.manage'); const pool = poolD.items || [];
   const assigned = rooms.filter((r) => r.guestName).length;
   const checkedIn = rooms.filter((r) => r.checkedIn).length;
   v.innerHTML = `
@@ -237,6 +238,12 @@ VIEWS.lodging = async (v) => {
         <label class="field"><span>Status</span><select id="room-status"><option value="active">active</option><option value="held">held</option><option value="offline">offline</option></select></label>
       </div>
       <div class="row" style="margin-top:10px"><button class="btn primary" id="room-save">Save room</button><button class="btn ghost" id="room-clear">Clear</button></div>
+    </div>` : ''}
+    ${pool.length ? `<div class="card" style="margin-top:16px"><div class="section-title">Needs lodging (${pool.length}) · ${poolD.allocated || 0} allocated</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Registrant</th><th>Activity</th><th>Gender</th><th>Nights</th><th>Status</th></tr></thead><tbody>
+        ${pool.map((p) => `<tr><td>${esc(p.name || p.regId)}</td><td>${esc(p.itemId)}</td><td>${esc(p.gender || '—')}</td><td class="mono">${p.nights}</td><td>${p.allocated ? '<span class="pill good">allocated</span>' : '<span class="pill warn">waiting</span>'}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="hint">Allocate a room below and enter the registrant’s name — that room shows them as allocated here.</p>
     </div>` : ''}
     <div class="card" style="margin-top:16px"><div class="section-title">Room inventory (${rooms.length})</div>
       <div class="scroll-x"><table class="tbl"><thead><tr><th>Hotel</th><th>Room</th><th>Type</th><th>Cap</th><th>Status</th><th>Guest</th><th>Check-in</th>${w ? '<th>Actions</th>' : ''}</tr></thead><tbody>
@@ -715,6 +722,60 @@ VIEWS.people = async (v) => {
   }));
 };
 
+VIEWS.catalog = async (v) => {
+  if (!cap('catalog.manage')) { v.innerHTML = notPermitted('catalog'); return; }
+  const [c, g] = await Promise.all([api('GET', '/admin/catalog'), api('GET', '/admin/gates')]);
+  const items = c.items; const gates = g.items;
+  v.innerHTML = `
+    <div class="card mgr"><div class="section-title" id="cat-title">Add competition / activity</div>
+      <input id="cat-id" type="hidden">
+      <div class="grid g-2">
+        <label class="field"><span>Title (English)</span><input id="cat-title-en" placeholder="Miss Himachal"></label>
+        <label class="field"><span>Title (Hindi)</span><input id="cat-titleHi"></label>
+        <label class="field"><span>Category</span><input id="cat-categoryId" placeholder="competitions"></label>
+        <label class="field"><span>Venue</span><input id="cat-venue" placeholder="Chogan Ground"></label>
+        <label class="field"><span>Dates (comma-sep YYYY-MM-DD)</span><input id="cat-dates" placeholder="2026-11-22"></label>
+        <label class="field"><span>Reg mode</span><select id="cat-regMode"><option value="register">register</option><option value="waitlist">waitlist</option><option value="view-only">view-only</option></select></label>
+        <label class="field"><span>Fee (₹) — 0 = free</span><input id="cat-feeInr" type="number" min="0"></label>
+        <label class="field"><span>Capacity (0 = unlimited)</span><input id="cat-capacity" type="number" min="0"></label>
+        <label class="field row" style="align-items:center;gap:8px"><input id="cat-gateChecked" type="checkbox"><span>Gate-checked (needs entitlement)</span></label>
+      </div>
+      <label class="field"><span>Summary (English)</span><textarea id="cat-summary"></textarea></label>
+      <label class="field"><span>Rules (English)</span><textarea id="cat-rules"></textarea></label>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="cat-save">Save &amp; publish</button><button class="btn ghost" id="cat-clear">Clear</button></div>
+      <p class="hint">Saving regenerates the app’s catalog and invalidates the CDN — the item appears in the app with no deploy. Fee/gating also update server-side pricing.</p>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="section-title">Catalog (${items.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Title</th><th>Category</th><th>Fee</th><th>Gate</th><th>Cap</th><th>Actions</th></tr></thead><tbody>
+        ${items.length ? items.map((i) => `<tr data-id="${esc(i.id)}"><td>${esc(i.title)}<div class="hint mono">${esc(i.id)}</div></td><td>${esc(i.categoryId)}</td><td class="mono">${i.feeInr ? inr(i.feeInr) : '<span class="pill good">free</span>'}</td><td>${i.gateChecked ? '<span class="pill info">gated</span>' : '—'}</td><td class="mono">${i.capacity || '∞'}</td><td><div class="row wrap"><button class="btn ghost sm ed-edit">Edit</button><button class="btn ghost sm ed-del">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="6" class="empty">No catalog items.</td></tr>'}
+      </tbody></table></div>
+    </div>
+    <div class="card mgr" style="margin-top:16px"><div class="section-title">Gates / checkpoints</div>
+      <div class="row"><input id="gate-label" placeholder="North Gate" style="flex:1"><button class="btn primary" id="gate-add">Add gate</button></div>
+      <div class="row wrap" style="margin-top:12px">
+        ${gates.length ? gates.map((x) => `<span class="pill info" style="display:inline-flex;align-items:center;gap:6px">${esc(x.label)} <a class="gate-del" data-id="${esc(x.id)}" title="remove" style="cursor:pointer">✕</a></span>`).join(' ') : '<span class="hint">Using the built-in gates. Add one to take over.</span>'}
+      </div>
+    </div>`;
+  wireCrud(v, {
+    kind: 'cat', path: '/admin/catalog', view: 'catalog', items, noun: 'competition',
+    collect: () => {
+      const title = $('#cat-title-en').value.trim();
+      if (!title) { toast('Title is required', 'bad'); return null; }
+      return { title, titleHi: $('#cat-titleHi').value.trim(), categoryId: $('#cat-categoryId').value.trim() || 'competitions', venue: $('#cat-venue').value.trim(), dates: $('#cat-dates').value.trim(), regMode: $('#cat-regMode').value, feeInr: Number($('#cat-feeInr').value) || 0, capacity: Number($('#cat-capacity').value) || 0, gateChecked: $('#cat-gateChecked').checked, summary: $('#cat-summary').value.trim(), rules: $('#cat-rules').value.trim() };
+    },
+    fill: (i) => { $('#cat-id').value = i.id; $('#cat-title-en').value = i.title || ''; $('#cat-titleHi').value = i.titleHi || ''; $('#cat-categoryId').value = i.categoryId || ''; $('#cat-feeInr').value = i.feeInr || ''; $('#cat-capacity').value = i.capacity || ''; $('#cat-gateChecked').checked = !!i.gateChecked; $('#cat-regMode').value = i.regMode || 'register'; },
+    clear: () => { ['title-en', 'titleHi', 'categoryId', 'venue', 'dates', 'feeInr', 'capacity', 'summary', 'rules'].forEach((f) => $('#cat-' + f).value = ''); $('#cat-gateChecked').checked = false; $('#cat-regMode').value = 'register'; },
+  });
+  $('#gate-add').addEventListener('click', async () => {
+    const label = $('#gate-label').value.trim(); if (!label) return;
+    try { await api('POST', '/admin/gates', { label }); toast('Gate added', 'good'); setView('catalog'); } catch (e) { toast(e.message, 'bad'); }
+  });
+  $$('.gate-del', v).forEach((a) => a.addEventListener('click', async () => {
+    if (!confirm('Remove this gate?')) return;
+    try { await api('DELETE', '/admin/gates/' + encodeURIComponent(a.dataset.id)); toast('Gate removed', 'good'); setView('catalog'); } catch (e) { toast(e.message, 'bad'); }
+  }));
+};
+
 /* -------------------------------- helpers -------------------------------- */
 function kpiCard(k, val, sub = '', flyCls = '') {
   const color = { flying: 'good', hold: 'warn', closed: 'bad' }[flyCls];
@@ -735,7 +796,7 @@ const CAP_LABELS = {
   'pass.revoke': 'revoke passes', 'flystatus.set': 'fly-status', 'schedule.manage': 'schedule',
   'stalls.manage': 'stalls', 'lodging.manage': 'lodging', 'volunteers.manage': 'volunteers',
   'incidents.manage': 'incident triage', 'announce.write': 'announcements',
-  'pricing.manage': 'prices', 'orders.manage': 'orders & refunds', 'users.manage': 'app users & roles',
+  'pricing.manage': 'prices', 'orders.manage': 'orders & refunds', 'users.manage': 'app users & roles', 'catalog.manage': 'catalog & gates',
 };
 function tierCaps(t) {
   return Object.entries(CAPS).filter(([, ts]) => ts.includes(t)).map(([k]) => CAP_LABELS[k]).filter(Boolean).join(' · ');

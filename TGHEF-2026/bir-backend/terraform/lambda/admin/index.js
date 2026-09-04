@@ -25,13 +25,20 @@ const {
   AdminListGroupsForUserCommand, AdminDisableUserCommand, AdminEnableUserCommand,
   AdminDeleteUserCommand, ListUsersInGroupCommand, ListUsersCommand,
 } = require('@aws-sdk/client-cognito-identity-provider');
+const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { CloudFrontClient, CreateInvalidationCommand } = require('@aws-sdk/client-cloudfront');
 
 const ddb = new DynamoDBClient({});
 const ssm = new SSMClient({});
 const lambda = new LambdaClient({});
 const cognito = new CognitoIdentityProviderClient({});
+const s3 = new S3Client({});
+const cf = new CloudFrontClient({});
 const TABLE = process.env.TABLE;
 const USER_POOL_ID = process.env.USER_POOL_ID;
+const MEDIA_BUCKET = process.env.MEDIA_BUCKET;
+const MEDIA_DIST_ID = process.env.MEDIA_DIST_ID;
+const CATALOG_KEY = process.env.CATALOG_KEY || 'config/highlights/catalog.json';
 // The role groups the admin may assign (mirrors the Cognito user pool groups).
 const ROLE_GROUPS = ['visitor', 'partner', 'volunteer', 'organiser-lite', 'admin-hospitality', 'safety-officer'];
 const JWT_PARAM = process.env.JWT_PARAM;
@@ -63,6 +70,8 @@ const CAPS = {
   'wristband.manage': [1, 2, 3, 4],
   // identity — creating/grouping real Cognito app users is powerful
   'users.manage': [1, 2],
+  // content — author the highlights/competitions catalog + gates
+  'catalog.manage': [1, 2, 3],
 };
 const can = (tier, cap) => (CAPS[cap] || []).includes(tier);
 // A caller may create/manage a target at a strictly-lower tier; Superadmin (1)
@@ -663,6 +672,20 @@ async function roomDelete(me, id) {
   await delRow('ROOM', id);
   return json(200, { id, deleted: true });
 }
+// M4: the who-needs-lodging pool (REG.needsLodging) so allocation is driven from
+// real registrants, not free-text — allocate a pool registrant to a room and the
+// room's assignedTo carries the regId, marking them allocated here.
+async function lodgingPoolList(me) {
+  if (!can(me.tier, 'lodging.manage')) return json(403, { error: 'not permitted' });
+  const [regs, rooms] = await Promise.all([items('REG'), items('ROOM')]);
+  const allocated = new Set(rooms.map((r) => r.assignedTo).filter(Boolean));
+  const pool = regs.filter((r) => r.needsLodging).map((r) => ({
+    regId: r.sk, name: r.name || '', gender: r.gender || '',
+    itemId: regSubItem(r).item || '', nights: (r.nights || []).length,
+    allocated: allocated.has(r.sk),
+  }));
+  return json(200, { total: pool.length, allocated: pool.filter((p) => p.allocated).length, items: pool });
+}
 
 /* ---- volunteers + shifts ---------------------------------------------- */
 async function volunteersManageList() {
@@ -1044,6 +1067,94 @@ async function userDelete(me, username) {
   return json(200, { username, deleted: true });
 }
 
+/* ---- catalog authoring (highlights / competitions) --------------------- */
+// Items live in the CATALOG partition + drive ITEMCFG (fee/gate truth); each
+// write regenerates the CDN catalog.json the app reads (+ CDN invalidation), so
+// an organiser can add "Miss Himachal" from the console with no deploy.
+async function catalogList(me) {
+  if (!can(me.tier, 'catalog.manage')) return json(403, { error: 'not permitted' });
+  return json(200, {
+    items: (await items('CATALOG')).filter((r) => r.sk !== '__meta__').map((r) => {
+      let d = {}; try { d = JSON.parse(r.doc || '{}'); } catch { /* skip */ }
+      return { id: r.sk, categoryId: d.categoryId || '', title: d.title || '', titleHi: d.titleHi || '', feeInr: (d.fee && d.fee.amount) || 0, gateChecked: !!d.gateChecked, capacity: d.capacity || 0, regMode: d.regMode || 'register' };
+    }),
+  });
+}
+async function catalogUpsert(me, body) {
+  if (!can(me.tier, 'catalog.manage')) return json(403, { error: 'not permitted' });
+  const title = str(body.title);
+  const id = slug(str(body.id) || title);
+  if (!id || !title) return json(400, { error: 'title is required' });
+  const feeInr = num(body.feeInr != null ? body.feeInr : (body.fee && body.fee.amount));
+  const item = {
+    id, categoryId: str(body.categoryId) || 'competitions', title, titleHi: str(body.titleHi),
+    summary: str(body.summary), summaryHi: str(body.summaryHi), venue: str(body.venue),
+    dates: Array.isArray(body.dates) ? body.dates : (body.dates ? String(body.dates).split(',').map((s) => s.trim()).filter(Boolean) : []),
+    rules: str(body.rules), rulesHi: str(body.rulesHi), eligibility: str(body.eligibility),
+    fee: { amount: feeInr, currency: 'INR' }, capacity: num(body.capacity), remaining: num(body.remaining != null ? body.remaining : body.capacity),
+    regMode: str(body.regMode) || 'register', gateChecked: !!body.gateChecked,
+    formSchema: Array.isArray(body.formSchema) ? body.formSchema : [],
+    media: Array.isArray(body.media) ? body.media : [],
+  };
+  await ddb.send(new PutItemCommand({
+    TableName: TABLE, Item: {
+      pk: { S: 'CATALOG' }, sk: { S: id }, categoryId: { S: item.categoryId }, title: { S: title },
+      doc: { S: JSON.stringify(item) }, updatedAt: { N: String(nowSec()) }, updatedBy: { S: `admin:${me.sub}` },
+    },
+  }));
+  await putRow('ITEMCFG', id, { itemId: id, titleEn: title, titleHi: item.titleHi, feeInr, gateChecked: item.gateChecked, regMode: item.regMode, capacity: item.capacity }, me);
+  await regenerateCatalog();
+  await audit(me, 'catalog.upsert', id);
+  return json(200, { id, item });
+}
+async function catalogDelete(me, id) {
+  if (!can(me.tier, 'catalog.manage')) return json(403, { error: 'not permitted' });
+  await delRow('CATALOG', id);
+  await delRow('ITEMCFG', id);
+  await regenerateCatalog();
+  await audit(me, 'catalog.delete', id);
+  return json(200, { id, deleted: true });
+}
+async function regenerateCatalog() {
+  let categories = [];
+  try {
+    const cur = await s3.send(new GetObjectCommand({ Bucket: MEDIA_BUCKET, Key: CATALOG_KEY }));
+    categories = (JSON.parse(await cur.Body.transformToString()).categories) || [];
+  } catch { /* first run — no existing catalog to preserve categories from */ }
+  const catItems = (await items('CATALOG'))
+    .filter((r) => r.sk !== '__meta__')
+    .map((r) => { try { return JSON.parse(r.doc); } catch { return null; } })
+    .filter(Boolean);
+  const doc = JSON.stringify({ version: nowSec(), categories, items: catItems });
+  await s3.send(new PutObjectCommand({ Bucket: MEDIA_BUCKET, Key: CATALOG_KEY, Body: doc, ContentType: 'application/json', CacheControl: 'no-cache' }));
+  if (MEDIA_DIST_ID) {
+    await cf.send(new CreateInvalidationCommand({
+      DistributionId: MEDIA_DIST_ID,
+      InvalidationBatch: { CallerReference: `cat-${Date.now()}`, Paths: { Quantity: 1, Items: [`/${CATALOG_KEY}`] } },
+    })).catch(() => {});
+  }
+}
+
+/* ---- gates / checkpoints (were a hardcoded const) ---------------------- */
+async function gatesList(me) {
+  if (!can(me.tier, 'catalog.manage')) return json(403, { error: 'not permitted' });
+  const rows = await items('GATE');
+  return json(200, { items: rows.length ? rows.map((g) => ({ id: g.sk, label: g.label || g.sk, active: g.active !== false })) : GATES.map((g) => ({ id: g.id, label: g.label, active: true })) });
+}
+async function gateUpsert(me, body) {
+  if (!can(me.tier, 'catalog.manage')) return json(403, { error: 'not permitted' });
+  const label = str(body.label);
+  if (!label) return json(400, { error: 'label is required' });
+  const id = str(body.id) || `gate:${slug(label)}`;
+  const row = await putRow('GATE', id, { label, active: body.active !== false }, me);
+  return json(200, { id, ...row });
+}
+async function gateDelete(me, id) {
+  if (!can(me.tier, 'catalog.manage')) return json(403, { error: 'not permitted' });
+  await delRow('GATE', id);
+  return json(200, { id, deleted: true });
+}
+
 /* ------------------------- scanner (Phase 2) ---------------------------- */
 // Default gate checkpoints (any valid pass grants entry). Event checkpoints are
 // derived from what people actually register for (REG item ids).
@@ -1090,9 +1201,13 @@ async function verifyPass(token) {
 const passId = (jti) => 'PASS-' + String(jti || '').slice(-8).toUpperCase();
 
 async function checkpointsView() {
+  const gateRows = await items('GATE');
+  const gates = gateRows.length
+    ? gateRows.filter((g) => g.active !== false).map((g) => ({ type: 'gate', id: g.sk, label: g.label || g.sk }))
+    : GATES;
   const eventIds = [...new Set((await items('REG')).map((r) => regSubItem(r).item).filter(Boolean))];
   return json(200, {
-    checkpoints: [...GATES, ...eventIds.map((id) => ({ type: 'event', id: `item:${id}`, label: id }))],
+    checkpoints: [...gates, ...eventIds.map((id) => ({ type: 'event', id: `item:${id}`, label: id }))],
   });
 }
 /** Names-free: <sub> → [entitled event checkpoint ids]. Gates are universal, so
@@ -1217,6 +1332,7 @@ exports.handler = async (event) => {
     if (method === 'DELETE' && /\/admin\/stalls\/[^/]+$/.test(path)) return stallDelete(me, after(/\/admin\/stalls\/([^/]+)$/));
 
     // --- control plane: rooms/lodging ---
+    if (method === 'GET' && path.endsWith('/admin/lodging/pool')) return lodgingPoolList(me);
     if (method === 'GET' && path.endsWith('/admin/rooms')) return roomsList();
     if (method === 'POST' && /\/admin\/rooms\/[^/]+\/allocate$/.test(path)) return roomAllocate(me, after(/\/admin\/rooms\/([^/]+)\/allocate$/), body);
     if (method === 'POST' && path.endsWith('/admin/rooms')) return roomUpsert(me, body);
@@ -1243,6 +1359,14 @@ exports.handler = async (event) => {
     if (method === 'GET' && path.endsWith('/admin/tiers')) return tiersList();
     if (method === 'POST' && path.endsWith('/admin/tiers')) return tierUpsert(me, body);
     if (method === 'DELETE' && /\/admin\/tiers\/[^/]+$/.test(path)) return tierDelete(me, after(/\/admin\/tiers\/([^/]+)$/));
+
+    // --- catalog authoring + gates (catalog.manage) ---
+    if (method === 'GET' && path.endsWith('/admin/catalog')) return catalogList(me);
+    if (method === 'POST' && path.endsWith('/admin/catalog')) return catalogUpsert(me, body);
+    if (method === 'DELETE' && /\/admin\/catalog\/[^/]+$/.test(path)) return catalogDelete(me, after(/\/admin\/catalog\/([^/]+)$/));
+    if (method === 'GET' && path.endsWith('/admin/gates')) return gatesList(me);
+    if (method === 'POST' && path.endsWith('/admin/gates')) return gateUpsert(me, body);
+    if (method === 'DELETE' && /\/admin\/gates\/[^/]+$/.test(path)) return gateDelete(me, after(/\/admin\/gates\/([^/]+)$/));
 
     // --- identity: Cognito app users (users.manage) ---
     if (method === 'GET' && path.endsWith('/admin/users')) return usersList(me, (event.queryStringParameters || {}).group);
