@@ -252,7 +252,8 @@ export const SET_FLY_STATUS = /* GraphQL */ `
   mutation SetFlyStatus($input: SetFlyStatusInput!) {
     setFlyStatus(input: $input) {
       state
-      accepted
+      refundsAutoQueued
+      updatedAt
     }
   }
 `;
