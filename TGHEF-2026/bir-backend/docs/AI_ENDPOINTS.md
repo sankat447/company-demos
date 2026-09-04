@@ -68,3 +68,61 @@ Suggested starting points:
 The limit is **per user**, so total load also scales with concurrent visitors —
 keep an eye on the Anthropic account's own usage limits and set alerts there for
 the festival window.
+
+---
+
+## Knowledge base (RAG) — teaching the assistant
+
+`/ai/assistant` is **retrieval-augmented**: on every question it loads all
+curated FAQs plus the top-matching chunks of the rules/instructions you've
+dropped in the KB bucket, and answers **only** from that knowledge (deferring to
+the help desk when something isn't covered). Two ways to feed it:
+
+### 1. Drop documents in the KB bucket
+
+The private bucket is the `kb_bucket` Terraform output (e.g.
+`bir-2026-kb-…`). Upload Markdown, plain text, or JSON — an ingestion Lambda
+chunks each doc (by heading) into the knowledge base automatically:
+
+```bash
+KB=$(cd bir-backend/terraform && terraform output -raw kb_bucket)
+aws s3 cp festival-rules.md         "s3://$KB/kb/festival-rules.md"        --profile rhoai-demo
+aws s3 cp paragliding-safety.md     "s3://$KB/kb/paragliding-safety.md"    --profile rhoai-demo
+# Re-uploading the same key re-ingests it (old chunks replaced).
+# Removing the object removes its chunks:
+aws s3 rm "s3://$KB/kb/paragliding-safety.md" --profile rhoai-demo
+```
+
+- **Markdown is best** — `#`/`##` headings become chunk titles and split points.
+- JSON may be `{title,text}`, `{chunks:[…]}`, or an array of `{title,text}`.
+- **PDFs are not parsed** (that needs a bundled parser); convert to `.md`/`.txt`.
+- `var.ai_kb_top_k` (default **6**) controls how many chunks are retrieved per
+  question — raise it for a larger rules corpus.
+
+### 2. Live FAQ endpoints (adapt during the event)
+
+Organisers (`organiser-lite` / `safety-officer`) add or edit FAQs at runtime —
+**no deploy** — and they take effect on the very next question. FAQs are always
+loaded into the assistant's context and are preferred for direct matches.
+
+| Route | Purpose | Body / param |
+|---|---|---|
+| `POST /ai/faq` | Add or update an FAQ | `{ "id"?, "question", "answer" }` — omit `id` to create |
+| `GET /ai/faq` | List all FAQs | — |
+| `DELETE /ai/faq/{id}` | Remove an FAQ | path `id` |
+
+```bash
+curl -X POST "$REST/ai/faq" -H "Authorization: Bearer $ID_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Where is lost and found?","answer":"Main Help Desk by the Chogan Ground entrance, 8 AM–9 PM."}'
+```
+
+### Retrieval quality & the upgrade path
+
+Retrieval is **lexical** today (term-overlap scoring) — no extra API key, cheap,
+and ample for a festival-sized corpus. If the rules corpus grows large or you
+want paraphrase-robust recall, the `retrieve()` function in `lambda/ai/index.js`
+is the single seam to swap in **semantic embeddings** (e.g. Voyage AI / OpenAI
+embeddings + a vector index); everything else — ingestion, FAQ, prompts — stays
+the same. That upgrade needs a second owner-side key and is the only reason to
+revisit this.
