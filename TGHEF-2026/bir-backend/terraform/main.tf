@@ -637,6 +637,16 @@ resource "aws_ssm_parameter" "paytm_key" {
 resource "aws_apigatewayv2_api" "pay" {
   name          = "${local.name}-pay"
   protocol_type = "HTTP"
+
+  # Browser access for the admin console (bir-admin) + any web client. Bearer
+  # tokens travel in the Authorization header (no cookies), so a wildcard origin
+  # with no credentials is safe here.
+  cors_configuration {
+    allow_origins = ["*"]
+    allow_methods = ["GET", "POST", "DELETE", "OPTIONS"]
+    allow_headers = ["authorization", "content-type"]
+    max_age       = 300
+  }
 }
 
 # Cognito JWT authorizer — the app sends its ID token (aud = app client id).

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bir Festival — Ops Console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ===== Login ===== -->
+<section id="login" class="login">
+  <div class="login-card">
+    <div class="brand">
+      <span class="mark">🪂</span>
+      <div>
+        <div class="brand-name">Bir Festival 2026</div>
+        <div class="brand-sub">Operations Console</div>
+      </div>
+    </div>
+    <p class="login-lede">Sign in with your organiser phone. You'll get a one-time code by SMS (test numbers use <span class="mono">000000</span>).</p>
+    <form id="phone-form" class="stack" autocomplete="off">
+      <label class="field">
+        <span>Phone number</span>
+        <input id="phone" type="tel" inputmode="tel" placeholder="+9111000000007" required>
+      </label>
+      <button class="btn primary" type="submit" id="send-otp">Send code</button>
+    </form>
+    <form id="otp-form" class="stack hidden" autocomplete="off">
+      <label class="field">
+        <span>One-time code</span>
+        <input id="otp" type="text" inputmode="numeric" maxlength="6" placeholder="000000" required>
+      </label>
+      <div class="row">
+        <button class="btn ghost" type="button" id="otp-back">Back</button>
+        <button class="btn primary" type="submit" id="verify-otp">Verify &amp; enter</button>
+      </div>
+    </form>
+    <p id="login-error" class="error hidden"></p>
+  </div>
+  <footer class="login-foot mono">Bir Festival 2026 · 21–23 November · Bir–Billing</footer>
+</section>
+
+<!-- ===== App shell ===== -->
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand small">
+      <span class="mark">🪂</span>
+      <div>
+        <div class="brand-name">Bir Ops</div>
+        <div class="brand-sub" id="who">—</div>
+      </div>
+    </div>
+    <nav id="nav" class="nav">
+      <button class="nav-item" data-view="overview"><span class="ni">◆</span> Overview</button>
+      <button class="nav-item" data-view="fly"><span class="ni">▲</span> Fly-status</button>
+      <button class="nav-item" data-view="kb"><span class="ni">✦</span> Knowledge &amp; AI</button>
+      <button class="nav-item" data-view="passes"><span class="ni">⛔</span> Passes</button>
+      <button class="nav-item" data-view="reference"><span class="ni">▤</span> Reference</button>
+    </nav>
+    <div class="sidebar-foot">
+      <button class="btn ghost full" id="signout">Sign out</button>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div id="crumb" class="crumb">Overview</div>
+      <div class="topbar-right">
+        <span id="fly-chip" class="chip">fly-status —</span>
+        <button class="btn ghost sm" id="refresh">Refresh</button>
+      </div>
+    </header>
+    <div id="view" class="view"></div>
+  </main>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
