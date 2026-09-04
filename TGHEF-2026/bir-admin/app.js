@@ -9,6 +9,7 @@ const CAPS = {
   'faq.write': [1, 2, 3], 'pass.revoke': [1, 2], 'flystatus.set': [1, 2],
   'schedule.manage': [1, 2, 3], 'stalls.manage': [1, 2, 3], 'lodging.manage': [1, 2, 3],
   'volunteers.manage': [1, 2, 3], 'incidents.manage': [1, 2, 3, 4], 'announce.write': [1, 2],
+  'pricing.manage': [1, 2], 'orders.manage': [1, 2],
 };
 const state = { token: null, admin: null };
 
@@ -84,7 +85,7 @@ function enterApp() {
   $('#who').textContent = `${state.admin.name || state.admin.username} · ${TIER_NAMES[state.admin.tier]}`;
   // hide panels the tier can't use (write-only panels stay hidden for read-only
   // tiers; every tier keeps the monitor + incident-triage views)
-  const GATE = { admins: 'admin.manage', schedule: 'schedule.manage', announce: 'announce.write' };
+  const GATE = { admins: 'admin.manage', schedule: 'schedule.manage', announce: 'announce.write', pricing: 'pricing.manage', orders: 'orders.manage', refunds: 'orders.manage' };
   $$('.nav-item').forEach((b) => {
     const need = GATE[b.dataset.view];
     b.style.display = need && !cap(need) ? 'none' : '';
@@ -99,7 +100,7 @@ const TITLES = {
   overview: 'Overview', visitors: 'Visitors & tickets', incidents: 'Incidents',
   schedule: 'Schedule', stalls: 'Stalls', lodging: 'Lodging', volunteers: 'Volunteers',
   fly: 'Fly-status', announce: 'Announcements', kb: 'Knowledge & AI',
-  passes: 'Passes', admins: 'Admins',
+  passes: 'Passes', orders: 'Orders', refunds: 'Refunds', pricing: 'Prices', admins: 'Admins',
 };
 async function setView(name) {
   currentView = name;
@@ -540,6 +541,121 @@ VIEWS.admins = async (v) => {
   wireAdminRows(v);
 };
 
+VIEWS.orders = async (v) => {
+  if (!cap('orders.manage')) { v.innerHTML = notPermitted('orders'); return; }
+  const d = await api('GET', '/admin/orders'); const items = d.items;
+  const shortId = (s) => (s.length > 18 ? s.slice(0, 18) + '…' : s);
+  v.innerHTML = `
+    <div class="grid g-3">
+      ${kpiCard('Orders', items.length, `${d.confirmed} confirmed`)}
+      ${kpiCard('Revenue (confirmed)', inr(d.revenueInr), 'gross, before refunds')}
+      ${kpiCard('Adjusted', items.filter((o) => ['CANCELLED', 'COMP'].includes(o.status)).length, 'cancelled / comped')}
+    </div>
+    <div class="card" style="margin-top:16px"><div class="section-title">Orders (${items.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Order</th><th>Buyer</th><th>Item</th><th>Amount</th><th>Status</th><th>When</th><th>Actions</th></tr></thead><tbody>
+        ${items.length ? items.map((o) => `<tr data-id="${esc(o.orderId)}"><td class="mono" title="${esc(o.orderId)}">${esc(shortId(o.orderId))}</td><td class="mono">${esc((o.sub || '').slice(0, 8))}</td><td>${esc(o.kind)}·${esc(o.itemId)}</td><td class="mono">${inr(o.amountInr)}</td><td><span class="pill ${o.status === 'CONFIRMED' ? 'good' : o.status === 'PENDING' ? 'warn' : 'bad'}">${esc(o.status)}</span></td><td class="mono">${fmtTime(o.createdAt)}</td><td><div class="row wrap">${o.status === 'CONFIRMED' ? '<button class="btn ghost sm ord-refund">Request refund</button><button class="btn ghost sm ord-cancel">Cancel</button>' : '<span class="pill">—</span>'}</div></td></tr>`).join('') : '<tr><td colspan="7" class="empty">No orders yet.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+  $$('.ord-refund', v).forEach((b) => b.addEventListener('click', async () => {
+    const id = b.closest('tr').dataset.id;
+    const reason = prompt('Refund reason (shown in the refund queue):', 'flight grounded'); if (reason === null) return;
+    try { await api('POST', `/admin/orders/${encodeURIComponent(id)}/refund-request`, { reason }); toast('Refund requested — see Refunds', 'good'); setView('refunds'); }
+    catch (e) { toast(e.message, 'bad'); }
+  }));
+  $$('.ord-cancel', v).forEach((b) => b.addEventListener('click', async () => {
+    const id = b.closest('tr').dataset.id;
+    if (!confirm('Mark this order CANCELLED?')) return;
+    try { await api('POST', `/admin/orders/${encodeURIComponent(id)}/status`, { status: 'CANCELLED' }); toast('Order cancelled', 'good'); setView('orders'); }
+    catch (e) { toast(e.message, 'bad'); }
+  }));
+};
+
+VIEWS.refunds = async (v) => {
+  if (!cap('orders.manage')) { v.innerHTML = notPermitted('refunds'); return; }
+  const d = await api('GET', '/admin/refunds'); const items = d.items;
+  const shortId = (s) => (s.length > 16 ? s.slice(0, 16) + '…' : s);
+  v.innerHTML = `
+    <div class="grid g-3">
+      ${kpiCard('Pending refunds', d.pending, 'to process')}
+      ${kpiCard('Pending amount', inr(d.pendingInr), 'owed to buyers')}
+      ${kpiCard('Total requests', items.length, 'all time')}
+    </div>
+    <div class="card mgr" style="margin-top:16px"><div class="section-title">How refunds work</div>
+      <p class="hint">Refunds are processed <b>manually</b> through Paytm / your settlement process — this queue is the record. Raise a request from <b>Orders</b>, refund out-of-band, then mark it done here with the Paytm reference.</p>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="section-title">Refund queue (${items.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Order</th><th>Buyer</th><th>Amount</th><th>Reason</th><th>Status</th><th>Requested</th><th>Ref</th><th>Actions</th></tr></thead><tbody>
+        ${items.length ? items.map((r) => `<tr data-id="${esc(r.orderId)}"><td class="mono" title="${esc(r.orderId)}">${esc(shortId(r.orderId))}</td><td class="mono">${esc((r.sub || '').slice(0, 8))}</td><td class="mono">${inr(r.amountInr)}</td><td>${esc(r.reason)}</td><td><span class="pill ${r.status === 'PROCESSED' ? 'good' : 'warn'}">${esc(r.status)}</span></td><td class="mono">${fmtTime(r.requestedAt)}</td><td class="mono">${esc(r.processedRef || '—')}</td><td>${r.status === 'PROCESSED' ? '<span class="pill good">done</span>' : '<button class="btn ghost sm rf-proc">Mark processed</button>'}</td></tr>`).join('') : '<tr><td colspan="8" class="empty">No refund requests.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+  $$('.rf-proc', v).forEach((b) => b.addEventListener('click', async () => {
+    const id = b.closest('tr').dataset.id;
+    const reference = prompt('Paytm / settlement refund reference:', ''); if (reference === null) return;
+    const note = prompt('Note (optional):', '') || '';
+    try { await api('POST', `/admin/refunds/${encodeURIComponent(id)}/process`, { reference, note }); toast('Refund marked processed', 'good'); setView('refunds'); }
+    catch (e) { toast(e.message, 'bad'); }
+  }));
+};
+
+VIEWS.pricing = async (v) => {
+  if (!cap('pricing.manage')) { v.innerHTML = notPermitted('prices'); return; }
+  const [it, ti] = await Promise.all([api('GET', '/admin/items'), api('GET', '/admin/tiers')]);
+  const items = it.items; const tiers = ti.items;
+  v.innerHTML = `
+    <div class="card mgr"><div class="section-title" id="tier-title">Add ticket tier</div>
+      <input id="tier-id" type="hidden">
+      <div class="grid g-2">
+        <label class="field"><span>Id</span><input id="tier-idf" placeholder="day-pass"></label>
+        <label class="field"><span>Title (English)</span><input id="tier-titleEn" placeholder="Day pass"></label>
+        <label class="field"><span>Title (Hindi)</span><input id="tier-titleHi"></label>
+        <label class="field"><span>Price (₹)</span><input id="tier-priceInr" type="number" min="0"></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="tier-save">Save tier</button><button class="btn ghost" id="tier-clear">Clear</button></div>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="section-title">Ticket tiers (${tiers.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Id</th><th>Title</th><th>Price</th><th>Actions</th></tr></thead><tbody>
+        ${tiers.length ? tiers.map((t) => `<tr data-id="${esc(t.id)}"><td class="mono">${esc(t.id)}</td><td>${esc(t.titleEn)}</td><td class="mono">${inr(t.priceInr)}</td><td><div class="row wrap"><button class="btn ghost sm ed-edit">Edit</button><button class="btn ghost sm ed-del">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="4" class="empty">No ticket tiers.</td></tr>'}
+      </tbody></table></div>
+    </div>
+    <div class="card mgr" style="margin-top:16px"><div class="section-title" id="itc-title">Add / edit activity fee</div>
+      <input id="itc-id" type="hidden">
+      <div class="grid g-2">
+        <label class="field"><span>Item id</span><input id="itc-itemId" placeholder="paragliding"></label>
+        <label class="field"><span>Title (English)</span><input id="itc-titleEn"></label>
+        <label class="field"><span>Fee (₹) — 0 = free</span><input id="itc-feeInr" type="number" min="0"></label>
+        <label class="field"><span>Capacity (0 = unlimited)</span><input id="itc-capacity" type="number" min="0"></label>
+        <label class="field row" style="align-items:center;gap:8px"><input id="itc-gateChecked" type="checkbox"><span>Gate-checked</span></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="itc-save">Save item</button><button class="btn ghost" id="itc-clear">Clear</button></div>
+      <p class="hint">Fee is server-authoritative: a paid activity (fee &gt; 0) can only be entered after payment; fee 0 makes it free-to-register.</p>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="section-title">Activities (${items.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Item</th><th>Fee</th><th>Gate</th><th>Cap</th><th>Actions</th></tr></thead><tbody>
+        ${items.length ? items.map((i) => `<tr data-id="${esc(i.id)}"><td>${esc(i.titleEn || i.id)}<div class="hint mono">${esc(i.id)}</div></td><td class="mono">${i.feeInr ? inr(i.feeInr) : '<span class="pill good">free</span>'}</td><td>${i.gateChecked ? '<span class="pill info">gated</span>' : '—'}</td><td class="mono">${i.capacity || '∞'}</td><td><div class="row wrap"><button class="btn ghost sm ed-edit">Edit</button></div></td></tr>`).join('') : '<tr><td colspan="5" class="empty">No activities. Run seed-itemcfg.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+  wireCrud(v, {
+    kind: 'tier', path: '/admin/tiers', view: 'pricing', items: tiers, noun: 'tier',
+    collect: () => {
+      const id = $('#tier-idf').value.trim(); const titleEn = $('#tier-titleEn').value.trim();
+      if (!id && !titleEn) { toast('Id or title required', 'bad'); return null; }
+      return { id: id || undefined, titleEn, titleHi: $('#tier-titleHi').value.trim(), priceInr: Number($('#tier-priceInr').value) || 0 };
+    },
+    fill: (t) => { $('#tier-idf').value = t.id || ''; $('#tier-titleEn').value = t.titleEn || ''; $('#tier-titleHi').value = t.titleHi || ''; $('#tier-priceInr').value = t.priceInr || ''; },
+    clear: () => { ['idf', 'titleEn', 'titleHi', 'priceInr'].forEach((f) => $('#tier-' + f).value = ''); },
+  });
+  wireCrud(v, {
+    kind: 'itc', path: '/admin/items', view: 'pricing', items, noun: 'activity',
+    collect: () => {
+      const itemId = $('#itc-itemId').value.trim();
+      if (!itemId) { toast('Item id is required', 'bad'); return null; }
+      return { itemId, titleEn: $('#itc-titleEn').value.trim(), feeInr: Number($('#itc-feeInr').value) || 0, capacity: Number($('#itc-capacity').value) || 0, gateChecked: $('#itc-gateChecked').checked };
+    },
+    fill: (i) => { $('#itc-itemId').value = i.id || ''; $('#itc-titleEn').value = i.titleEn || ''; $('#itc-feeInr').value = i.feeInr || ''; $('#itc-capacity').value = i.capacity || ''; $('#itc-gateChecked').checked = !!i.gateChecked; },
+    clear: () => { ['itemId', 'titleEn', 'feeInr', 'capacity'].forEach((f) => $('#itc-' + f).value = ''); $('#itc-gateChecked').checked = false; },
+  });
+};
+
 /* -------------------------------- helpers -------------------------------- */
 function kpiCard(k, val, sub = '', flyCls = '') {
   const color = { flying: 'good', hold: 'warn', closed: 'bad' }[flyCls];
@@ -560,6 +676,7 @@ const CAP_LABELS = {
   'pass.revoke': 'revoke passes', 'flystatus.set': 'fly-status', 'schedule.manage': 'schedule',
   'stalls.manage': 'stalls', 'lodging.manage': 'lodging', 'volunteers.manage': 'volunteers',
   'incidents.manage': 'incident triage', 'announce.write': 'announcements',
+  'pricing.manage': 'prices', 'orders.manage': 'orders & refunds',
 };
 function tierCaps(t) {
   return Object.entries(CAPS).filter(([, ts]) => ts.includes(t)).map(([k]) => CAP_LABELS[k]).filter(Boolean).join(' · ');
