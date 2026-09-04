@@ -12,10 +12,16 @@
  */
 'use strict';
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
+const { DynamoDBClient, UpdateItemCommand } = require('@aws-sdk/client-dynamodb');
 
 const ssm = new SSMClient({});
+const ddb = new DynamoDBClient({});
 const KEY_PARAM = process.env.ANTHROPIC_KEY_PARAM;
 const MODEL = process.env.ANTHROPIC_MODEL;
+const TABLE = process.env.TABLE;
+// Per-user cost guard: max AI requests per user per minute. 0 disables it.
+// Raise var.ai_rate_limit_per_min to scale up (see docs/AI_ENDPOINTS.md).
+const RATE_PER_MIN = parseInt(process.env.AI_RATE_PER_MIN || '0', 10);
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
 
@@ -57,6 +63,35 @@ function json(statusCode, obj) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) };
 }
 
+/**
+ * Per-user cost/abuse guard. Atomically increments a per-minute counter row
+ * (AIRL#<sub> / <minute-bucket>, TTL-expired) and returns false once the user
+ * passes RATE_PER_MIN calls in the current minute. Fail-open: if the counter
+ * write errors we allow the call rather than block a paying visitor.
+ */
+async function withinRate(sub) {
+  if (!RATE_PER_MIN || RATE_PER_MIN <= 0) return true; // disabled
+  const nowSec = Math.floor(Date.now() / 1000);
+  const bucket = Math.floor(nowSec / 60);
+  try {
+    const out = await ddb.send(
+      new UpdateItemCommand({
+        TableName: TABLE,
+        Key: { pk: { S: `AIRL#${sub}` }, sk: { S: String(bucket) } },
+        UpdateExpression: 'ADD #n :one SET #ttl = :ttl',
+        ExpressionAttributeNames: { '#n': 'count', '#ttl': 'ttl' },
+        ExpressionAttributeValues: { ':one': { N: '1' }, ':ttl': { N: String(nowSec + 120) } },
+        ReturnValues: 'UPDATED_NEW',
+      }),
+    );
+    return parseInt(out.Attributes.count.N, 10) <= RATE_PER_MIN;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('rate-limit counter failed (fail-open):', (e && e.message) || e);
+    return true;
+  }
+}
+
 async function converse(system, text, maxTokens) {
   const key = await apiKey();
   const res = await fetch(API_URL, {
@@ -95,6 +130,13 @@ exports.handler = async (event) => {
       event.requestContext.authorizer.jwt.claims) ||
     {};
   if (!claims.sub) return json(401, { error: 'unauthenticated' });
+
+  if (!(await withinRate(claims.sub))) {
+    return json(429, {
+      error: 'rate limited',
+      detail: `Up to ${RATE_PER_MIN} AI requests per minute. Please try again shortly.`,
+    });
+  }
 
   let body = {};
   try {

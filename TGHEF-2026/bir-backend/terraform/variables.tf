@@ -68,6 +68,12 @@ variable "anthropic_model" {
   default     = "claude-haiku-4-5-20251001"
 }
 
+variable "ai_rate_limit_per_min" {
+  description = "B8: max AI requests per user per minute (per-user cost/abuse guard on the /ai/* Lambda). Raise it to scale up for a busier festival; 0 disables the limit. See docs/AI_ENDPOINTS.md."
+  type        = number
+  default     = 15
+}
+
 variable "fcm_sender_id" {
   description = "Firebase Cloud Messaging sender id for Android push. Owner-provided secret; REPLACE until a real Firebase project is wired to the Pinpoint GCM channel."
   type        = string

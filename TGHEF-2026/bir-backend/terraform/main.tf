@@ -97,6 +97,13 @@ resource "aws_dynamodb_table" "main" {
   stream_enabled   = true
   stream_view_type = "NEW_AND_OLD_IMAGES"
 
+  # Self-expiring rows (AI rate-limit counters, and any future ephemeral rows
+  # that set a `ttl` epoch-seconds attribute). Rows without `ttl` are unaffected.
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
   point_in_time_recovery { enabled = true }
 }
 
@@ -746,7 +753,7 @@ resource "aws_lambda_function" "ai" {
   source_code_hash = data.archive_file.ai.output_base64sha256
   timeout          = 30
   memory_size      = 256
-  environment { variables = { ANTHROPIC_MODEL = var.anthropic_model, ANTHROPIC_KEY_PARAM = aws_ssm_parameter.anthropic_key.name } }
+  environment { variables = { ANTHROPIC_MODEL = var.anthropic_model, ANTHROPIC_KEY_PARAM = aws_ssm_parameter.anthropic_key.name, TABLE = aws_dynamodb_table.main.name, AI_RATE_PER_MIN = tostring(var.ai_rate_limit_per_min) } }
 }
 resource "aws_apigatewayv2_integration" "ai" {
   api_id                 = aws_apigatewayv2_api.pay.id
