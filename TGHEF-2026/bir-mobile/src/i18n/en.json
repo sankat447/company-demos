@@ -516,7 +516,13 @@
     "note": "Note",
     "allClear": "No incidents — all clear.",
     "tab_schedule": "Schedule",
-    "tab_announce": "Notices"
+    "tab_announce": "Notices",
+    "tab_refunds": "Refunds",
+    "refundsPending": "Pending refunds",
+    "refundsTotal": "Total requests",
+    "markProcessed": "Mark processed",
+    "noRefunds": "No refund requests.",
+    "refundRef": "Paytm / settlement reference"
   },
   "staffManage": {
     "manage": "Manage",

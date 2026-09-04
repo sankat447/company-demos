@@ -10,6 +10,7 @@ const CAPS = {
   'schedule.manage': [1, 2, 3], 'stalls.manage': [1, 2, 3], 'lodging.manage': [1, 2, 3],
   'volunteers.manage': [1, 2, 3], 'incidents.manage': [1, 2, 3, 4], 'announce.write': [1, 2],
   'pricing.manage': [1, 2], 'orders.manage': [1, 2], 'users.manage': [1, 2], 'catalog.manage': [1, 2, 3],
+  'wristband.manage': [1, 2, 3, 4], 'audit.read': [1, 2],
 };
 const ROLE_GROUPS = ['partner', 'volunteer', 'organiser-lite', 'admin-hospitality', 'safety-officer'];
 const state = { token: null, admin: null };
@@ -86,7 +87,7 @@ function enterApp() {
   $('#who').textContent = `${state.admin.name || state.admin.username} · ${TIER_NAMES[state.admin.tier]}`;
   // hide panels the tier can't use (write-only panels stay hidden for read-only
   // tiers; every tier keeps the monitor + incident-triage views)
-  const GATE = { admins: 'admin.manage', schedule: 'schedule.manage', announce: 'announce.write', pricing: 'pricing.manage', orders: 'orders.manage', refunds: 'orders.manage', people: 'users.manage', catalog: 'catalog.manage' };
+  const GATE = { admins: 'admin.manage', schedule: 'schedule.manage', announce: 'announce.write', pricing: 'pricing.manage', orders: 'orders.manage', refunds: 'orders.manage', people: 'users.manage', catalog: 'catalog.manage', wristbands: 'wristband.manage', audit: 'audit.read' };
   $$('.nav-item').forEach((b) => {
     const need = GATE[b.dataset.view];
     b.style.display = need && !cap(need) ? 'none' : '';
@@ -102,7 +103,7 @@ const TITLES = {
   schedule: 'Schedule', stalls: 'Stalls', lodging: 'Lodging', volunteers: 'Volunteers',
   fly: 'Fly-status', announce: 'Announcements', kb: 'Knowledge & AI',
   passes: 'Passes', orders: 'Orders', refunds: 'Refunds', pricing: 'Prices', people: 'People', admins: 'Admins',
-  catalog: 'Catalog & gates',
+  catalog: 'Catalog & gates', wristbands: 'Wristbands', audit: 'Audit log',
 };
 async function setView(name) {
   currentView = name;
@@ -776,6 +777,59 @@ VIEWS.catalog = async (v) => {
   }));
 };
 
+VIEWS.wristbands = async (v) => {
+  if (!cap('wristband.manage')) { v.innerHTML = notPermitted('wristbands'); return; }
+  const d = await api('GET', '/admin/wristbands');
+  const items = d.items;
+  v.innerHTML = `
+    <div class="card mgr"><div class="section-title" id="wb-title">Register a wristband</div>
+      <input id="wb-id" type="hidden">
+      <div class="grid g-2">
+        <label class="field"><span>Band id</span><input id="wb-bandId" placeholder="KID-042"></label>
+        <label class="field"><span>Child name</span><input id="wb-childName"></label>
+        <label class="field"><span>Age band</span><input id="wb-ageBand" placeholder="child"></label>
+        <label class="field"><span>Guardian name</span><input id="wb-guardianName"></label>
+        <label class="field"><span>Guardian phone</span><input id="wb-guardianPhone" placeholder="+9198…"></label>
+        <label class="field"><span>Zone</span><input id="wb-zone"></label>
+      </div>
+      <label class="field"><span>Notes</span><textarea id="wb-notes"></textarea></label>
+      <div class="row" style="margin-top:10px"><button class="btn primary" id="wb-save">Save band</button><button class="btn ghost" id="wb-clear">Clear</button></div>
+      <p class="hint">Staff look these up offline by band id at the gate to reach a lost child’s guardian.</p>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="section-title">Registered bands (${items.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Band</th><th>Child</th><th>Guardian</th><th>Phone</th><th>Zone</th><th>Actions</th></tr></thead><tbody>
+        ${items.length ? items.map((b) => `<tr data-id="${esc(b.bandId)}"><td class="mono">${esc(b.bandId)}</td><td>${esc(b.childName)}${b.ageBand ? ` · ${esc(b.ageBand)}` : ''}</td><td>${esc(b.guardianName || '—')}</td><td class="mono">${esc(b.guardianPhone)}</td><td>${esc(b.zone || '')}</td><td><div class="row wrap"><button class="btn ghost sm ed-edit">Edit</button><button class="btn ghost sm ed-del">Delete</button></div></td></tr>`).join('') : '<tr><td colspan="6" class="empty">No wristbands registered.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+  wireCrud(v, {
+    kind: 'wb', path: '/admin/wristbands', view: 'wristbands', items: items.map((b) => ({ ...b, id: b.bandId })), noun: 'wristband',
+    collect: () => {
+      const bandId = $('#wb-bandId').value.trim(); const childName = $('#wb-childName').value.trim(); const guardianPhone = $('#wb-guardianPhone').value.trim();
+      if (!bandId || !childName || !guardianPhone) { toast('Band id, child name and guardian phone are required', 'bad'); return null; }
+      return { bandId, childName, ageBand: $('#wb-ageBand').value.trim(), guardianName: $('#wb-guardianName').value.trim(), guardianPhone, zone: $('#wb-zone').value.trim(), notes: $('#wb-notes').value.trim() };
+    },
+    fill: (b) => { $('#wb-bandId').value = b.bandId || ''; $('#wb-childName').value = b.childName || ''; $('#wb-ageBand').value = b.ageBand || ''; $('#wb-guardianName').value = b.guardianName || ''; $('#wb-guardianPhone').value = b.guardianPhone || ''; $('#wb-zone').value = b.zone || ''; $('#wb-notes').value = b.notes || ''; },
+    clear: () => { ['bandId', 'childName', 'ageBand', 'guardianName', 'guardianPhone', 'zone', 'notes'].forEach((f) => $('#wb-' + f).value = ''); },
+  });
+};
+
+VIEWS.audit = async (v) => {
+  if (!cap('audit.read')) { v.innerHTML = notPermitted('audit'); return; }
+  const d = await api('GET', '/admin/audit'); const rows = d.items;
+  v.innerHTML = `
+    <div class="grid g-3">
+      ${kpiCard('Audit entries', rows.length, 'sensitive actions')}
+      ${kpiCard('Actors', new Set(rows.map((r) => r.actor)).size, 'distinct admins')}
+      ${kpiCard('Latest', rows[0] ? fmtTime(rows[0].ts) : '—', rows[0] ? esc(rows[0].action) : 'none yet')}
+    </div>
+    <div class="card" style="margin-top:16px"><div class="section-title">Audit log (${rows.length})</div>
+      <p class="hint" style="margin-bottom:10px">Who did what, when — pass revocations, fly-status calls, order/refund actions, admin &amp; user governance. Newest first.</p>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>When</th><th>Actor</th><th>Tier</th><th>Action</th><th>Detail</th></tr></thead><tbody>
+        ${rows.length ? rows.map((r) => `<tr><td class="mono">${fmtTime(r.ts)}</td><td class="mono">${esc(r.actor)}</td><td><span class="tier-badge t${r.tier}">T${r.tier}</span></td><td><span class="pill info">${esc(r.action)}</span></td><td>${esc(r.detail || '')}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No audit entries yet.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+};
+
 /* -------------------------------- helpers -------------------------------- */
 function kpiCard(k, val, sub = '', flyCls = '') {
   const color = { flying: 'good', hold: 'warn', closed: 'bad' }[flyCls];
@@ -797,6 +851,7 @@ const CAP_LABELS = {
   'stalls.manage': 'stalls', 'lodging.manage': 'lodging', 'volunteers.manage': 'volunteers',
   'incidents.manage': 'incident triage', 'announce.write': 'announcements',
   'pricing.manage': 'prices', 'orders.manage': 'orders & refunds', 'users.manage': 'app users & roles', 'catalog.manage': 'catalog & gates',
+  'wristband.manage': 'wristbands', 'audit.read': 'audit log',
 };
 function tierCaps(t) {
   return Object.entries(CAPS).filter(([, ts]) => ts.includes(t)).map(([k]) => CAP_LABELS[k]).filter(Boolean).join(' · ');

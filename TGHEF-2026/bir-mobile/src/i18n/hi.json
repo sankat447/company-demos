@@ -516,7 +516,13 @@
     "note": "टिप्पणी",
     "allClear": "कोई घटना नहीं — सब ठीक है।",
     "tab_schedule": "कार्यक्रम",
-    "tab_announce": "सूचनाएँ"
+    "tab_announce": "सूचनाएँ",
+    "tab_refunds": "रिफंड",
+    "refundsPending": "लंबित रिफंड",
+    "refundsTotal": "कुल अनुरोध",
+    "markProcessed": "संसाधित चिह्नित करें",
+    "noRefunds": "कोई रिफंड अनुरोध नहीं।",
+    "refundRef": "Paytm / निपटान संदर्भ"
   },
   "staffManage": {
     "manage": "प्रबंधन",

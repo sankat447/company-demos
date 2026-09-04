@@ -5,14 +5,22 @@ import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { adminCan, adminFetch, getAdminSession } from '@/auth/adminAuth';
-import { ManagePanel } from '@/features/staffManage/ManagePanel';
+import { InputModal } from '@/features/staffManage/InputModal';
+import { ManagePanel, type ManageKey } from '@/features/staffManage/ManagePanel';
 import { ParagliderSpinner } from '@/ui/ParagliderSpinner';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
 
 const inr = (n: number) => '₹' + Number(n || 0).toLocaleString('en-IN');
 type PanelKey =
-  'visitors' | 'incidents' | 'schedule' | 'stalls' | 'lodging' | 'volunteers' | 'announce';
+  | 'visitors'
+  | 'incidents'
+  | 'schedule'
+  | 'stalls'
+  | 'lodging'
+  | 'volunteers'
+  | 'announce'
+  | 'refunds';
 const PANELS: PanelKey[] = [
   'visitors',
   'incidents',
@@ -44,6 +52,8 @@ export default function StaffDashboard() {
   const s = summary.data;
   const tier = session.data?.tier ?? 4;
   const canFly = adminCan(tier, 'flystatus.set');
+  // Money is [1,2] only — surface the refund queue in the field for those tiers.
+  const panels: PanelKey[] = adminCan(tier, 'orders.manage') ? [...PANELS, 'refunds'] : PANELS;
 
   const setFly = async (state: string) => {
     setFlyBusy(true);
@@ -130,7 +140,7 @@ export default function StaffDashboard() {
             ) : null}
 
             <View style={styles.tabs}>
-              {PANELS.map((p) => (
+              {panels.map((p) => (
                 <Pressable
                   key={p}
                   style={[styles.tab, panel === p && styles.tabOn]}
@@ -155,7 +165,97 @@ function PanelView({ panel, me, tier }: { panel: PanelKey; me: string; tier: num
   // Visitors stays an analytics roll-up; every other panel is a live management
   // list (item-level records + tier-gated write actions).
   if (panel === 'visitors') return <VisitorsPanel />;
-  return <ManagePanel panel={panel} me={me} tier={tier} />;
+  if (panel === 'refunds') return <RefundsPanel />;
+  return <ManagePanel panel={panel as ManageKey} me={me} tier={tier} />;
+}
+
+interface Refund {
+  orderId: string;
+  sub: string;
+  itemId: string;
+  amountInr: number;
+  reason: string;
+  status: string;
+  processedRef: string;
+}
+function RefundsPanel() {
+  const { t } = useTranslation();
+  const q = useQuery<{ items: Refund[]; pending: number; pendingInr: number }>({
+    queryKey: ['admin', 'refunds'],
+    queryFn: () => adminFetch('GET', '/admin/refunds'),
+    networkMode: 'always',
+  });
+  const [ref, setRef] = useState<string | null>(null); // orderId being processed
+  if (q.isLoading || !q.data)
+    return (
+      <View style={styles.center}>
+        <ParagliderSpinner />
+      </View>
+    );
+  const items = q.data.items;
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <View style={styles.kpiGrid}>
+        <Kpi
+          k={t('staffDash.refundsPending')}
+          v={String(q.data.pending)}
+          sub={inr(q.data.pendingInr)}
+        />
+        <Kpi k={t('staffDash.refundsTotal')} v={String(items.length)} />
+      </View>
+      {items.length ? (
+        items.map((r) => (
+          <View key={r.orderId} style={styles.card}>
+            <View style={styles.refundHead}>
+              <Text style={styles.refundAmt}>{inr(r.amountInr)}</Text>
+              <Text
+                style={[
+                  styles.refundPill,
+                  r.status === 'PROCESSED' ? styles.refundDone : styles.refundOpen,
+                ]}
+              >
+                {r.status}
+              </Text>
+            </View>
+            <Text style={styles.refundMeta}>
+              {r.itemId} · {r.reason}
+            </Text>
+            {r.processedRef ? <Text style={styles.refundMeta}>↳ {r.processedRef}</Text> : null}
+            {r.status !== 'PROCESSED' ? (
+              <Pressable
+                style={styles.refundBtn}
+                onPress={() => setRef(r.orderId)}
+                accessibilityRole="button"
+              >
+                <Text style={styles.refundBtnText}>{t('staffDash.markProcessed')}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ))
+      ) : (
+        <Text style={styles.empty}>{t('staffDash.noRefunds')}</Text>
+      )}
+      {ref ? (
+        <InputModal
+          visible
+          title={t('staffDash.markProcessed')}
+          fields={[
+            { key: 'reference', label: t('staffDash.refundRef') },
+            { key: 'note', label: t('staffManage.resolutionNote') },
+          ]}
+          onClose={() => setRef(null)}
+          onSubmit={async (v) => {
+            await adminFetch('POST', `/admin/refunds/${encodeURIComponent(ref)}/process`, {
+              reference: v.reference,
+              note: v.note,
+            });
+            setRef(null);
+            await q.refetch();
+          }}
+        />
+      ) : null}
+    </View>
+  );
 }
 
 function VisitorsPanel() {
@@ -320,4 +420,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: spacing.lg,
   },
+  refundHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  refundAmt: { ...typeScale.heading, color: color.text },
+  refundPill: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  refundOpen: { backgroundColor: '#FAF0DD', color: '#C67F1E' },
+  refundDone: { backgroundColor: '#EAF1EC', color: palette.pine },
+  refundMeta: { ...typeScale.caption, color: color.textMuted },
+  refundBtn: {
+    marginTop: spacing.xs,
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: color.cardBorder,
+    backgroundColor: '#FBFBF8',
+  },
+  refundBtnText: { ...typeScale.caption, color: color.text, fontWeight: '600' },
 });
