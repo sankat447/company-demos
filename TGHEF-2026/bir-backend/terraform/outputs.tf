@@ -3,6 +3,7 @@
 
 output "account_id" { value = local.account }
 output "region" { value = var.aws_region }
+output "paytm_env" { value = var.paytm_env }
 
 output "auth_user_pool_id" { value = aws_cognito_user_pool.main.id }
 output "auth_user_pool_client_id" { value = aws_cognito_user_pool_client.app.id }

@@ -33,7 +33,7 @@ cat > "${MOBILE_DIR}/config/stack-outputs.json" <<JSON
     "translatePath": "/ai/translate",
     "queuePredictPath": "/ai/queue"
   },
-  "payments": { "provider": "paytm", "orderPath": "/pay/order", "webhookVerified": true, "paytm": { "environment": "staging" } },
+  "payments": { "provider": "paytm", "orderPath": "/pay/order", "webhookVerified": true, "paytm": { "environment": "$(tfout paytm_env)" } },
   "passes": {
     "issuerKid": "$(tfout passes_issuer_kid)",
     "jwksPath": "/.well-known/bir-passes/jwks.json",
