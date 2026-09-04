@@ -249,10 +249,24 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       / `--dry-run`). Verified end-to-end on the example workbook: an imported partner logs in
       (OTP off → `000000`) and their `stallConsole` resolves. (The live catalog was restored to
       the fuller festival set until organizers fill the real workbook.)
-- [ ] **B8** AI endpoints: REST API GW + Lambda → Bedrock for `ai.assistantPath`,
-      `ai.plannerPath`, `ai.translatePath`, `ai.queuePredictPath` (unblocks P6.1–6.4).
-- [ ] **B9** Push + geo services: Pinpoint app + FCM/APNs platform endpoints (`push.*`);
-      Location Service geofences + shuttle tracker (`geo.*`).
+- [x] **B8** AI endpoints: one Cognito-authorized Lambda (`terraform/lambda/ai`) behind
+      `/ai/assistant`, `/ai/planner`, `/ai/translate`, `/ai/queue` on the HTTP API →
+      Bedrock **Converse** with the cross-region inference profile (`var.bedrock_model`,
+      default Haiku 4.5); festival system prompts; app never holds keys. Deployed +
+      verified: 401 without a token, all four routes reachable and reach Bedrock with the
+      test-user ID token. Live generation is gated on the account's Bedrock model-access
+      **use-case form** (owner console action) — same account-gate class as Paytm; no code
+      change needed once approved. (Unblocks P6.1–6.4.)
+- [x] **B9** Push + geo services. `registerDevice` (AppSync → `terraform/lambda/register-device`)
+      records the user's push token + prefs (locale, roles, quiet hours) in a backend-owned
+      DynamoDB device registry (`DEVICE#<sub>`/`<platform>`) — deliberately **not** on
+      Pinpoint's engagement endpoint API (AWS is retiring it: Forbidden already, sunset
+      2026-10-30). A Pinpoint app is still created so `push.pinpointAppId` is a real id;
+      `push.fcmSenderId` is an owner-provided secret (`var.fcm_sender_id`, `REPLACE` until a
+      Firebase project is wired). Amazon Location geofence collection (`bir-2026-venues`) +
+      tracker (`bir-2026-shuttles`) → `geo.*`. Deployed + verified: `registerDevice` →
+      `accepted:true`, `DEVICE#` row written with token/locale/roles/quiet hours; contract
+      validates. The SNS fly-status fan-out (B10) consumes the `DEVICE#` rows.
 - [ ] **B10** Ops resolvers: `recordScan`, `setFlyStatus` (`safety-officer`-guarded) + SNS
       fly-status fanout + refund auto-queue.
 

@@ -337,7 +337,7 @@ resource "aws_lambda_function_url" "payment_webhook" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
-  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge"])
+  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai"])
   name              = "/aws/lambda/${local.name}-${each.key}"
   retention_in_days = var.log_retention_days
 }
@@ -430,7 +430,7 @@ resource "aws_iam_role_policy" "appsync_lambda" {
   role = aws_iam_role.appsync_lambda.id
   policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = [aws_lambda_function.commit_allocation.arn, aws_lambda_function.lodging_occupancy.arn, aws_lambda_function.issue_badge.arn] }]
+    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = [aws_lambda_function.commit_allocation.arn, aws_lambda_function.lodging_occupancy.arn, aws_lambda_function.issue_badge.arn, aws_lambda_function.register_device.arn] }]
   })
 }
 resource "aws_appsync_datasource" "commit_lambda" {
@@ -756,4 +756,57 @@ resource "aws_lambda_permission" "apigw_ai" {
   function_name = aws_lambda_function.ai.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.pay.execution_arn}/*/*"
+}
+
+# =====================================================================
+# B9: Push + geo services.
+#   - registerDevice (AppSync -> Lambda) records the user's push token + prefs
+#     in the backend's own DynamoDB device registry (DEVICE#<sub>); the SNS
+#     fan-out (B10) consumes it. We do NOT use Pinpoint's engagement endpoint
+#     APIs — AWS is retiring them (Forbidden already, sunset 2026-10-30). A
+#     Pinpoint app is still created so push.pinpointAppId is a real id for the
+#     contract; FCM sender id (var.fcm_sender_id) is an owner-provided secret.
+#   - Amazon Location: a geofence collection (venue arrivals) + a tracker
+#     (park-&-shuttle live ETA). Names match the contract's geo.* fields.
+# =====================================================================
+resource "aws_pinpoint_app" "bir" {
+  name = local.name
+}
+
+data "archive_file" "register_device" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/register-device"
+  output_path = "${path.module}/.build/register-device.zip"
+}
+resource "aws_lambda_function" "register_device" {
+  function_name    = "${local.name}-register-device"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.register_device.output_path
+  source_code_hash = data.archive_file.register_device.output_base64sha256
+  timeout          = 10
+  environment { variables = { TABLE = aws_dynamodb_table.main.name } }
+}
+resource "aws_appsync_datasource" "register_device_lambda" {
+  api_id           = aws_appsync_graphql_api.main.id
+  name             = "RegisterDeviceLambda"
+  type             = "AWS_LAMBDA"
+  service_role_arn = aws_iam_role.appsync_lambda.arn
+  lambda_config { function_arn = aws_lambda_function.register_device.arn }
+}
+resource "aws_appsync_resolver" "register_device" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "registerDevice"
+  data_source       = aws_appsync_datasource.register_device_lambda.name
+  request_template  = file("${path.module}/resolvers/lambda-invoke.req.vtl")
+  response_template = file("${path.module}/resolvers/lambda-invoke.res.vtl")
+}
+
+resource "aws_location_geofence_collection" "venues" {
+  collection_name = "${local.name}-venues"
+}
+resource "aws_location_tracker" "shuttles" {
+  tracker_name = "${local.name}-shuttles"
 }

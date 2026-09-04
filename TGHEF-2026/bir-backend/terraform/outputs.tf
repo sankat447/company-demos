@@ -27,3 +27,9 @@ output "payment_webhook_url" { value = aws_lambda_function_url.payment_webhook.f
 output "passes_issuer_kid" { value = var.issuer_kid }
 output "pass_private_key_param" { value = aws_ssm_parameter.pass_private_key.name }
 output "payments_rest_base" { value = aws_apigatewayv2_stage.pay.invoke_url }
+
+# B9: push + geo
+output "pinpoint_app_id" { value = aws_pinpoint_app.bir.application_id }
+output "fcm_sender_id" { value = var.fcm_sender_id }
+output "geofence_collection" { value = aws_location_geofence_collection.venues.collection_name }
+output "shuttle_tracker" { value = aws_location_tracker.shuttles.tracker_name }

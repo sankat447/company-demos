@@ -26,7 +26,7 @@ cat > "${MOBILE_DIR}/config/stack-outputs.json" <<JSON
     "appDistBucket": "$(tfout storage_app_dist_bucket)",
     "appDistDomain": "$(tfout storage_app_dist_domain)"
   },
-  "push": { "pinpointAppId": "REPLACE", "fcmSenderId": "REPLACE" },
+  "push": { "pinpointAppId": "$(tfout pinpoint_app_id)", "fcmSenderId": "$(tfout fcm_sender_id)" },
   "ai": {
     "assistantPath": "/ai/assistant",
     "plannerPath": "/ai/planner",
@@ -40,7 +40,7 @@ cat > "${MOBILE_DIR}/config/stack-outputs.json" <<JSON
     "alg": "ES256"
   },
   "realtime": { "alertTopicArnParam": "/bir/sns/emergency" },
-  "geo": { "geofenceCollection": "bir-venues", "shuttleTrackerName": "bir-shuttles" },
+  "geo": { "geofenceCollection": "$(tfout geofence_collection)", "shuttleTrackerName": "$(tfout shuttle_tracker)" },
   "flags": { "festivalMode": true, "experiencesMarketplace": true },
   "highlights": { "catalogPath": "https://$(tfout storage_cdn_domain)/config/highlights/catalog.json" }
 }

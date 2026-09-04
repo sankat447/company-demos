@@ -67,3 +67,9 @@ variable "bedrock_model" {
   type        = string
   default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
+
+variable "fcm_sender_id" {
+  description = "Firebase Cloud Messaging sender id for Android push. Owner-provided secret; REPLACE until a real Firebase project is wired to the Pinpoint GCM channel."
+  type        = string
+  default     = "REPLACE"
+}
