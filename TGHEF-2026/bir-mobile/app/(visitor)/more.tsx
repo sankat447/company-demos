@@ -7,6 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { signOutEverywhere } from '@/auth/otp';
 import { hasRole, useAuth } from '@/auth/useAuth';
 import { toggleLocale } from '@/i18n';
+import { clearMode } from '@/mode/mode';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
 
@@ -132,7 +133,15 @@ export default function More() {
 
         <Group label={t('more.settings')}>
           <Row icon="🔔" label={t('settings.title')} onPress={() => router.push('/settings')} />
-          <Row icon="🌐" label={t('common.languageSwitch')} onPress={toggleLocale} last />
+          <Row icon="🌐" label={t('common.languageSwitch')} onPress={toggleLocale} />
+          <Row
+            icon="🔁"
+            label={t('more.switchMode')}
+            onPress={() => {
+              void clearMode().then(() => router.replace('/mode'));
+            }}
+            last
+          />
         </Group>
 
         <Group>

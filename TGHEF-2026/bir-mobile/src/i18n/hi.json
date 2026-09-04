@@ -49,7 +49,8 @@
     "settings": "सेटिंग्स",
     "accountTitle": "महोत्सव खाता",
     "demoAccess": "डेमो · सभी भूमिकाएँ सक्रिय",
-    "visitorRole": "आगंतुक"
+    "visitorRole": "आगंतुक",
+    "switchMode": "स्टाफ़ मोड पर जाएँ"
   },
   "intro": {
     "skip": "छोड़ें",
