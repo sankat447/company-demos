@@ -133,12 +133,17 @@ recovers correctly). **CO-002 extension:** e2e `register-free-offline.yaml` and
 ## Phase 6 — AI, ops enhancements & polish
 
 - [ ] **P6.1** AI Assistant: streaming chat (SSE), voice input (hi/en), FAQ offline
-      fallback, "talk to a human" handoff deep link.
+      fallback, "talk to a human" handoff deep link. **DEFERRED** (client) pending the
+      Bedrock model-access use-case form (owner action) — backend B8 `/ai/assistant` is
+      deployed. Note: B8 returns a single JSON `{reply}` (HTTP API can't stream true SSE),
+      so the client build will use a JSON `askAi()` client, not `src/api/sse.ts`.
 - [ ] **P6.2** AI Travel Planner: constraints form → 3-day festival itinerary cards →
-      book-all fan-out.
+      book-all fan-out. **DEFERRED** pending the Bedrock form (backend `/ai/planner` live).
 - [ ] **P6.3** AI Translate: camera → menu/sign translation; cache; usage disclaimer.
+      **DEFERRED** pending the Bedrock form (backend `/ai/translate` live).
 - [ ] **P6.4** Crowd/queue view: venue heatmap tiles + best-time hints; landing-road
-      shuttle ETA from Location tracker.
+      shuttle ETA from Location tracker. **DEFERRED** (queue-predict part) pending the
+      Bedrock form (backend `/ai/queue` live).
 - [ ] **P6.5** Accessibility & perf pass: cold start ≤2.5 s (Android Go), bundle ≤40 MB,
       screen-reader walkthrough of ticket→gate journey.
 - [ ] **P6.6** Store metadata: icons/splash (paraglider mark), screenshots (en+hi),
@@ -277,8 +282,20 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       `/bir-2026/ops/flyStatusTopic`) for the push fan-out over the B9 `DEVICE#` registry.
       Deployed + verified: safety-officer `closed` → `refundsAutoQueued:true` + REFUNDQ row +
       SNS publish; `recordScan` accepted for organiser-lite; non-safety-officer rejected;
-      `flyStatus` reads current. (Client `SET_FLY_STATUS` selects a non-existent `accepted`
-      field — fix in the deferred B6–B10 client pass.)
+      `flyStatus` reads current.
+- [x] **Combined B6–B10 client pass.** Audited every client GraphQL op against the live
+      schema (a standalone `graphql.validate` over all 30 exported operations → 0 errors).
+      Fixed **B10** `SET_FLY_STATUS` (selected a non-existent `accepted` field on `FlyStatus`
+      → AppSync would reject; now selects `state`/`refundsAutoQueued`/`updatedAt`). Wired
+      **B6** `revokePass`: new `REVOKE_PASS` doc + dispatcher entry + `queueRevokePass`
+      (outbox, idempotent `revoke:<jti>`) + a "Revoke a pass" action on the ops screen
+      (`app/admin/ops.tsx`, organiser-lite/safety-officer, en+hi). Verified the client
+      `revokePass` doc live (organiser-lite → `accepted:true`, appears in `revocationsDelta`).
+      Confirmed already-correct: B6 revocations pull, B9 `registerDevice` dispatch (writes the
+      `DEVICE#` row), B10 `recordScan` + `flyStatus` banner + `onFlyStatusChanged`. Gate green
+      (tsc, 138 jest, i18n 342, contract). **AI client (P6.1–6.4) deferred** pending the
+      Bedrock use-case form; when built it uses a JSON `askAi()` client (B8 returns `{reply}`,
+      not SSE), not `src/api/sse.ts`.
 
 **Gate B:** for each domain, the client runs with its `mock*` flag OFF against the live
 stack (`contract:check` green on the emitted `stack-outputs.json`); every privileged

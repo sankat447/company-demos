@@ -48,6 +48,17 @@ export const RECORD_SCAN = /* GraphQL */ `
   }
 `;
 
+// Revoke a pass/badge (B6) — safety-officer / organiser-lite. Writes a
+// REVOCATION row that the revocationsDelta feed serves to every device, so the
+// offline verifier rejects the pass on its next sync. Idempotent per jti.
+export const REVOKE_PASS = /* GraphQL */ `
+  mutation RevokePass($input: RevokePassInput!) {
+    revokePass(input: $input) {
+      accepted
+    }
+  }
+`;
+
 export const SCHEDULE_DELTA = /* GraphQL */ `
   query ScheduleDelta($since: AWSTimestamp) {
     scheduleDelta(since: $since) {

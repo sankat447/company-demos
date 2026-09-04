@@ -346,7 +346,12 @@
     "set_flying": "OPEN flying",
     "set_hold": "HOLD",
     "set_closed": "CLOSE flying",
-    "declared": "Declared: {{state}}. Devices are being notified."
+    "declared": "Declared: {{state}}. Devices are being notified.",
+    "revokeTitle": "Revoke a pass",
+    "revokeWarn": "Revoking fans out to every device; the offline gate scanner rejects this pass on its next sync. Use for lost or fraudulent passes.",
+    "revokeJtiPlaceholder": "Pass ID (jti)",
+    "revokeBtn": "Revoke pass",
+    "revoked": "Revoked {{jti}}. The revocation is queued for fan-out."
   },
   "partner": {
     "stage_applied": "Applied",

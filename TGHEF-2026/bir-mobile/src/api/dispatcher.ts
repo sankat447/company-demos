@@ -32,6 +32,7 @@ import {
   RECORD_SCAN,
   REGISTER_DEVICE,
   REPORT_SOS,
+  REVOKE_PASS,
 } from './graphql';
 
 const DOCUMENTS: Record<string, string> = {
@@ -48,6 +49,7 @@ const DOCUMENTS: Record<string, string> = {
   recordScan: RECORD_SCAN,
   registerDevice: REGISTER_DEVICE,
   reportSos: REPORT_SOS,
+  revokePass: REVOKE_PASS,
 };
 
 /**

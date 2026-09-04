@@ -8,6 +8,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { hasRole, useAuth } from '@/auth/useAuth';
 import { getFlyStatus, type FlyState } from '@/features/flight-status/flyStatus';
 import { declareFlyStatus } from '@/features/flight-status/setFlyStatus';
+import { queueRevokePass } from '@/features/scanner/revokePass';
 import { SqliteScanStore } from '@/features/scanner/scanStore';
 import { loadAllocation } from '@/features/lodging/allocation';
 import { kvStore } from '@/offline/db';
@@ -37,6 +38,8 @@ export default function Ops() {
   const [reasonEn, setReasonEn] = useState('');
   const [reasonHi, setReasonHi] = useState('');
   const [declared, setDeclared] = useState<FlyState | null>(null);
+  const [revokeJti, setRevokeJti] = useState('');
+  const [revoked, setRevoked] = useState<string | null>(null);
 
   const canSafety = hasRole(auth, 'safety-officer');
   const canOps = hasRole(auth, 'organiser-lite') || canSafety;
@@ -71,6 +74,15 @@ export default function Ops() {
     const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'demo-safety');
     await declareFlyStatus(outbox, { sub, state, reasonEn, reasonHi }, Date.now());
     setDeclared(state);
+    await queryClient.invalidateQueries({ queryKey: ['outbox', 'count'] });
+  };
+
+  const revoke = async () => {
+    const jti = revokeJti.trim();
+    if (!jti) return;
+    await queueRevokePass(outbox, jti, Date.now());
+    setRevoked(jti);
+    setRevokeJti('');
     await queryClient.invalidateQueries({ queryKey: ['outbox', 'count'] });
   };
 
@@ -131,6 +143,29 @@ export default function Ops() {
             ) : null}
           </>
         ) : null}
+
+        <Text style={styles.sectionTitle}>{t('ops.revokeTitle')}</Text>
+        <Text style={styles.warn}>{t('ops.revokeWarn')}</Text>
+        <TextInput
+          style={styles.input}
+          value={revokeJti}
+          onChangeText={setRevokeJti}
+          placeholder={t('ops.revokeJtiPlaceholder')}
+          placeholderTextColor={color.textMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          accessibilityLabel={t('ops.revokeJtiPlaceholder')}
+        />
+        <Pressable
+          style={[styles.revokeBtn, !revokeJti.trim() && styles.revokeBtnDisabled]}
+          onPress={revoke}
+          disabled={!revokeJti.trim()}
+          accessibilityRole="button"
+          accessibilityLabel={t('ops.revokeBtn')}
+        >
+          <Text style={styles.revokeText}>{t('ops.revokeBtn')}</Text>
+        </Pressable>
+        {revoked ? <Text style={styles.done}>{t('ops.revoked', { jti: revoked })}</Text> : null}
       </ScrollView>
     </Screen>
   );
@@ -192,5 +227,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   stateText: { ...typeScale.body, color: palette.ink, fontWeight: '800' },
+  revokeBtn: {
+    minHeight: MIN_TOUCH_TARGET + 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    backgroundColor: palette.flagRed,
+    marginTop: spacing.xs,
+  },
+  revokeBtnDisabled: { opacity: 0.4 },
+  revokeText: { ...typeScale.body, color: '#FFFFFF', fontWeight: '800' },
   done: { ...typeScale.caption, color: color.success, marginTop: spacing.sm, textAlign: 'center' },
 });
