@@ -74,6 +74,12 @@ variable "ai_rate_limit_per_min" {
   default     = 15
 }
 
+variable "ai_kb_top_k" {
+  description = "RAG: how many top-matching knowledge-base chunks the assistant retrieves per question. Raise it for a larger rules corpus. See docs/AI_ENDPOINTS.md."
+  type        = number
+  default     = 6
+}
+
 variable "fcm_sender_id" {
   description = "Firebase Cloud Messaging sender id for Android push. Owner-provided secret; REPLACE until a real Firebase project is wired to the Pinpoint GCM channel."
   type        = string

@@ -1,27 +1,37 @@
 /**
- * B8: AI endpoints (REST → Anthropic Messages API). One Lambda behind
- * /ai/assistant, /ai/planner, /ai/translate and /ai/queue on the HTTP API
- * (Cognito-authorized). The app NEVER holds the model key or calls the model
- * directly — it goes through here, and the key lives in SSM (SecureString),
- * read at runtime and cached for the container's life.
+ * B8 + RAG: AI endpoints (REST → Anthropic Messages API) with a festival
+ * knowledge base. One Cognito-authorized Lambda behind:
+ *   POST /ai/assistant · /planner · /translate · /queue   (model calls)
+ *   POST /ai/faq  · GET /ai/faq · DELETE /ai/faq/{id}      (live FAQ admin)
  *
- * Repointed off Amazon Bedrock (whose model access is gated on an account
- * use-case form) to the Anthropic API directly, so it works with a plain
- * Anthropic key. @aws-sdk/client-ssm ships in the Node.js 20 runtime; the HTTP
- * call uses the runtime's global fetch — no bundled dependencies.
+ * The assistant is retrieval-augmented: every question loads ALL curated FAQs
+ * (organisers add/edit these live during the event) plus the top-matching
+ * chunks of the rules/instructions dropped in the KB bucket (ingested into
+ * KB#DOC), and answers ONLY from that knowledge. Retrieval is lexical today
+ * (term scoring — no extra key); retrieve() is the single seam to swap in
+ * semantic embeddings later. See docs/AI_ENDPOINTS.md.
+ *
+ * The app never holds the model key — it lives in SSM (SecureString), read at
+ * runtime. @aws-sdk clients ship in the Node.js 20 runtime; the model call uses
+ * global fetch. No bundled dependencies.
  */
 'use strict';
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
-const { DynamoDBClient, UpdateItemCommand } = require('@aws-sdk/client-dynamodb');
+const {
+  DynamoDBClient,
+  UpdateItemCommand,
+  QueryCommand,
+  PutItemCommand,
+  DeleteItemCommand,
+} = require('@aws-sdk/client-dynamodb');
 
 const ssm = new SSMClient({});
 const ddb = new DynamoDBClient({});
 const KEY_PARAM = process.env.ANTHROPIC_KEY_PARAM;
 const MODEL = process.env.ANTHROPIC_MODEL;
 const TABLE = process.env.TABLE;
-// Per-user cost guard: max AI requests per user per minute. 0 disables it.
-// Raise var.ai_rate_limit_per_min to scale up (see docs/AI_ENDPOINTS.md).
 const RATE_PER_MIN = parseInt(process.env.AI_RATE_PER_MIN || '0', 10);
+const TOP_K = parseInt(process.env.AI_KB_TOP_K || '6', 10);
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
 
@@ -63,14 +73,25 @@ function json(statusCode, obj) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) };
 }
 
-/**
- * Per-user cost/abuse guard. Atomically increments a per-minute counter row
- * (AIRL#<sub> / <minute-bucket>, TTL-expired) and returns false once the user
- * passes RATE_PER_MIN calls in the current minute. Fail-open: if the counter
- * write errors we allow the call rather than block a paying visitor.
- */
+// ------------------------------- auth helpers -------------------------------
+function callerGroups(claims) {
+  const g = claims && claims['cognito:groups'];
+  if (!g) return [];
+  if (Array.isArray(g)) return g;
+  // The HTTP API JWT authorizer flattens the array to e.g. "[organiser-lite volunteer]".
+  return String(g)
+    .replace(/^\[|\]$/g, '')
+    .split(/[\s,]+/)
+    .filter(Boolean);
+}
+function isOrganiser(claims) {
+  const g = callerGroups(claims);
+  return g.includes('organiser-lite') || g.includes('safety-officer');
+}
+
+// ------------------------------ rate limiting -------------------------------
 async function withinRate(sub) {
-  if (!RATE_PER_MIN || RATE_PER_MIN <= 0) return true; // disabled
+  if (!RATE_PER_MIN || RATE_PER_MIN <= 0) return true;
   const nowSec = Math.floor(Date.now() / 1000);
   const bucket = Math.floor(nowSec / 60);
   try {
@@ -92,6 +113,132 @@ async function withinRate(sub) {
   }
 }
 
+// ------------------------------- knowledge base -----------------------------
+async function queryAll(pk) {
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const out = await ddb.send(
+      new QueryCommand({
+        TableName: TABLE,
+        KeyConditionExpression: 'pk = :p',
+        ExpressionAttributeValues: { ':p': { S: pk } },
+        ExclusiveStartKey,
+      }),
+    );
+    (out.Items || []).forEach((i) => items.push(i));
+    ExclusiveStartKey = out.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return items;
+}
+
+async function loadFaqs() {
+  return (await queryAll('KB#FAQ')).map((i) => ({
+    id: i.sk.S,
+    question: (i.question && i.question.S) || '',
+    answer: (i.answer && i.answer.S) || '',
+  }));
+}
+async function loadChunks() {
+  return (await queryAll('KB#DOC')).map((i) => ({
+    id: i.sk.S,
+    title: (i.title && i.title.S) || '',
+    text: (i.text && i.text.S) || '',
+  }));
+}
+
+const STOP = new Set(
+  'the a an of to in for on at is are was were be and or how do does did i you my your we our can could what when where which who why with from this that these those it its as by at into about not no yes please'.split(
+    ' ',
+  ),
+);
+function tokens(s) {
+  return (String(s).toLowerCase().match(/[a-z0-9ऀ-ॿ]+/g) || []).filter(
+    (t) => t.length > 1 && !STOP.has(t),
+  );
+}
+/**
+ * Lexical retrieval: score each chunk by query-term overlap (with a small tf
+ * bonus) and return the top K. This is the ONE function to replace with a
+ * vector search when embeddings are added — everything else stays the same.
+ */
+function retrieve(question, chunks, k) {
+  const q = [...new Set(tokens(question))];
+  if (!q.length) return [];
+  return chunks
+    .map((c) => {
+      const tf = {};
+      tokens(`${c.title} ${c.text}`).forEach((t) => (tf[t] = (tf[t] || 0) + 1));
+      let s = 0;
+      for (const term of q) if (tf[term]) s += 1 + Math.min(tf[term], 3) * 0.2;
+      return { c, s };
+    })
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, k)
+    .map((x) => x.c);
+}
+
+async function assistantReply(question) {
+  const [faqs, chunks] = await Promise.all([loadFaqs(), loadChunks()]);
+  const top = retrieve(question, chunks, TOP_K);
+  let ctx = '';
+  if (faqs.length) {
+    ctx +=
+      'FESTIVAL FAQ (authoritative — prefer these for a direct match):\n' +
+      faqs.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n') +
+      '\n\n';
+  }
+  if (top.length) {
+    ctx +=
+      'FESTIVAL RULES & INFO (excerpts):\n' +
+      top.map((c) => `[${c.title || c.id}]\n${c.text}`).join('\n---\n') +
+      '\n\n';
+  }
+  const grounded = faqs.length + top.length > 0;
+  const sys = grounded
+    ? `${ASSISTANT_SYS}\n\nAnswer using ONLY the festival knowledge below. Prefer an FAQ entry for a direct match. If the answer is not in this knowledge, say you are not certain and point them to the official fly-status or the help desk — do not invent. Match the visitor's language.\n\n${ctx}`
+    : ASSISTANT_SYS;
+  return { reply: await converse(sys, question, 600), grounded };
+}
+
+// ------------------------------- FAQ admin ----------------------------------
+function faqIdFromPath(path) {
+  const m = path.match(/\/ai\/faq\/(.+)$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+async function upsertFaq(sub, body) {
+  const question = String(body.question || '').trim();
+  const answer = String(body.answer || '').trim();
+  if (!question || !answer) return json(400, { error: 'question and answer are required' });
+  const id = String(body.id || `faq-${Date.now().toString(36)}`).replace(/[^A-Za-z0-9._:-]/g, '');
+  await ddb.send(
+    new PutItemCommand({
+      TableName: TABLE,
+      Item: {
+        pk: { S: 'KB#FAQ' },
+        sk: { S: id },
+        question: { S: question },
+        answer: { S: answer },
+        updatedAt: { N: String(Math.floor(Date.now() / 1000)) },
+        updatedBy: { S: sub },
+      },
+    }),
+  );
+  return json(200, { id, question, answer });
+}
+async function listFaqs() {
+  return json(200, { items: await loadFaqs() });
+}
+async function deleteFaq(id) {
+  if (!id) return json(400, { error: 'faq id required' });
+  await ddb.send(
+    new DeleteItemCommand({ TableName: TABLE, Key: { pk: { S: 'KB#FAQ' }, sk: { S: id } } }),
+  );
+  return json(200, { id, deleted: true });
+}
+
+// ------------------------------- model call ---------------------------------
 async function converse(system, text, maxTokens) {
   const key = await apiKey();
   const res = await fetch(API_URL, {
@@ -122,7 +269,9 @@ async function converse(system, text, maxTokens) {
 }
 
 exports.handler = async (event) => {
-  const path = (event.requestContext && event.requestContext.http && event.requestContext.http.path) || event.rawPath || '';
+  const http = (event.requestContext && event.requestContext.http) || {};
+  const path = http.path || event.rawPath || '';
+  const method = http.method || 'POST';
   const claims =
     (event.requestContext &&
       event.requestContext.authorizer &&
@@ -130,13 +279,6 @@ exports.handler = async (event) => {
       event.requestContext.authorizer.jwt.claims) ||
     {};
   if (!claims.sub) return json(401, { error: 'unauthenticated' });
-
-  if (!(await withinRate(claims.sub))) {
-    return json(429, {
-      error: 'rate limited',
-      detail: `Up to ${RATE_PER_MIN} AI requests per minute. Please try again shortly.`,
-    });
-  }
 
   let body = {};
   try {
@@ -146,8 +288,25 @@ exports.handler = async (event) => {
   }
 
   try {
+    // ---- FAQ admin (organiser-lite / safety-officer) ----
+    if (path.match(/\/ai\/faq(\/|$)/)) {
+      if (!isOrganiser(claims)) return json(403, { error: 'organiser role required' });
+      if (method === 'POST') return await upsertFaq(claims.sub, body);
+      if (method === 'GET') return await listFaqs();
+      if (method === 'DELETE') return await deleteFaq(faqIdFromPath(path));
+      return json(405, { error: 'method not allowed' });
+    }
+
+    // ---- model routes (rate-limited) ----
+    if (!(await withinRate(claims.sub))) {
+      return json(429, {
+        error: 'rate limited',
+        detail: `Up to ${RATE_PER_MIN} AI requests per minute. Please try again shortly.`,
+      });
+    }
+
     if (path.endsWith('/ai/assistant')) {
-      return json(200, { reply: await converse(ASSISTANT_SYS, String(body.message || ''), 600) });
+      return json(200, await assistantReply(String(body.message || '')));
     }
     if (path.endsWith('/ai/planner')) {
       const prompt =
@@ -162,8 +321,7 @@ exports.handler = async (event) => {
       return json(200, { translation: await converse(sys, String(body.text || ''), 400) });
     }
     if (path.endsWith('/ai/queue')) {
-      const prompt =
-        `Stall: ${body.stall || 'a food stall'}. Signals: ${body.context || 'busy festival evening'}.`;
+      const prompt = `Stall: ${body.stall || 'a food stall'}. Signals: ${body.context || 'busy festival evening'}.`;
       return json(200, { estimate: await converse(QUEUE_SYS, prompt, 120) });
     }
     return json(404, { error: 'unknown ai path' });

@@ -209,6 +209,8 @@ resource "aws_iam_role_policy" "lambda" {
       # B8: AI endpoints read the Anthropic API key from SSM (SecureString);
       # ssm:GetParameter above already covers /${local.name}/*. No Bedrock IAM —
       # the AI Lambda calls the Anthropic API directly over HTTPS.
+      # RAG: the kb-ingest Lambda reads dropped docs from the KB bucket.
+      { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.kb.arn}/*" },
       { Effect = "Allow", Action = ["sns:Publish"], Resource = "*" }
     ]
   })
@@ -345,7 +347,7 @@ resource "aws_lambda_function_url" "payment_webhook" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
-  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai", "set-fly-status"])
+  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai", "set-fly-status", "kb-ingest"])
   name              = "/aws/lambda/${local.name}-${each.key}"
   retention_in_days = var.log_retention_days
 }
@@ -753,7 +755,7 @@ resource "aws_lambda_function" "ai" {
   source_code_hash = data.archive_file.ai.output_base64sha256
   timeout          = 30
   memory_size      = 256
-  environment { variables = { ANTHROPIC_MODEL = var.anthropic_model, ANTHROPIC_KEY_PARAM = aws_ssm_parameter.anthropic_key.name, TABLE = aws_dynamodb_table.main.name, AI_RATE_PER_MIN = tostring(var.ai_rate_limit_per_min) } }
+  environment { variables = { ANTHROPIC_MODEL = var.anthropic_model, ANTHROPIC_KEY_PARAM = aws_ssm_parameter.anthropic_key.name, TABLE = aws_dynamodb_table.main.name, AI_RATE_PER_MIN = tostring(var.ai_rate_limit_per_min), AI_KB_TOP_K = tostring(var.ai_kb_top_k) } }
 }
 resource "aws_apigatewayv2_integration" "ai" {
   api_id                 = aws_apigatewayv2_api.pay.id
@@ -934,3 +936,65 @@ resource "aws_appsync_resolver" "report_sos" {
   request_template  = file("${path.module}/resolvers/report-sos.req.vtl")
   response_template = file("${path.module}/resolvers/report-sos.res.vtl")
 }
+
+# =====================================================================
+# RAG knowledge base: a private S3 bucket organisers drop festival rules /
+# instructions into, an ingestion Lambda that chunks them into KB#DOC rows, and
+# live FAQ admin routes on the AI Lambda (KB#FAQ). The assistant retrieves from
+# both. See docs/AI_ENDPOINTS.md.
+# =====================================================================
+resource "aws_s3_bucket" "kb" {
+  bucket = "${local.name}-kb-${local.suffix}"
+}
+resource "aws_s3_bucket_public_access_block" "kb" {
+  bucket                  = aws_s3_bucket.kb.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+data "archive_file" "kb_ingest" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/kb-ingest"
+  output_path = "${path.module}/.build/kb-ingest.zip"
+}
+resource "aws_lambda_function" "kb_ingest" {
+  function_name    = "${local.name}-kb-ingest"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.kb_ingest.output_path
+  source_code_hash = data.archive_file.kb_ingest.output_base64sha256
+  timeout          = 60
+  memory_size      = 256
+  environment { variables = { TABLE = aws_dynamodb_table.main.name } }
+}
+resource "aws_lambda_permission" "kb_ingest_s3" {
+  statement_id  = "AllowS3InvokeKbIngest"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.kb_ingest.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.kb.arn
+}
+resource "aws_s3_bucket_notification" "kb" {
+  bucket = aws_s3_bucket.kb.id
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.kb_ingest.arn
+    events              = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
+  }
+  depends_on = [aws_lambda_permission.kb_ingest_s3]
+}
+
+# Live FAQ admin (organiser-lite / safety-officer, enforced in the Lambda) on
+# the same AI integration + Cognito authorizer.
+resource "aws_apigatewayv2_route" "ai_faq" {
+  for_each           = toset(["POST /ai/faq", "GET /ai/faq", "DELETE /ai/faq/{id}"])
+  api_id             = aws_apigatewayv2_api.pay.id
+  route_key          = each.value
+  target             = "integrations/${aws_apigatewayv2_integration.ai.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+
+output "kb_bucket" { value = aws_s3_bucket.kb.bucket }
