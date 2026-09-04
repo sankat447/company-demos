@@ -21,22 +21,27 @@
         <div class="brand-sub">Operations Console</div>
       </div>
     </div>
-    <p class="login-lede">Sign in with your organiser phone. You'll get a one-time code by SMS (test numbers use <span class="mono">000000</span>).</p>
-    <form id="phone-form" class="stack" autocomplete="off">
+    <p class="login-lede" id="login-lede">Sign in with your admin username and password.</p>
+    <form id="login-form" class="stack">
       <label class="field">
-        <span>Phone number</span>
-        <input id="phone" type="tel" inputmode="tel" placeholder="+9111000000007" required>
+        <span>Username</span>
+        <input id="username" type="text" autocapitalize="none" autocomplete="username" spellcheck="false" required>
       </label>
-      <button class="btn primary" type="submit" id="send-otp">Send code</button>
+      <label class="field">
+        <span>Password</span>
+        <input id="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="btn primary" type="submit" id="do-login">Sign in</button>
+      <button class="btn ghost" type="button" id="show-bootstrap">First-time setup — create master admin</button>
     </form>
-    <form id="otp-form" class="stack hidden" autocomplete="off">
-      <label class="field">
-        <span>One-time code</span>
-        <input id="otp" type="text" inputmode="numeric" maxlength="6" placeholder="000000" required>
-      </label>
+    <form id="bootstrap-form" class="stack hidden">
+      <p class="hint" style="color:var(--muted);font-size:13px">Create the first <b>Superadmin</b>. This works only once, when no admin exists yet.</p>
+      <label class="field"><span>Full name</span><input id="bs-name" type="text" placeholder="Master Admin"></label>
+      <label class="field"><span>Username</span><input id="bs-username" type="text" autocapitalize="none" spellcheck="false" required></label>
+      <label class="field"><span>Password (min 8 chars)</span><input id="bs-password" type="password" autocomplete="new-password" required></label>
       <div class="row">
-        <button class="btn ghost" type="button" id="otp-back">Back</button>
-        <button class="btn primary" type="submit" id="verify-otp">Verify &amp; enter</button>
+        <button class="btn ghost" type="button" id="bs-back">Back</button>
+        <button class="btn primary" type="submit" id="do-bootstrap">Create &amp; sign in</button>
       </div>
     </form>
     <p id="login-error" class="error hidden"></p>
@@ -66,7 +71,8 @@
       <button class="nav-item" data-view="fly"><span class="ni">▲</span> Fly-status</button>
       <button class="nav-item" data-view="kb"><span class="ni">✦</span> Knowledge &amp; AI</button>
       <button class="nav-item" data-view="passes"><span class="ni">⛔</span> Passes</button>
-      <div class="nav-group">Reference</div>
+      <div class="nav-group">Administration</div>
+      <button class="nav-item" data-view="admins"><span class="ni">♟</span> Admins</button>
       <button class="nav-item" data-view="reference"><span class="ni">▤</span> Schedule &amp; tiers</button>
     </nav>
     <div class="sidebar-foot">

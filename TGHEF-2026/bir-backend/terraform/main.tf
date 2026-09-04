@@ -204,7 +204,7 @@ resource "aws_iam_role_policy" "lambda" {
       { Effect = "Allow", Action = ["ssm:GetParameter"], Resource = "arn:aws:ssm:*:*:parameter/${local.name}/*" },
       # B5: the payment webhook mints passes (invoke pass-signer) and fans out via
       # the server-only confirmOrder mutation (AppSync IAM).
-      { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = "arn:aws:lambda:*:*:function:${local.name}-pass-signer" },
+      { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = "arn:aws:lambda:*:*:function:${local.name}-*" },
       { Effect = "Allow", Action = ["appsync:GraphQL"], Resource = "${aws_appsync_graphql_api.main.arn}/*" },
       # B8: AI endpoints read the Anthropic API key from SSM (SecureString);
       # ssm:GetParameter above already covers /${local.name}/*. No Bedrock IAM —
@@ -1018,6 +1018,16 @@ data "archive_file" "admin" {
   source_dir  = "${path.module}/lambda/admin"
   output_path = "${path.module}/.build/admin.zip"
 }
+# Admin JWT signing secret (HS256). Random machine secret in SSM.
+resource "random_password" "admin_jwt" {
+  length  = 48
+  special = false
+}
+resource "aws_ssm_parameter" "admin_jwt" {
+  name  = "/${local.name}/admin/jwt-secret"
+  type  = "SecureString"
+  value = random_password.admin_jwt.result
+}
 resource "aws_lambda_function" "admin" {
   function_name    = "${local.name}-admin"
   role             = aws_iam_role.lambda.arn
@@ -1027,7 +1037,12 @@ resource "aws_lambda_function" "admin" {
   source_code_hash = data.archive_file.admin.output_base64sha256
   timeout          = 30
   memory_size      = 256
-  environment { variables = { TABLE = aws_dynamodb_table.main.name } }
+  environment { variables = {
+    TABLE      = aws_dynamodb_table.main.name
+    JWT_PARAM  = aws_ssm_parameter.admin_jwt.name
+    SET_FLY_FN = aws_lambda_function.set_fly_status.function_name
+    AI_FN      = aws_lambda_function.ai.function_name
+  } }
 }
 resource "aws_apigatewayv2_integration" "admin" {
   api_id                 = aws_apigatewayv2_api.pay.id
@@ -1035,13 +1050,24 @@ resource "aws_apigatewayv2_integration" "admin" {
   integration_uri        = aws_lambda_function.admin.invoke_arn
   payload_format_version = "2.0"
 }
+# The admin Lambda verifies its own admin JWT + enforces tier caps, so the
+# routes carry no API-GW authorizer (authorization_type NONE).
 resource "aws_apigatewayv2_route" "admin" {
-  for_each           = toset(["/admin/summary", "/admin/visitors", "/admin/stalls", "/admin/lodging", "/admin/incidents", "/admin/volunteers"])
+  for_each = toset([
+    "POST /admin/auth/bootstrap", "POST /admin/auth/login", "GET /admin/me",
+    "GET /admin/admins", "POST /admin/admins",
+    "POST /admin/admins/{username}/password", "POST /admin/admins/{username}/active",
+    "DELETE /admin/admins/{username}",
+    "POST /admin/fly", "POST /admin/revoke", "POST /admin/ask",
+    "GET /admin/faq", "POST /admin/faq", "DELETE /admin/faq/{id}",
+    "GET /admin/summary", "GET /admin/visitors", "GET /admin/stalls",
+    "GET /admin/lodging", "GET /admin/incidents", "GET /admin/volunteers",
+    "GET /admin/revocations",
+  ])
   api_id             = aws_apigatewayv2_api.pay.id
-  route_key          = "GET ${each.value}"
+  route_key          = each.value
   target             = "integrations/${aws_apigatewayv2_integration.admin.id}"
-  authorization_type = "JWT"
-  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+  authorization_type = "NONE"
 }
 resource "aws_lambda_permission" "apigw_admin" {
   statement_id  = "AllowApiGwAdmin"

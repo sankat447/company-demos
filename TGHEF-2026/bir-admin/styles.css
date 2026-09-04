@@ -145,6 +145,15 @@ input:focus,textarea:focus,select:focus{outline:none; border-color:var(--slate)}
 .legend{display:flex; flex-direction:column; gap:6px; font-size:13px}
 .legend .li{display:flex; align-items:center; gap:8px; color:var(--muted)}
 .legend .sw{width:10px; height:10px; border-radius:3px; flex:none}
+/* admin tiers */
+.tier-badge{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:10.5px; font-weight:600; padding:2px 6px; border-radius:5px; color:#0E1519}
+.tier-badge.t1{background:var(--marigold)} .tier-badge.t2{background:var(--pine)} .tier-badge.t3{background:var(--slate)} .tier-badge.t4{background:#8A938E}
+.hier{display:flex; flex-direction:column; gap:2px}
+.hier-row{display:flex; align-items:center; gap:10px; padding:8px 0 2px}
+.hier-row b{font-family:"Fraunces",serif}
+.hier-count{margin-left:auto; font-family:"IBM Plex Mono",monospace; color:var(--muted); font-size:13px}
+.hier-caps{margin:0 0 6px 40px; font-size:12px; color:var(--faint); border-bottom:1px solid var(--line-soft); padding-bottom:8px}
+.hier-row + .hier-caps{}
 .reply{white-space:pre-wrap; background:var(--ink); border:1px solid var(--line); border-radius:12px; padding:14px; font-size:14px; line-height:1.6; max-height:340px; overflow:auto}
 .codebox{font-family:"IBM Plex Mono",monospace; font-size:12.5px; background:var(--ink); border:1px solid var(--line); border-radius:10px; padding:12px; overflow-x:auto; color:var(--muted)}
 
