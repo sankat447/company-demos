@@ -79,6 +79,10 @@ exports.handler = async (event) => {
           item: event.itemId,
           ord: event.orderId,
           seq: i,
+          // Every pass carries zones — the offline verifier rejects a pass without
+          // them as malformed. 'festival' = general entry; the activity entitlement
+          // itself is checked separately (REG snapshot), not from the pass.
+          zones: ['festival'],
           jti: `${typ}-${event.orderId}-${i}`,
           nbf,
           exp,

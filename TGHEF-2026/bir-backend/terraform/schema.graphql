@@ -10,6 +10,8 @@ type Query {
   scheduleDelta(since: AWSTimestamp): ScheduleConnection
   revocationsDelta(since: AWSTimestamp): RevocationConnection
   flyStatus: FlyStatus
+  # Festival-wide notices posted from the ops console (active only).
+  announcements: [Announcement!]!
   # Highlights (CO-002)
   highlightsCatalog: Catalog
   myRegistrations: [Registration!]!
@@ -80,6 +82,16 @@ type ScheduleConnection { items: [ScheduleItem!]! cursor: AWSTimestamp }
 type Revocation { jti: ID! revokedAt: AWSTimestamp! }
 type RevocationConnection { items: [Revocation!]! cursor: AWSTimestamp }
 input RevokePassInput { jti: ID! idempotencyKey: String! }
+
+type Announcement {
+  id: ID!
+  titleEn: String!
+  titleHi: String
+  bodyEn: String!
+  bodyHi: String
+  level: String!
+  updatedAt: Int
+}
 
 # --- fly-status (CO-001 E3 / CO-004) ---
 type FlyStatus { state: String! reasonEn: String reasonHi: String updatedAt: AWSTimestamp! refundsAutoQueued: Boolean! }

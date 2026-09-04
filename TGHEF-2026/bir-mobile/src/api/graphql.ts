@@ -125,6 +125,20 @@ export const FLY_STATUS = /* GraphQL */ `
   }
 `;
 
+export const ANNOUNCEMENTS = /* GraphQL */ `
+  query Announcements {
+    announcements {
+      id
+      titleEn
+      titleHi
+      bodyEn
+      bodyHi
+      level
+      updatedAt
+    }
+  }
+`;
+
 export const ON_FLY_STATUS_CHANGED = /* GraphQL */ `
   subscription OnFlyStatusChanged {
     onFlyStatusChanged {

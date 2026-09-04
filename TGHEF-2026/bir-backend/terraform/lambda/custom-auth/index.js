@@ -72,14 +72,16 @@ exports.handler = async (event) => {
       if (!smsEnabled || demoNumbers.includes(phone)) {
         code = demoOtp; // demo / store-review path — no SMS sent
       } else {
+        // SMS is LIVE for this real number. Generate a random code and text it.
+        // On failure we DO NOT fall back to the fixed demo code — that would make
+        // every account trivially impersonable on any SMS outage/misconfig. We
+        // keep the (undelivered) random code, so sign-in fails closed. The operator
+        // must verify the SMS path works before enabling it (see docs/OTP_SMS.md).
         code = String(Math.floor(100000 + Math.random() * 900000));
         try {
           await sendOtpSms(phone, code);
         } catch (e) {
-          // Never brick sign-in on an SMS error in non-prod — fall back to the
-          // demo code (also covers a not-yet-configured Fast2SMS key).
-          console.error('OTP SMS send failed, using demo code:', e.message);
-          code = demoOtp;
+          console.error('OTP SMS send failed (fail-closed, no demo fallback):', e.message);
         }
       }
       event.response.publicChallengeParameters = { deliveryMedium: 'SMS' };

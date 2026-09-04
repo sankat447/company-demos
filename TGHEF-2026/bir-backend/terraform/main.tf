@@ -969,6 +969,14 @@ resource "aws_appsync_resolver" "schedule_delta" {
   request_template  = file("${path.module}/resolvers/schedule-delta.req.vtl")
   response_template = file("${path.module}/resolvers/schedule-delta.res.vtl")
 }
+resource "aws_appsync_resolver" "announcements" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "announcements"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/announcements.req.vtl")
+  response_template = file("${path.module}/resolvers/announcements.res.vtl")
+}
 resource "aws_appsync_resolver" "cast_vote" {
   api_id            = aws_appsync_graphql_api.main.id
   type              = "Mutation"

@@ -15,6 +15,7 @@ import {
   subscribeFlyStatus,
   type FlyStatus,
 } from '@/features/flight-status/flyStatus';
+import { announcementText, loadAnnouncements } from '@/features/notifications/announcements';
 import { getLocationOnce, triggerSos } from '@/features/sos/sos';
 import { listPasses } from '@/features/tickets/passStore';
 import { toggleLocale } from '@/i18n';
@@ -103,7 +104,7 @@ function Tile({
 }
 
 export default function Home() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const auth = useAuth();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -125,6 +126,13 @@ export default function Home() {
 
   const passes = useQuery({ queryKey: ['passes'], queryFn: listPasses, networkMode: 'always' });
   const pass = passes.data?.[0];
+
+  const notices = useQuery({
+    queryKey: ['announcements'],
+    queryFn: () => loadAnnouncements(kvStore),
+    networkMode: 'always',
+    staleTime: 60_000,
+  });
 
   const day = festivalDayFor(Date.now());
   const dayNumber = day ? FESTIVAL_DAYS.indexOf(day) + 1 : null;
@@ -217,6 +225,19 @@ export default function Home() {
               <Text style={styles.refundText}>{t('home.flyRefundAuto')}</Text>
             </View>
           ) : null}
+
+          {(notices.data ?? []).map((n) => {
+            const txt = announcementText(n, i18n.language);
+            const alert = n.level === 'alert';
+            return (
+              <View key={n.id} style={[styles.notice, alert && styles.noticeAlert]}>
+                <Text style={[styles.noticeTitle, alert && styles.noticeTitleAlert]}>
+                  {txt.title}
+                </Text>
+                <Text style={styles.noticeBody}>{txt.body}</Text>
+              </View>
+            );
+          })}
 
           {/* welcome */}
           <View style={styles.welcome}>
@@ -415,6 +436,20 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   refundText: { color: palette.ink, fontSize: 12.5, lineHeight: 18 },
+  notice: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E4E7E1',
+    borderLeftWidth: 4,
+    borderLeftColor: palette.slate,
+    padding: 12,
+    marginBottom: 10,
+  },
+  noticeAlert: { borderLeftColor: palette.flagRed, backgroundColor: '#FBEEE9' },
+  noticeTitle: { color: palette.ink, fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  noticeTitleAlert: { color: palette.flagRed },
+  noticeBody: { color: '#4A5A52', fontSize: 12.5, lineHeight: 18 },
 
   welcome: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   welcomeH2: { fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: palette.ink },
