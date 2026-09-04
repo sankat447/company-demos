@@ -45,3 +45,19 @@ variable "paytm_env" {
   type        = string
   default     = "staging"
 }
+
+variable "sms_enabled" {
+  description = "B6: send real OTP over SNS SMS. Off for the demo/eval stack (fixed OTP, no SMS spend / India DLT). Turn on for production."
+  type        = bool
+  default     = false
+}
+variable "demo_otp" {
+  description = "Fixed OTP used when SMS is disabled or for DEMO_NUMBERS (store review + test users)."
+  type        = string
+  default     = "000000"
+}
+variable "demo_numbers" {
+  description = "Phone numbers that always receive the fixed demo OTP, even when SMS is enabled (test + store review)."
+  type        = list(string)
+  default     = ["+911100000007"]
+}

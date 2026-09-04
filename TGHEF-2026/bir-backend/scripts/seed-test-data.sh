@@ -24,6 +24,9 @@ log "Seeding sample confirmed competition registrations (lodging pool)"
 put '{"pk":{"S":"REG"},"sk":{"S":"reg:p1:him-queen-2026:na"},"name":{"S":"Anita Thakur"},"competitionId":{"S":"him-queen-2026"},"gender":{"S":"female"},"nights":{"L":[{"S":"2026-11-21"},{"S":"2026-11-22"},{"S":"2026-11-23"}]},"needsLodging":{"BOOL":true},"status":{"S":"confirmed"}}'
 put '{"pk":{"S":"REG"},"sk":{"S":"reg:p4:him-prince-2026:na"},"name":{"S":"Rohan Katoch"},"competitionId":{"S":"him-prince-2026"},"gender":{"S":"male"},"nights":{"L":[{"S":"2026-11-22"},{"S":"2026-11-23"}]},"needsLodging":{"BOOL":true},"status":{"S":"confirmed"}}'
 
+log "Seeding a demo revocation (B6) — the offline verifier rejects this jti"
+put '{"pk":{"S":"REV#demo-revoked-jti"},"sk":{"S":"REV"},"jti":{"S":"demo-revoked-jti"},"revokedAt":{"N":"1795000000"},"gsi1pk":{"S":"REVOCATION"},"gsi1sk":{"S":"1795000000"}}'
+
 log "Seeding volunteer roster (B3)"
 # The roster is keyed by the volunteer's Cognito sub (VOL#<sub>). For a live
 # smoke test, set VOL_TEST_SUB to a real volunteer-group user's sub so their

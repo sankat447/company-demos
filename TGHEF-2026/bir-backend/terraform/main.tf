@@ -212,7 +212,17 @@ resource "aws_lambda_function" "custom_auth" {
   filename         = data.archive_file.custom_auth.output_path
   source_code_hash = data.archive_file.custom_auth.output_base64sha256
   timeout          = 10
-  environment { variables = { OTP_TTL_SECONDS = "300" } }
+  environment {
+    variables = {
+      OTP_TTL_SECONDS = "300"
+      # B6: real OTP over SNS SMS. Off on the demo stack (fixed DEMO_OTP, no SMS
+      # spend / India DLT). Flip SMS_ENABLED=true for production. DEMO_NUMBERS
+      # always get the fixed code (store review + test users) even when SMS is on.
+      SMS_ENABLED  = var.sms_enabled ? "true" : "false"
+      DEMO_OTP     = var.demo_otp
+      DEMO_NUMBERS = join(",", var.demo_numbers)
+    }
+  }
 }
 
 resource "aws_lambda_function" "pass_signer" {
@@ -684,4 +694,23 @@ resource "aws_appsync_resolver" "confirm_order" {
   data_source       = aws_appsync_datasource.ddb.name
   request_template  = file("${path.module}/resolvers/confirm-order.req.vtl")
   response_template = file("${path.module}/resolvers/confirm-order.res.vtl")
+}
+
+# B6: revocations feed — the delta the offline gate verifier pulls, and the
+# ops-guarded mutation that writes revocations (both VTL-direct on the table).
+resource "aws_appsync_resolver" "revocations_delta" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "revocationsDelta"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/revocations-delta.req.vtl")
+  response_template = file("${path.module}/resolvers/revocations-delta.res.vtl")
+}
+resource "aws_appsync_resolver" "revoke_pass" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "revokePass"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/revoke-pass.req.vtl")
+  response_template = file("${path.module}/resolvers/revoke-pass.res.vtl")
 }

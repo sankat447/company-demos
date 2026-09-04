@@ -49,6 +49,9 @@ type Mutation {
   recordAttendance(input: RecordAttendanceInput!): Ack
   reportIncident(input: ReportIncidentInput!): IncidentResult
   partnerCheckIn(input: PartnerCheckInInput!): Ack
+  # B6: revoke a pass/badge (safety-officer / organiser-lite) — fans out via the
+  # revocationsDelta feed so offline verifiers reject it.
+  revokePass(input: RevokePassInput!): Ack
   # Server-only: the payment webhook (IAM) calls this after HMAC-verifying the
   # gateway callback, which fans out to the onOrderConfirmed subscription. NEVER
   # callable by a client — the resolver (TODO) enforces IAM. The client callback
@@ -74,6 +77,7 @@ type ScheduleItem { id: ID! day: String! venue: String startsAt: AWSTimestamp en
 type ScheduleConnection { items: [ScheduleItem!]! cursor: AWSTimestamp }
 type Revocation { jti: ID! revokedAt: AWSTimestamp! }
 type RevocationConnection { items: [Revocation!]! cursor: AWSTimestamp }
+input RevokePassInput { jti: ID! idempotencyKey: String! }
 
 # --- fly-status (CO-001 E3 / CO-004) ---
 type FlyStatus { state: String! reasonEn: String reasonHi: String updatedAt: AWSTimestamp! refundsAutoQueued: Boolean! }

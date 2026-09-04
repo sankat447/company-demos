@@ -231,8 +231,15 @@ re-check the Cognito group server-side and audit-log overrides (`actorNote`).
       getOrder owner-scope, confirmOrder IAM-only fan-out, checksum round-trip). **Merchant
       key/MID are provisioned by the operator in SSM** — see docs/PAYMENTS_PAYTM.md; real
       Paytm calls + a paid txn await that. Supersedes the Razorpay ASKs #14/#15.
-- [ ] **B6** Auth + pass Lambda bodies: `custom-auth` real random OTP over SNS SMS;
-      `pass-signer` `issuePass`/`issueBadge`/`revoke`; revocations delta feed.
+- [x] **B6** Auth + pass Lambda bodies. `custom-auth`: real random 6-digit OTP over SNS SMS,
+      gated by `SMS_ENABLED` (off on the demo/eval stack → fixed `DEMO_OTP`, no SMS spend /
+      India DLT; `DEMO_NUMBERS` always get the fixed code for store review + test users).
+      `pass-signer`: `issuePass` (B5) + `issueBadge` (the B2c issue-badge Lambda) already
+      sign ES256 passes. Revocations delta feed: `revocationsDelta` resolver (gsi1 time-
+      ordered, strict-`>` cursor — what the offline gate verifier pulls) + `revokePass`
+      mutation (safety-officer/organiser-lite guarded). Deployed + verified (sign-in still
+      works with the fixed OTP; revoke → surfaces in the feed; non-ops rejected). Flip
+      `SMS_ENABLED=true` (+ DLT) for production.
 - [ ] **B7** Data importer: `bir-backend/data-collection` workbook → DynamoDB seed rows
       (dates/times → epoch, cross-sheet id resolution) + Cognito users & role-group
       membership for the Users & Roles tab.
