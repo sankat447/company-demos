@@ -494,6 +494,7 @@ async function stallsManageList() {
     items: (await items('STALL')).map((s) => ({
       id: s.sk, stallName: s.stallName || '', category: s.category || '', stage: s.stage || 'pending',
       allocationLabel: s.allocationLabel || '', feeInr: s.feeInr || 0, paid: !!s.paid,
+      paidMethod: s.paidMethod || '', paidAt: s.paidAt || 0,
     })),
   });
 }
@@ -504,9 +505,20 @@ async function stallUpsert(me, body) {
   const id = str(body.id) || `stall-${slug(stallName)}-${nowSec().toString(36)}`;
   // Preserve fields we don't manage here (analytics, rules) on edit.
   const prev = (await getRow('STALL', id)) || {};
+  const paid = !!body.paid;
+  // Honest manual fee record — not a payment, but auditable: how/when/by whom the
+  // fee was collected offline. (Real vendor self-payment comes in the vendor step.)
+  const paidMeta = paid
+    ? {
+      paidMethod: str(body.paidMethod) || prev.paidMethod || 'cash/offline',
+      paidAt: prev.paid && prev.paidAt ? prev.paidAt : nowSec(),
+      paidBy: prev.paid && prev.paidBy ? prev.paidBy : `admin:${me.sub}`,
+    }
+    : {};
   const row = await putRow('STALL', id, {
     stallName, category: str(body.category), stage: str(body.stage) || 'pending',
-    allocationLabel: str(body.allocationLabel), feeInr: num(body.feeInr), paid: !!body.paid,
+    allocationLabel: str(body.allocationLabel), feeInr: num(body.feeInr), paid,
+    ...paidMeta,
     ...(prev.analytics ? { analytics: prev.analytics } : {}),
     ...(prev.rules ? { rules: prev.rules } : {}),
     ...(prev.rulesHi ? { rulesHi: prev.rulesHi } : {}),
@@ -718,6 +730,76 @@ async function tierDelete(me, id) {
   return json(200, { id, deleted: true });
 }
 
+/* ---- orders + refund requests (manual settlement) ---------------------- */
+// Refunds are a REQUEST an admin fulfils out-of-band (flight bookings/refunds are
+// a manual process), then marks processed with a reference. No auto gateway call.
+const ORDER_STATES = ['CONFIRMED', 'CANCELLED', 'COMP', 'PENDING'];
+async function ordersList(me) {
+  if (!can(me.tier, 'orders.manage')) return json(403, { error: 'not permitted' });
+  const rows = (await items('ORDER')).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return json(200, {
+    items: rows.slice(0, 300).map((o) => ({
+      orderId: o.sk, sub: o.sub || '', kind: o.kind || '', itemId: o.itemId || '',
+      amountInr: o.amountInr || 0, status: o.status || '', createdAt: o.createdAt || 0,
+    })),
+    revenueInr: rows.filter((o) => o.status === 'CONFIRMED').reduce((s, o) => s + (o.amountInr || 0), 0),
+    confirmed: rows.filter((o) => o.status === 'CONFIRMED').length,
+  });
+}
+async function orderSetStatus(me, orderId, body) {
+  if (!can(me.tier, 'orders.manage')) return json(403, { error: 'not permitted' });
+  const order = await getRow('ORDER', orderId);
+  if (!order) return json(404, { error: 'order not found' });
+  const status = str(body.status).toUpperCase();
+  if (!ORDER_STATES.includes(status)) return json(400, { error: `status must be one of ${ORDER_STATES.join(', ')}` });
+  await ddb.send(new UpdateItemCommand({
+    TableName: TABLE, Key: { pk: { S: 'ORDER' }, sk: { S: orderId } },
+    UpdateExpression: 'SET #s = :s, updatedAt = :u, updatedBy = :b',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: { ':s': { S: status }, ':u': { N: String(nowSec()) }, ':b': { S: `admin:${me.sub}` } },
+  }));
+  return json(200, { orderId, status });
+}
+async function refundRequest(me, orderId, body) {
+  if (!can(me.tier, 'orders.manage')) return json(403, { error: 'not permitted' });
+  const order = await getRow('ORDER', orderId);
+  if (!order) return json(404, { error: 'order not found' });
+  const row = await putRow('REFUNDREQ', orderId, {
+    orderId, sub: order.sub || '', itemId: order.itemId || '', kind: order.kind || '',
+    amountInr: order.amountInr || 0, reason: str(body.reason) || 'requested',
+    status: 'REQUESTED', requestedBy: `admin:${me.sub}`, requestedAt: nowSec(),
+  }, me);
+  return json(200, row);
+}
+async function refundsList(me) {
+  if (!can(me.tier, 'orders.manage')) return json(403, { error: 'not permitted' });
+  const rows = (await items('REFUNDREQ')).sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
+  const open = rows.filter((r) => r.status !== 'PROCESSED');
+  return json(200, {
+    items: rows.map((r) => ({
+      orderId: r.sk, sub: r.sub || '', itemId: r.itemId || '', amountInr: r.amountInr || 0,
+      reason: r.reason || '', status: r.status || 'REQUESTED', requestedAt: r.requestedAt || 0,
+      requestedBy: r.requestedBy || '', processedAt: r.processedAt || 0, processedRef: r.processedRef || '',
+    })),
+    pending: open.length, pendingInr: open.reduce((s, r) => s + (r.amountInr || 0), 0),
+  });
+}
+async function refundProcess(me, orderId, body) {
+  if (!can(me.tier, 'orders.manage')) return json(403, { error: 'not permitted' });
+  const req = await getRow('REFUNDREQ', orderId);
+  if (!req) return json(404, { error: 'refund request not found' });
+  await ddb.send(new UpdateItemCommand({
+    TableName: TABLE, Key: { pk: { S: 'REFUNDREQ' }, sk: { S: orderId } },
+    UpdateExpression: 'SET #s = :s, processedRef = :r, processedNote = :n, processedAt = :a, processedBy = :b',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: {
+      ':s': { S: 'PROCESSED' }, ':r': { S: str(body.reference) }, ':n': { S: str(body.note) },
+      ':a': { N: String(nowSec()) }, ':b': { S: `admin:${me.sub}` },
+    },
+  }));
+  return json(200, { orderId, status: 'PROCESSED', reference: str(body.reference) });
+}
+
 /* ------------------------- scanner (Phase 2) ---------------------------- */
 // Default gate checkpoints (any valid pass grants entry). Event checkpoints are
 // derived from what people actually register for (REG item ids).
@@ -905,6 +987,13 @@ exports.handler = async (event) => {
     if (method === 'GET' && path.endsWith('/admin/tiers')) return tiersList();
     if (method === 'POST' && path.endsWith('/admin/tiers')) return tierUpsert(me, body);
     if (method === 'DELETE' && /\/admin\/tiers\/[^/]+$/.test(path)) return tierDelete(me, after(/\/admin\/tiers\/([^/]+)$/));
+
+    // --- orders + refund requests (money-sensitive, manual settlement) ---
+    if (method === 'GET' && path.endsWith('/admin/orders')) return ordersList(me);
+    if (method === 'POST' && /\/admin\/orders\/[^/]+\/refund-request$/.test(path)) return refundRequest(me, after(/\/admin\/orders\/([^/]+)\/refund-request$/), body);
+    if (method === 'POST' && /\/admin\/orders\/[^/]+\/status$/.test(path)) return orderSetStatus(me, after(/\/admin\/orders\/([^/]+)\/status$/), body);
+    if (method === 'GET' && path.endsWith('/admin/refunds')) return refundsList(me);
+    if (method === 'POST' && /\/admin\/refunds\/[^/]+\/process$/.test(path)) return refundProcess(me, after(/\/admin\/refunds\/([^/]+)\/process$/), body);
 
     // analytics
     if (!can(me.tier, 'analytics.read')) return json(403, { error: 'not permitted' });
