@@ -125,6 +125,8 @@ const listFaqs = () => rest('GET', '/ai/faq').then((d) => d.items || []);
 const upsertFaq = (f) => rest('POST', '/ai/faq', f);
 const deleteFaq = (id) => rest('DELETE', '/ai/faq/' + encodeURIComponent(id));
 const ask = (message) => rest('POST', '/ai/assistant', { message });
+const admin = (name) => rest('GET', '/admin/' + name);
+const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 /* ------------------------------ login wiring ------------------------------ */
 let pendingSession = null;
@@ -206,7 +208,11 @@ $('#refresh').addEventListener('click', () => setView(currentView));
 $$('.nav-item').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 
 let currentView = 'overview';
-const TITLES = { overview: 'Overview', fly: 'Fly-status', kb: 'Knowledge & AI', passes: 'Passes', reference: 'Reference' };
+const TITLES = {
+  overview: 'Overview', visitors: 'Visitors & tickets', stalls: 'Stalls', lodging: 'Lodging',
+  volunteers: 'Volunteers', incidents: 'Incidents', fly: 'Fly-status', kb: 'Knowledge & AI',
+  passes: 'Passes', reference: 'Schedule & tiers',
+};
 async function setView(name) {
   currentView = name;
   $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
@@ -232,44 +238,159 @@ async function refreshFlyChip() {
 const VIEWS = {};
 
 VIEWS.overview = async (v) => {
-  const [fly, revs, sched, tiers, faqs] = await Promise.all([
-    getFly().catch(() => null), getRevs().catch(() => []), getSchedule().catch(() => []),
-    getTiers().catch(() => []), listFaqs().catch(() => []),
-  ]);
-  const flyCls = fly ? fly.state : '';
+  const s = await admin('summary');
+  const flyCls = s.fly ? s.fly.state : '';
   v.innerHTML = `
     <div class="grid g-4">
-      ${statCard('Fly-status', fly ? fly.state : '—', flyCls)}
-      ${statCard('FAQs live', faqs.length)}
-      ${statCard('Revocations', revs.length)}
-      ${statCard('Schedule items', sched.length)}
+      ${kpiCard('Fly-status', s.fly ? s.fly.state : '—', s.fly && s.fly.refundsAutoQueued ? 'refunds auto-queued' : 'official call', flyCls)}
+      ${kpiCard('Registrations', s.registrations.total, `${s.registrations.needLodging} need lodging`)}
+      ${kpiCard('Ticket revenue', inr(s.orders.revenueInr), `${s.orders.confirmed} confirmed · ${s.orders.pending} pending`)}
+      ${kpiCard('Gate scans', s.engagement.scans, `${s.content.revocations} passes revoked`)}
+    </div>
+    <div class="grid g-4" style="margin-top:16px">
+      ${kpiCard('Stalls', s.stalls.total, `${s.stalls.paid}/${s.stalls.total} fees paid`)}
+      ${kpiCard('Lodging rooms', s.lodging.rooms, `${s.lodging.capacity} beds · ${s.lodging.hotels} hotels`)}
+      ${kpiCard('Volunteers', s.volunteers.total, `${s.volunteers.idVerified} ID-verified · ${s.volunteers.shifts} shifts`)}
+      ${kpiCard('Incidents', s.incidents.total, `${s.content.faqs} FAQs · ${s.content.schedule} events`)}
     </div>
     <div class="grid g-2" style="margin-top:16px">
       <div class="card">
-        <div class="section-title">Quick fly-status</div>
-        <p class="hint" style="margin-bottom:12px">${has('safety-officer') ? 'Sets the official banner + fans out to every device.' : 'Read-only — needs the safety-officer role to change.'}</p>
-        <div class="fly-btns">
-          ${['flying', 'hold', 'closed'].map((s) => `<button class="fly-btn ${s} ${fly && fly.state === s ? 'on' : ''}" data-fly="${s}" ${has('safety-officer') ? '' : 'disabled'}>${s.toUpperCase()}</button>`).join('')}
-        </div>
-        ${fly && fly.refundsAutoQueued ? '<p class="hint" style="margin-top:10px;color:var(--warn)">Refunds are auto-queued (sky is closed).</p>' : ''}
+        <div class="section-title">Registrations by status</div>
+        ${bars(Object.entries(s.registrations.byStatus).map(([k, n]) => ({ label: k, value: n })), 'pine')}
       </div>
       <div class="card">
-        <div class="section-title">Ask the assistant</div>
-        <p class="hint" style="margin-bottom:12px">Check what visitors are told — answers are grounded in your FAQs + knowledge base.</p>
-        <div class="stack">
-          <input id="ov-ask" placeholder="e.g. Where is lost and found?">
+        <div class="section-title">Quick actions</div>
+        <p class="hint" style="margin-bottom:10px">${has('safety-officer') ? 'Set the official fly-status — fans out to every device.' : 'Fly-status is read-only for your role.'}</p>
+        <div class="fly-btns">
+          ${['flying', 'hold', 'closed'].map((st) => `<button class="fly-btn ${st} ${s.fly && s.fly.state === st ? 'on' : ''}" data-fly="${st}" ${has('safety-officer') ? '' : 'disabled'}>${st.toUpperCase()}</button>`).join('')}
+        </div>
+        <div class="stack" style="margin-top:14px">
+          <input id="ov-ask" placeholder="Ask the assistant what a visitor would…">
           <button class="btn primary" id="ov-ask-btn">Ask</button>
           <div id="ov-reply"></div>
         </div>
       </div>
-    </div>
-    <div class="card" style="margin-top:16px">
-      <div class="section-title">Recent revocations</div>
-      ${revs.length ? tableRevs(revs.slice(0, 6)) : '<p class="empty">No revoked passes.</p>'}
     </div>`;
   wireFlyButtons(v);
   $('#ov-ask-btn').addEventListener('click', () => runAsk($('#ov-ask').value, $('#ov-reply')));
   $('#ov-ask').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAsk($('#ov-ask').value, $('#ov-reply')); });
+};
+
+VIEWS.visitors = async (v) => {
+  const d = await admin('visitors');
+  v.innerHTML = `
+    <div class="grid g-3">
+      ${kpiCard('Registrations', d.registrations.total, 'across all activities')}
+      ${kpiCard('Tickets confirmed', d.tickets.confirmed, `${d.tickets.total} orders total`)}
+      ${kpiCard('Ticket revenue', inr(d.tickets.revenueInr), 'confirmed orders')}
+    </div>
+    <div class="grid g-2" style="margin-top:16px">
+      <div class="card">
+        <div class="section-title">Registrations by activity</div>
+        ${d.registrations.byItem.length ? bars(d.registrations.byItem.map((x) => ({ label: x.item, value: x.total })), 'slate') : '<p class="empty">No registrations yet.</p>'}
+      </div>
+      <div class="card">
+        <div class="section-title">Registration status</div>
+        ${bars(Object.entries(d.registrations.byStatus).map(([k, n]) => ({ label: k, value: n })), 'pine')}
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">Ticket sales by tier</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Tier</th><th>Sold</th><th>Revenue</th></tr></thead><tbody>
+        ${d.tickets.byTier.length ? d.tickets.byTier.map((t) => `<tr><td>${esc(t.tier)}</td><td class="mono">${t.count}</td><td class="mono">${inr(t.revenueInr)}</td></tr>`).join('') : '<tr><td colspan="3" class="empty">No confirmed ticket orders yet.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+};
+
+VIEWS.stalls = async (v) => {
+  const d = await admin('stalls');
+  const st = d.items;
+  const totalOrders = st.reduce((n, s) => n + s.ordersEstimate, 0);
+  v.innerHTML = `
+    <div class="grid g-3">
+      ${kpiCard('Stalls', st.length, `${st.filter((s) => s.paid).length} fees paid`)}
+      ${kpiCard('Est. orders (3 days)', totalOrders.toLocaleString('en-IN'), 'across all stalls')}
+      ${kpiCard('Fees billed', inr(st.reduce((n, s) => n + s.feeInr, 0)), `${st.filter((s) => !s.paid).length} unpaid`)}
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">Food street (${st.length})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Stall</th><th>Category</th><th>Stage</th><th>Allocation</th><th>Fee</th><th>Est. orders</th><th>Footfall</th></tr></thead><tbody>
+        ${st.length ? st.map((s) => `<tr>
+          <td>${esc(s.stallName)}</td><td>${esc(s.category || '')}</td>
+          <td><span class="pill ${s.stage === 'approved' ? 'good' : 'info'}">${esc(s.stage || '—')}</span></td>
+          <td class="mono">${esc(s.allocationLabel || '')}</td>
+          <td class="mono">${inr(s.feeInr)} ${s.paid ? '<span class="pill good">paid</span>' : '<span class="pill bad">due</span>'}</td>
+          <td class="mono">${s.ordersEstimate.toLocaleString('en-IN')}</td>
+          <td>${footfallBar(s.footfallIndex)}</td>
+        </tr>`).join('') : '<tr><td colspan="7" class="empty">No stalls.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+};
+
+VIEWS.lodging = async (v) => {
+  const d = await admin('lodging');
+  const beds = d.hotels.reduce((n, h) => n + h.capacity, 0);
+  const comp = d.partners.reduce((n, p) => n + p.complimentaryRooms, 0);
+  const checkedIn = d.partners.reduce((n, p) => n + p.checkedIn, 0);
+  const alloc = d.partners.reduce((n, p) => n + p.allocations, 0);
+  v.innerHTML = `
+    <div class="grid g-4">
+      ${kpiCard('Rooms', d.hotels.reduce((n, h) => n + h.rooms, 0), `${beds} beds · ${d.hotels.length} hotels`)}
+      ${kpiCard('Need lodging', d.pool.needLodging, `of ${d.pool.total} registrants`)}
+      ${kpiCard('Complimentary', comp, 'partner rooms')}
+      ${kpiCard('Checked in', checkedIn, `of ${alloc} allocations`)}
+    </div>
+    <div class="grid g-2" style="margin-top:16px">
+      <div class="card">
+        <div class="section-title">Beds by hotel</div>
+        ${bars(d.hotels.map((h) => ({ label: h.hotel, value: h.capacity })), 'mar')}
+      </div>
+      <div class="card">
+        <div class="section-title">Hospitality partners</div>
+        <div class="scroll-x"><table class="tbl"><thead><tr><th>Hotel</th><th>Comp.</th><th>Allocated</th><th>Checked in</th></tr></thead><tbody>
+          ${d.partners.length ? d.partners.map((p) => `<tr><td>${esc(p.hotelName || '')}</td><td class="mono">${p.complimentaryRooms}</td><td class="mono">${p.allocations}</td><td class="mono">${p.checkedIn}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">No partners.</td></tr>'}
+        </tbody></table></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">Room inventory</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Hotel</th><th>Rooms</th><th>Beds</th><th>Active</th></tr></thead><tbody>
+        ${d.hotels.map((h) => `<tr><td>${esc(h.hotel)}</td><td class="mono">${h.rooms}</td><td class="mono">${h.capacity}</td><td class="mono">${h.active}/${h.rooms}</td></tr>`).join('')}
+      </tbody></table></div>
+    </div>`;
+};
+
+VIEWS.volunteers = async (v) => {
+  const d = await admin('volunteers');
+  v.innerHTML = `
+    <div class="grid g-3">
+      ${kpiCard('Volunteers', d.total, `${d.idVerified} ID-verified`)}
+      ${kpiCard('Shifts assigned', d.items.reduce((n, x) => n + x.shifts, 0), 'across the roster')}
+      ${kpiCard('Attendance records', d.attendanceRecords, 'check-ins logged')}
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">Roster (${d.total})</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>Name</th><th>Team</th><th>Shifts</th><th>ID verified</th></tr></thead><tbody>
+        ${d.items.length ? d.items.map((x) => `<tr><td>${esc(x.name || '')}</td><td>${esc(x.team || '')}</td><td class="mono">${x.shifts}</td><td>${x.idVerified ? '<span class="pill good">yes</span>' : '<span class="pill">no</span>'}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">No volunteers.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+};
+
+VIEWS.incidents = async (v) => {
+  const d = await admin('incidents');
+  v.innerHTML = `
+    <div class="grid g-3">
+      ${kpiCard('Incidents', d.total, 'reported from the field')}
+      ${kpiCard('Categories', Object.keys(d.byCategory).length, 'distinct types')}
+      ${kpiCard('Latest', d.items[0] ? fmtTime(d.items[0].ts) : '—', d.items[0] ? esc(d.items[0].zone || '') : 'none yet')}
+    </div>
+    ${Object.keys(d.byCategory).length ? `<div class="card" style="margin-top:16px"><div class="section-title">By category</div>${bars(Object.entries(d.byCategory).map(([k, n]) => ({ label: k, value: n })), 'slate')}</div>` : ''}
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">Incident log</div>
+      <div class="scroll-x"><table class="tbl"><thead><tr><th>When</th><th>Category</th><th>Zone</th><th>Note</th></tr></thead><tbody>
+        ${d.items.length ? d.items.map((i) => `<tr><td class="mono">${fmtTime(i.ts)}</td><td><span class="pill info">${esc(i.category || '')}</span></td><td>${esc(i.zone || '')}</td><td>${esc(i.note || '')}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">No incidents reported — all clear.</td></tr>'}
+      </tbody></table></div>
+    </div>`;
 };
 
 VIEWS.fly = async (v) => {
@@ -393,6 +514,30 @@ VIEWS.reference = async (v) => {
 function statCard(k, val, cls = '') {
   const color = { flying: 'good', hold: 'warn', closed: 'bad' }[cls];
   return `<div class="card stat"><span class="k">${esc(k)}</span><span class="v${String(val).length > 6 ? ' small' : ''}"${color ? ` style="color:var(--${color})"` : ''}>${esc(val)}</span></div>`;
+}
+function kpiCard(k, val, sub = '', flyCls = '') {
+  const color = { flying: 'good', hold: 'warn', closed: 'bad' }[flyCls];
+  const big = String(val).length > 7;
+  return `<div class="card kpi">
+    <span class="k">${esc(k)}</span>
+    <span class="v"${color ? ` style="color:var(--${color})"` : ''}${big ? ' style="font-size:1.4rem"' : ''}>${esc(val)}</span>
+    ${sub ? `<span class="sub">${esc(sub)}</span>` : ''}
+  </div>`;
+}
+function bars(data, tone = 'pine') {
+  const rows = data.filter((d) => d.value != null);
+  if (!rows.length) return '<p class="empty">No data.</p>';
+  const max = Math.max(...rows.map((d) => d.value), 1);
+  return `<div class="bars">${rows
+    .map((d) => `<div class="bar-row"><span class="lbl">${esc(d.label)}</span>
+      <span class="bar-track"><span class="bar-fill ${tone}" style="width:${Math.max(3, Math.round((d.value / max) * 100))}%"></span></span>
+      <span class="num">${Number(d.value).toLocaleString('en-IN')}</span></div>`)
+    .join('')}</div>`;
+}
+function footfallBar(pct) {
+  const p = Math.max(0, Math.min(100, pct || 0));
+  const tone = p >= 80 ? 'mar' : p >= 50 ? '' : 'slate';
+  return `<span class="bar-track" style="display:inline-block;width:64px;vertical-align:middle"><span class="bar-fill ${tone}" style="width:${p}%"></span></span> <span class="mono">${p}</span>`;
 }
 function tableRevs(revs) {
   return `<div class="scroll-x"><table class="tbl"><thead><tr><th>Pass jti</th><th>Revoked</th></tr></thead><tbody>

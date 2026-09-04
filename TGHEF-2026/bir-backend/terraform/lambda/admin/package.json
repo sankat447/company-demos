@@ -1,0 +1,7 @@
+{
+  "name": "bir-admin-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bir Festival admin analytics API. No bundled deps: @aws-sdk/client-dynamodb is provided by the Node.js 20 Lambda runtime.",
+  "main": "index.js"
+}

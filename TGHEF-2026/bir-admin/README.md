@@ -6,13 +6,29 @@ the **live** backend. No build step, no framework — just `index.html` + `app.j
 
 ## What an organiser can do
 
+**Monitor** (festival-wide analytics, from the organiser-guarded `/admin/*` API):
+
+| Panel | Shows | Backend |
+|---|---|---|
+| **Overview** | KPI board: fly-status, registrations, ticket revenue, gate scans, stalls, lodging, volunteers, incidents — plus quick fly-set + assistant | `/admin/summary` |
+| **Visitors & tickets** | Registrations by activity & status, ticket sales & revenue by tier | `/admin/visitors` |
+| **Stalls** | Food-street roster: stage, allocation, fees paid/due, est. orders, footfall | `/admin/stalls` |
+| **Lodging** | Rooms & beds by hotel, hospitality partners, complimentary rooms, check-ins, pool needing lodging | `/admin/lodging` |
+| **Volunteers** | Roster, teams, shifts, ID-verification, attendance records | `/admin/volunteers` |
+| **Incidents** | Field incident log by category/zone/time | `/admin/incidents` |
+
+**Operate**:
+
 | Panel | Capability | Backend |
 |---|---|---|
-| **Overview** | Live snapshot (fly-status, FAQ/revocation/schedule counts), quick fly-status set, quick assistant test, recent revocations | AppSync + `/ai/assistant` |
 | **Fly-status** | Declare flying / hold / closed with EN+HI reasons — fans out to devices, auto-queues refunds when closed (**safety-officer**) | `setFlyStatus` |
-| **Knowledge & AI** | Add/edit/delete **FAQs live** (no deploy), test the assistant, KB-bucket upload command | `/ai/faq`, `/ai/assistant` |
+| **Knowledge & AI** | Add/edit/delete **FAQs live** (no deploy), test the RAG assistant, KB-bucket upload command | `/ai/faq`, `/ai/assistant` |
 | **Passes** | Revoke a pass (fans out to offline scanners), view the revocation feed | `revokePass`, `revocationsDelta` |
-| **Reference** | Ticket tiers + schedule (read-only) | `ticketTiers`, `scheduleDelta` |
+| **Schedule & tiers** | Ticket tiers + schedule (read-only) | `ticketTiers`, `scheduleDelta` |
+
+The `/admin/*` analytics API is a read-only Lambda that aggregates across the
+single table (the partner consoles are scoped to each partner's own account; this
+is the festival-wide view). It is guarded to the organiser roles.
 
 Role gating mirrors the server: `safety-officer` for fly-status,
 `organiser-lite`/`safety-officer` for FAQs & revocations, `admin-hospitality`

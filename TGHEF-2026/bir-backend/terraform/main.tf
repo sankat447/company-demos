@@ -347,7 +347,7 @@ resource "aws_lambda_function_url" "payment_webhook" {
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
-  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai", "set-fly-status", "kb-ingest"])
+  for_each          = toset(["custom-auth", "pass-signer", "payment-webhook", "health", "commit-allocation", "lodging-occupancy", "issue-badge", "register-device", "ai", "set-fly-status", "kb-ingest", "admin"])
   name              = "/aws/lambda/${local.name}-${each.key}"
   retention_in_days = var.log_retention_days
 }
@@ -1008,3 +1008,45 @@ resource "aws_apigatewayv2_route" "ai_faq" {
 }
 
 output "kb_bucket" { value = aws_s3_bucket.kb.bucket }
+
+# =====================================================================
+# Admin analytics API — organiser-guarded, read-only aggregation across the
+# table for the ops console (festival-wide view). Behind the HTTP API.
+# =====================================================================
+data "archive_file" "admin" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/admin"
+  output_path = "${path.module}/.build/admin.zip"
+}
+resource "aws_lambda_function" "admin" {
+  function_name    = "${local.name}-admin"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "nodejs20.x"
+  handler          = "index.handler"
+  filename         = data.archive_file.admin.output_path
+  source_code_hash = data.archive_file.admin.output_base64sha256
+  timeout          = 30
+  memory_size      = 256
+  environment { variables = { TABLE = aws_dynamodb_table.main.name } }
+}
+resource "aws_apigatewayv2_integration" "admin" {
+  api_id                 = aws_apigatewayv2_api.pay.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.admin.invoke_arn
+  payload_format_version = "2.0"
+}
+resource "aws_apigatewayv2_route" "admin" {
+  for_each           = toset(["/admin/summary", "/admin/visitors", "/admin/stalls", "/admin/lodging", "/admin/incidents", "/admin/volunteers"])
+  api_id             = aws_apigatewayv2_api.pay.id
+  route_key          = "GET ${each.value}"
+  target             = "integrations/${aws_apigatewayv2_integration.admin.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+resource "aws_lambda_permission" "apigw_admin" {
+  statement_id  = "AllowApiGwAdmin"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.admin.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.pay.execution_arn}/*/*"
+}
