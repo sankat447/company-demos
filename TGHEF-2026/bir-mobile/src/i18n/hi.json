@@ -439,6 +439,25 @@
     "dashboards": "डैशबोर्ड",
     "dashboardsSoon": "फेस्टिवल निगरानी — अगले अपडेट में।",
     "switchMode": "विज़िटर मोड पर जाएँ",
-    "signOut": "साइन आउट"
+    "signOut": "साइन आउट",
+    "scannerOpen": "QR चेक-इन — खोलने के लिए टैप करें"
+  },
+  "staffScan": {
+    "title": "स्कैनर",
+    "permissionNeeded": "पास स्कैन करने के लिए कैमरा अनुमति चाहिए।",
+    "grant": "कैमरा अनुमति दें",
+    "selectCheckpoint": "चेकपॉइंट",
+    "point": "कैमरा पास के QR पर रखें।",
+    "syncedCount": "सिंक · {{n}} पात्रताएँ",
+    "offlineSnapshot": "ऑफ़लाइन — पिछला सिंक किया डेटा।",
+    "pending": "{{count}} सिंक बाकी",
+    "at": "{{cp}} पर",
+    "vValid": "वैध",
+    "vNotEntitled": "इस चेकपॉइंट के लिए नहीं",
+    "vRevoked": "रद्द",
+    "vExpired": "समय समाप्त",
+    "vNotYetValid": "अभी वैध नहीं",
+    "vBadSignature": "अमान्य पास",
+    "vMalformed": "अपठनीय"
   }
 }

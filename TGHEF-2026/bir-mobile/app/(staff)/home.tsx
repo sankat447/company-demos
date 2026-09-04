@@ -5,7 +5,9 @@ import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { adminLogout, getAdminSession } from '@/auth/adminAuth';
+import { wipeStaffData } from '@/features/staffScan/sync';
 import { clearMode } from '@/mode/mode';
+import { kvStore } from '@/offline/db';
 import { ParagliderSpinner } from '@/ui/ParagliderSpinner';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
@@ -37,6 +39,7 @@ export default function StaffHome() {
   const s = session.data;
 
   const signOut = async () => {
+    await wipeStaffData(kvStore); // clear the entitlement snapshot + queued scans
     await adminLogout();
     router.replace('/(staff)/sign-in');
   };
@@ -56,11 +59,15 @@ export default function StaffHome() {
           </View>
         </View>
 
-        <View style={styles.card}>
+        <Pressable
+          style={styles.card}
+          onPress={() => router.push('/(staff)/scanner')}
+          accessibilityRole="button"
+        >
           <Text style={styles.cardIcon}>📷</Text>
           <Text style={styles.cardTitle}>{t('staff.scanner')}</Text>
-          <Text style={styles.cardDesc}>{t('staff.scannerSoon')}</Text>
-        </View>
+          <Text style={styles.cardDesc}>{t('staff.scannerOpen')}</Text>
+        </Pressable>
 
         <View style={styles.card}>
           <Text style={styles.cardIcon}>📊</Text>

@@ -439,6 +439,25 @@
     "dashboards": "Dashboards",
     "dashboardsSoon": "Festival monitoring — coming in the next update.",
     "switchMode": "Switch to Visitor mode",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "scannerOpen": "QR check-in — tap to open"
+  },
+  "staffScan": {
+    "title": "Scanner",
+    "permissionNeeded": "Camera access is needed to scan passes.",
+    "grant": "Grant camera access",
+    "selectCheckpoint": "Checkpoint",
+    "point": "Point the camera at a pass QR.",
+    "syncedCount": "Synced · {{n}} entitlements",
+    "offlineSnapshot": "Offline — using the last synced data.",
+    "pending": "{{count}} to sync",
+    "at": "at {{cp}}",
+    "vValid": "VALID",
+    "vNotEntitled": "NOT for this checkpoint",
+    "vRevoked": "REVOKED",
+    "vExpired": "EXPIRED",
+    "vNotYetValid": "NOT YET VALID",
+    "vBadSignature": "INVALID PASS",
+    "vMalformed": "UNREADABLE"
   }
 }
