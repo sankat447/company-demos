@@ -440,7 +440,8 @@
     "dashboardsSoon": "Festival monitoring — coming in the next update.",
     "switchMode": "Switch to Visitor mode",
     "signOut": "Sign out",
-    "scannerOpen": "QR check-in — tap to open"
+    "scannerOpen": "QR check-in — tap to open",
+    "dashboardsOpen": "Festival monitoring — tap to open"
   },
   "staffScan": {
     "title": "Scanner",
@@ -459,5 +460,42 @@
     "vNotYetValid": "NOT YET VALID",
     "vBadSignature": "INVALID PASS",
     "vMalformed": "UNREADABLE"
+  },
+  "staffDash": {
+    "title": "Dashboard",
+    "flyStatus": "Fly-status",
+    "registrations": "Registrations",
+    "needLodging": "{{n}} need lodging",
+    "revenue": "Revenue",
+    "scans": "Gate scans",
+    "revoked": "{{n}} revoked",
+    "stalls": "Stalls",
+    "rooms": "Rooms",
+    "volunteers": "Volunteers",
+    "incidents": "Incidents",
+    "faqs": "{{n}} FAQs",
+    "setFly": "Set fly-status",
+    "flying": "FLYING",
+    "hold": "HOLD",
+    "closed": "CLOSED",
+    "tab_visitors": "Visitors",
+    "tab_stalls": "Stalls",
+    "tab_lodging": "Lodging",
+    "tab_volunteers": "Volunteers",
+    "tab_incidents": "Incidents",
+    "activity": "Activity",
+    "count": "Count",
+    "stall": "Stall",
+    "stage": "Stage",
+    "fee": "Fee",
+    "hotel": "Hotel",
+    "beds": "Beds",
+    "name": "Name",
+    "team": "Team",
+    "shifts": "Shifts",
+    "category": "Category",
+    "zone": "Zone",
+    "note": "Note",
+    "allClear": "No incidents — all clear."
   }
 }

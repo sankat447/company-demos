@@ -69,11 +69,15 @@ export default function StaffHome() {
           <Text style={styles.cardDesc}>{t('staff.scannerOpen')}</Text>
         </Pressable>
 
-        <View style={styles.card}>
+        <Pressable
+          style={styles.card}
+          onPress={() => router.push('/(staff)/dashboard')}
+          accessibilityRole="button"
+        >
           <Text style={styles.cardIcon}>📊</Text>
           <Text style={styles.cardTitle}>{t('staff.dashboards')}</Text>
-          <Text style={styles.cardDesc}>{t('staff.dashboardsSoon')}</Text>
-        </View>
+          <Text style={styles.cardDesc}>{t('staff.dashboardsOpen')}</Text>
+        </Pressable>
 
         <Pressable style={styles.ghost} onPress={switchMode} accessibilityRole="button">
           <Text style={styles.ghostText}>{t('staff.switchMode')}</Text>

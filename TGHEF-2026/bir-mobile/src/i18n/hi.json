@@ -440,7 +440,8 @@
     "dashboardsSoon": "फेस्टिवल निगरानी — अगले अपडेट में।",
     "switchMode": "विज़िटर मोड पर जाएँ",
     "signOut": "साइन आउट",
-    "scannerOpen": "QR चेक-इन — खोलने के लिए टैप करें"
+    "scannerOpen": "QR चेक-इन — खोलने के लिए टैप करें",
+    "dashboardsOpen": "फेस्टिवल निगरानी — खोलने के लिए टैप करें"
   },
   "staffScan": {
     "title": "स्कैनर",
@@ -459,5 +460,42 @@
     "vNotYetValid": "अभी वैध नहीं",
     "vBadSignature": "अमान्य पास",
     "vMalformed": "अपठनीय"
+  },
+  "staffDash": {
+    "title": "डैशबोर्ड",
+    "flyStatus": "फ्लाई-स्टेटस",
+    "registrations": "पंजीकरण",
+    "needLodging": "{{n}} को आवास चाहिए",
+    "revenue": "राजस्व",
+    "scans": "गेट स्कैन",
+    "revoked": "{{n}} रद्द",
+    "stalls": "स्टॉल",
+    "rooms": "कमरे",
+    "volunteers": "स्वयंसेवक",
+    "incidents": "घटनाएँ",
+    "faqs": "{{n}} FAQ",
+    "setFly": "फ्लाई-स्टेटस सेट करें",
+    "flying": "उड़ान",
+    "hold": "रोक",
+    "closed": "बंद",
+    "tab_visitors": "आगंतुक",
+    "tab_stalls": "स्टॉल",
+    "tab_lodging": "आवास",
+    "tab_volunteers": "स्वयंसेवक",
+    "tab_incidents": "घटनाएँ",
+    "activity": "गतिविधि",
+    "count": "संख्या",
+    "stall": "स्टॉल",
+    "stage": "चरण",
+    "fee": "शुल्क",
+    "hotel": "होटल",
+    "beds": "बिस्तर",
+    "name": "नाम",
+    "team": "टीम",
+    "shifts": "शिफ्ट",
+    "category": "श्रेणी",
+    "zone": "ज़ोन",
+    "note": "टिप्पणी",
+    "allClear": "कोई घटना नहीं — सब ठीक है।"
   }
 }
