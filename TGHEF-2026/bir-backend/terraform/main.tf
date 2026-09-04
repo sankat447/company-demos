@@ -868,3 +868,50 @@ resource "aws_appsync_resolver" "set_fly_status" {
   request_template  = file("${path.module}/resolvers/lambda-invoke.req.vtl")
   response_template = file("${path.module}/resolvers/lambda-invoke.res.vtl")
 }
+
+# =====================================================================
+# Live-transition gap resolvers: schema fields the client calls that had no
+# resolver (would runtime-fail with mocks off). All VTL-direct on the table.
+#   myRegistrations (B1) · ticketTiers (P3.1) · scheduleDelta (P2.4) ·
+#   castVote (P3.2) · reportSos (P3.3)
+# =====================================================================
+resource "aws_appsync_resolver" "my_registrations" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "myRegistrations"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/my-registrations.req.vtl")
+  response_template = file("${path.module}/resolvers/my-registrations.res.vtl")
+}
+resource "aws_appsync_resolver" "ticket_tiers" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "ticketTiers"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/ticket-tiers.req.vtl")
+  response_template = file("${path.module}/resolvers/ticket-tiers.res.vtl")
+}
+resource "aws_appsync_resolver" "schedule_delta" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Query"
+  field             = "scheduleDelta"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/schedule-delta.req.vtl")
+  response_template = file("${path.module}/resolvers/schedule-delta.res.vtl")
+}
+resource "aws_appsync_resolver" "cast_vote" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "castVote"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/cast-vote.req.vtl")
+  response_template = file("${path.module}/resolvers/cast-vote.res.vtl")
+}
+resource "aws_appsync_resolver" "report_sos" {
+  api_id            = aws_appsync_graphql_api.main.id
+  type              = "Mutation"
+  field             = "reportSos"
+  data_source       = aws_appsync_datasource.ddb.name
+  request_template  = file("${path.module}/resolvers/report-sos.req.vtl")
+  response_template = file("${path.module}/resolvers/report-sos.res.vtl")
+}

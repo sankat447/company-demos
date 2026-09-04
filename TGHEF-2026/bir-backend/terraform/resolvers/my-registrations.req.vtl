@@ -1,0 +1,17 @@
+## B1 gap: myRegistrations — the signed-in visitor's own registrations. The
+## registration id (sort key) is reg:<sub>:<itemId>:<slot>, so a begins_with on
+## the caller's sub returns only their rows.
+#if($util.isNull($ctx.identity.sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "Query",
+  "query": {
+    "expression": "pk = :pk and begins_with(sk, :pfx)",
+    "expressionValues": {
+      ":pk": $util.dynamodb.toDynamoDBJson("REG"),
+      ":pfx": $util.dynamodb.toDynamoDBJson("reg:${ctx.identity.sub}:")
+    }
+  }
+}
