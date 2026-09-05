@@ -4,7 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { Redirect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { getAdminSession } from '@/auth/adminAuth';
 import { evaluateStaffScan, type StaffScanOutcome } from '@/features/staffScan/evaluate';
@@ -45,6 +45,8 @@ export default function StaffScanner() {
   const [selected, setSelected] = useState<string | null>(null);
   const [last, setLast] = useState<StaffScanOutcome | null>(null);
   const [syncMsg, setSyncMsg] = useState<string>('');
+  const [manual, setManual] = useState<string>('');
+  const [scanErr, setScanErr] = useState<string | null>(null);
   const selectedRef = useRef<string | null>(null);
   const busy = useRef(false);
 
@@ -90,9 +92,10 @@ export default function StaffScanner() {
 
   const onScan = useCallback(
     async (token: string) => {
+      if (busy.current || !token) return;
       const cp = selectedRef.current;
-      if (busy.current || !cp) return;
       busy.current = true;
+      setScanErr(null);
       try {
         const [jwks, revoked, snapshot] = await Promise.all([
           ensureFreshJwks(kvStore, Date.now()),
@@ -102,7 +105,8 @@ export default function StaffScanner() {
         const outcome = evaluateStaffScan(token, {
           jwks,
           nowSec: Math.floor(Date.now() / 1000),
-          checkpointId: cp,
+          // No checkpoint selected → treat as a gate (any valid pass passes).
+          checkpointId: cp ?? '',
           isRevoked: (jti) => revoked.has(jti),
           isEntitled: (sub, c) => isEntitled(snapshot, sub, c),
         });
@@ -112,18 +116,26 @@ export default function StaffScanner() {
             ? Haptics.NotificationFeedbackType.Success
             : Haptics.NotificationFeedbackType.Error,
         );
-        void recordScan(kvStore, {
-          qrToken: token,
-          checkpoint: cp,
-          ts: Math.floor(Date.now() / 1000),
-        }).then(() => pending.refetch());
+        // Only record a real gate scan when a checkpoint is chosen.
+        if (cp) {
+          void recordScan(kvStore, {
+            qrToken: token,
+            checkpoint: cp,
+            ts: Math.floor(Date.now() / 1000),
+          }).then(() => pending.refetch());
+        }
+      } catch (e) {
+        // Never fail silently — surface why (e.g. JWKS/network) so the operator
+        // isn't left staring at an unresponsive scanner.
+        setLast(null);
+        setScanErr(e instanceof Error ? e.message : t('staffScan.scanError'));
       } finally {
         setTimeout(() => {
           busy.current = false;
         }, 1400);
       }
     },
-    [pending],
+    [pending, t],
   );
 
   if (session.isLoading) {
@@ -179,7 +191,12 @@ export default function StaffScanner() {
         />
       </View>
 
-      {last ? (
+      {scanErr ? (
+        <View style={[styles.verdict, styles.verdictBad]}>
+          <Text style={styles.verdictText}>{t('staffScan.couldNotVerify')}</Text>
+          <Text style={styles.identity}>{scanErr}</Text>
+        </View>
+      ) : last ? (
         <View style={[styles.verdict, tone === 'ok' ? styles.verdictOk : styles.verdictBad]}>
           <Text style={styles.verdictText}>{t(V_KEY[last.verdict])}</Text>
           {last.identity && last.identity.name ? (
@@ -196,6 +213,36 @@ export default function StaffScanner() {
       ) : (
         <Text style={styles.hint}>{t('staffScan.point')}</Text>
       )}
+
+      {/* Manual entry — verify a pasted pass token. Lets the verdict be tested
+          without a working camera (e.g. on an emulator/simulator). */}
+      <View style={styles.manualWrap}>
+        <Text style={styles.manualLabel}>{t('staffScan.manualLabel')}</Text>
+        <View style={styles.manualRow}>
+          <TextInput
+            style={styles.manualInput}
+            value={manual}
+            onChangeText={setManual}
+            placeholder={t('staffScan.manualPlaceholder')}
+            placeholderTextColor={color.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            multiline
+          />
+          <Pressable
+            style={[styles.manualBtn, !manual.trim() && { opacity: 0.5 }]}
+            disabled={!manual.trim()}
+            onPress={() => {
+              const tk = manual.trim();
+              if (tk) void onScan(tk);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={t('staffScan.verify')}
+          >
+            <Text style={styles.manualBtnText}>{t('staffScan.verify')}</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <View style={styles.footer}>
         <Text style={styles.foot}>{syncMsg}</Text>
@@ -259,4 +306,33 @@ const styles = StyleSheet.create({
   atCheckpoint: { ...typeScale.caption, color: palette.ink, opacity: 0.8 },
   footer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md },
   foot: { ...typeScale.caption, color: color.textMuted },
+  manualWrap: { marginTop: spacing.md, gap: spacing.xs },
+  manualLabel: {
+    ...typeScale.caption,
+    color: palette.slate,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    fontWeight: '600',
+  },
+  manualRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'stretch' },
+  manualInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: color.cardBorder,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    minHeight: MIN_TOUCH_TARGET,
+    ...typeScale.caption,
+    color: color.text,
+    backgroundColor: '#FFFFFF',
+  },
+  manualBtn: {
+    backgroundColor: palette.pine,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    minHeight: MIN_TOUCH_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manualBtnText: { ...typeScale.body, color: '#FFFFFF', fontWeight: '600' },
 });
