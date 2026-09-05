@@ -87,7 +87,7 @@ const reg = (itemId, slot, needsLodging, nights) => {
     createdAt: now,
   }));
 };
-reg('tandem-flight', 'slot-d1-0800', true, [D1, D2]); // needs lodging → shows in admin pool
+reg('him-queen-2026', 'slot-d3-1500', true, [D1, D2]); // needs lodging → shows in admin pool
 reg('chef-local', 'slot-d2-1400', false, []);
 
 // 3) VOL/<sub> → My Roster (my shifts)
