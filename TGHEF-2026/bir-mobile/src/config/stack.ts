@@ -65,12 +65,13 @@ export function restUrl(path: string): string {
 }
 
 /**
- * JWKS for offline pass verification. The contract exports a path;
- * we resolve it against the REST origin (see docs/BACKEND_ASKS.md #2
- * asking the backend to confirm/export an absolute URL).
+ * JWKS for offline pass verification. The pass public keys are published as a
+ * static file on the CDN (storage.cdnDomain), NOT on the REST API origin — the
+ * API Gateway has no such route and 404s. Resolve the contract's jwksPath
+ * against the CDN so the scanner can actually fetch the keys.
  */
 export function jwksUrl(): string {
-  return `${restOrigin()}${stack.passes.jwksPath}`;
+  return cdnUrl(stack.passes.jwksPath);
 }
 
 export function cdnUrl(path: string): string {
