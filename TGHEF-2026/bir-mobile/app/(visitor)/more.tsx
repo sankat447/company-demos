@@ -7,7 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { signOutEverywhere } from '@/auth/otp';
 import { hasRole, useAuth } from '@/auth/useAuth';
 import { toggleLocale } from '@/i18n';
-import { clearMode } from '@/mode/mode';
+import { clearMode, setMode } from '@/mode/mode';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
 
@@ -54,13 +54,17 @@ export default function More() {
   const auth = useAuth();
   const channel = (Constants.expoConfig?.extra?.APP_CHANNEL as string) ?? 'development';
 
+  // Visitor "More" carries only PERSONAL things. Management (lodging, ops,
+  // schedule, stalls/volunteers across the festival, incidents, orders…) lives in
+  // the Staff dashboard + web console — reached via "Staff & organiser tools"
+  // below. Here we surface only a participant's own role views.
   const services: React.ReactNode[] = [];
-  if (hasRole(auth, 'volunteer') || hasRole(auth, 'organiser-lite')) {
+  if (hasRole(auth, 'volunteer')) {
     services.push(
       <Row
         key="roster"
         icon="🛡️"
-        label={t('tabs.roster')}
+        label={t('more.myShifts')}
         onPress={() => router.push('/(volunteer)/roster')}
       />,
     );
@@ -68,28 +72,23 @@ export default function More() {
   if (hasRole(auth, 'partner')) {
     services.push(
       <Row
-        key="stalls"
+        key="stall"
         icon="🍲"
-        label={t('tabs.stalls')}
+        label={t('more.myStall')}
         onPress={() => router.push('/(partner)/stalls')}
       />,
     );
   }
-  if (hasRole(auth, 'admin-hospitality')) {
-    services.push(
-      <Row
-        key="lodging"
-        icon="🏨"
-        label={t('lodging.title')}
-        onPress={() => router.push('/admin/lodging/rooms')}
-      />,
-    );
-  }
-  if (hasRole(auth, 'organiser-lite') || hasRole(auth, 'safety-officer')) {
-    services.push(
-      <Row key="ops" icon="📡" label={t('ops.title')} onPress={() => router.push('/admin/ops')} />,
-    );
-  }
+
+  // Anyone in the organiser family gets one entry into the management dashboard,
+  // instead of scattered admin links in the visitor surface.
+  const isStaff =
+    hasRole(auth, 'organiser-lite') ||
+    hasRole(auth, 'admin-hospitality') ||
+    hasRole(auth, 'safety-officer');
+  const openStaff = () => {
+    void setMode('staff').then(() => router.replace('/(staff)/sign-in'));
+  };
 
   return (
     <Screen title={t('tabs.more')}>
@@ -117,6 +116,12 @@ export default function More() {
                 ? React.cloneElement(node, { last: i === services.length - 1 } as { last: boolean })
                 : node,
             )}
+          </Group>
+        ) : null}
+
+        {isStaff ? (
+          <Group label={t('more.organiser')}>
+            <Row icon="🎛️" label={t('more.staffTools')} onPress={openStaff} last />
           </Group>
         ) : null}
 

@@ -44,13 +44,17 @@
     "more": "More"
   },
   "more": {
-    "services": "Services",
+    "services": "My participation",
     "profile": "Profile",
     "settings": "Settings",
     "accountTitle": "Festival account",
     "demoAccess": "Demo · all roles active",
     "visitorRole": "Visitor",
-    "switchMode": "Switch to Staff mode"
+    "switchMode": "Switch to Staff mode",
+    "myShifts": "My volunteer shifts",
+    "myStall": "My stall",
+    "organiser": "Organiser",
+    "staffTools": "Staff & organiser tools"
   },
   "intro": {
     "skip": "Skip",

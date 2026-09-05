@@ -44,13 +44,17 @@
     "more": "और"
   },
   "more": {
-    "services": "सेवाएँ",
+    "services": "मेरी भागीदारी",
     "profile": "प्रोफ़ाइल",
     "settings": "सेटिंग्स",
     "accountTitle": "महोत्सव खाता",
     "demoAccess": "डेमो · सभी भूमिकाएँ सक्रिय",
     "visitorRole": "आगंतुक",
-    "switchMode": "स्टाफ़ मोड पर जाएँ"
+    "switchMode": "स्टाफ़ मोड पर जाएँ",
+    "myShifts": "मेरी वॉलंटियर शिफ़्ट",
+    "myStall": "मेरा स्टॉल",
+    "organiser": "आयोजक",
+    "staffTools": "स्टाफ़ और आयोजक टूल"
   },
   "intro": {
     "skip": "छोड़ें",
