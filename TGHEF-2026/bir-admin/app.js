@@ -101,7 +101,7 @@ let currentView = 'overview';
 const TITLES = {
   overview: 'Overview', visitors: 'Visitors & tickets', incidents: 'Incidents',
   schedule: 'Schedule', stalls: 'Stalls', lodging: 'Lodging', volunteers: 'Volunteers',
-  fly: 'Fly-status', announce: 'Announcements', kb: 'Knowledge & AI',
+  getapp: 'Get the app', fly: 'Fly-status', announce: 'Announcements', kb: 'Knowledge & AI',
   passes: 'Passes', orders: 'Orders', refunds: 'Refunds', pricing: 'Prices', people: 'People', admins: 'Admins',
   catalog: 'Catalog & gates', wristbands: 'Wristbands', audit: 'Audit log',
 };
@@ -450,6 +450,56 @@ VIEWS.fly = async (v) => {
       </div>
     </div>`;
   wireFlyButtons(v);
+};
+
+// Distribution: give admins one place to grab / share the app install page.
+VIEWS.getapp = async (v) => {
+  const base = location.origin;
+  const landing = base + '/get/index.html';
+  const apk = base + '/android/latest.apk';
+  let meta = 'checking…';
+  try {
+    const r = await fetch('/android/latest.json?t=' + Date.now(), { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      const mb = j.sizeBytes ? (j.sizeBytes / 1048576).toFixed(1) + ' MB' : '';
+      meta = 'v' + (j.version || '?') + (mb ? ' · ' + mb : '') + (j.sha256 ? ' · SHA-256 ' + j.sha256.slice(0, 12) + '…' : '');
+    } else { meta = 'APK not published to the landing page yet'; }
+  } catch { meta = 'unknown'; }
+  const QR = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 35 35" shape-rendering="crispEdges" style="width:100%;height:auto"><path stroke="#17232B" d="M1 1.5h7m2 0h1m2 0h3m1 0h2m1 0h3m1 0h1m2 0h7M1 2.5h1m5 0h1m2 0h1m2 0h4m1 0h1m2 0h3m1 0h1m1 0h1m5 0h1M1 3.5h1m1 0h3m1 0h1m1 0h6m2 0h3m1 0h2m1 0h2m1 0h1m1 0h3m1 0h1M1 4.5h1m1 0h3m1 0h1m1 0h2m2 0h1m1 0h3m5 0h1m1 0h1m1 0h1m1 0h3m1 0h1M1 5.5h1m1 0h3m1 0h1m1 0h3m4 0h1m2 0h1m2 0h1m1 0h1m2 0h1m1 0h3m1 0h1M1 6.5h1m5 0h1m1 0h1m2 0h3m1 0h3m4 0h1m1 0h1m1 0h1m5 0h1M1 7.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M9 8.5h1m1 0h1m4 0h1m2 0h1m1 0h2m1 0h1M1 9.5h1m1 0h5m2 0h1m3 0h3m1 0h4m2 0h1m2 0h5M1 10.5h1m2 0h1m1 0h1m2 0h2m1 0h1m4 0h1m1 0h7m1 0h2m1 0h2m1 0h1M1 11.5h4m2 0h1m1 0h2m1 0h2m2 0h1m2 0h1m1 0h3m2 0h1m2 0h1m1 0h1M3 12.5h1m1 0h2m1 0h2m1 0h3m1 0h3m2 0h1m1 0h3m1 0h2m1 0h3M1 13.5h1m1 0h2m2 0h2m1 0h3m3 0h1m2 0h2m2 0h1m1 0h2m1 0h3m1 0h1M3 14.5h1m5 0h4m2 0h4m1 0h5m2 0h1m2 0h1m1 0h2M3 15.5h5m1 0h1m1 0h5m2 0h1m2 0h3m2 0h2m1 0h1m2 0h1M1 16.5h1m3 0h2m1 0h1m1 0h1m1 0h2m3 0h1m1 0h1m1 0h2m2 0h3m1 0h3M1 17.5h1m3 0h7m1 0h1m1 0h1m2 0h1m1 0h1m2 0h2m1 0h1m1 0h2m3 0h1M1 18.5h2m2 0h1m3 0h1m1 0h1m3 0h1m1 0h5m2 0h2m1 0h2m1 0h4M1 19.5h1m5 0h2m1 0h1m2 0h1m2 0h3m2 0h2m3 0h1m1 0h2m1 0h2M1 20.5h2m1 0h2m4 0h2m1 0h10m1 0h3m1 0h4m1 0h1M3 21.5h1m1 0h1m1 0h1m2 0h3m1 0h1m1 0h2m7 0h2m1 0h3m1 0h2M1 22.5h1m2 0h1m1 0h1m2 0h3m2 0h3m2 0h4m1 0h1m1 0h3m1 0h1m2 0h1M1 23.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m1 0h4m6 0h1m1 0h1m3 0h1M1 24.5h1m1 0h2m4 0h2m5 0h1m4 0h4m5 0h2M1 25.5h1m2 0h1m2 0h1m1 0h1m1 0h2m2 0h4m2 0h1m1 0h7m2 0h1M9 26.5h1m1 0h1m2 0h1m2 0h1m1 0h3m2 0h2m3 0h1m1 0h1m1 0h1M1 27.5h7m3 0h4m1 0h2m1 0h1m3 0h3m1 0h1m1 0h1m1 0h2M1 28.5h1m5 0h1m1 0h2m1 0h1m1 0h1m2 0h1m2 0h3m1 0h2m3 0h5M1 29.5h1m1 0h3m1 0h1m1 0h1m1 0h2m6 0h1m1 0h1m1 0h1m1 0h6m1 0h2M1 30.5h1m1 0h3m1 0h1m1 0h1m2 0h1m2 0h4m1 0h2m2 0h2m3 0h5M1 31.5h1m1 0h3m1 0h1m1 0h1m3 0h1m1 0h1m6 0h1m2 0h4m1 0h2M1 32.5h1m5 0h1m2 0h1m1 0h2m1 0h1m1 0h1m1 0h1m2 0h1m3 0h1m2 0h3M1 33.5h7m1 0h3m2 0h2m2 0h1m1 0h2m1 0h1m1 0h1m2 0h1m1 0h1m1 0h1"/></svg>';
+  v.innerHTML = `
+    <div class="grid g-2">
+      <div class="card" style="text-align:center">
+        <div class="section-title">Poster QR</div>
+        <div style="max-width:210px;margin:10px auto;background:#fff;padding:14px;border-radius:12px;box-shadow:0 2px 10px -6px rgba(23,35,43,.35)">${QR}</div>
+        <p class="hint">Scan to open the install page — print it on gate &amp; hotel posters.</p>
+      </div>
+      <div class="card">
+        <div class="section-title">Distribution links</div>
+        <div class="stack">
+          <label class="field"><span>Install landing page</span>
+            <div class="row"><input id="ga-landing" value="${landing}" readonly style="flex:1"><button class="btn ghost" id="ga-copy-landing">Copy</button></div></label>
+          <label class="field"><span>Direct APK download</span>
+            <div class="row"><input id="ga-apk" value="${apk}" readonly style="flex:1"><button class="btn ghost" id="ga-copy-apk">Copy</button></div></label>
+          <p class="mono" style="color:var(--faint);font-size:12px;margin:0">Current build: ${meta}</p>
+          <div class="row">
+            <a class="btn primary" href="${landing}" target="_blank" rel="noopener">Open landing page ↗</a>
+            <a class="btn ghost" href="${apk}">Download APK</a>
+          </div>
+          <p class="hint">Visitors install via the QR, then sign in with any phone number and OTP <b>000000</b> (demo). The seeded account <b>+91 90000 00001</b> has a full pass, registrations, roster &amp; stall.</p>
+        </div>
+      </div>
+    </div>`;
+  const copy = (id, srcId) => {
+    const b = $('#' + id); if (!b) return;
+    b.addEventListener('click', () => {
+      const t = $('#' + srcId).value;
+      if (navigator.clipboard) navigator.clipboard.writeText(t);
+      const p = b.textContent; b.textContent = '✓'; setTimeout(() => { b.textContent = p; }, 1200);
+    });
+  };
+  copy('ga-copy-landing', 'ga-landing');
+  copy('ga-copy-apk', 'ga-apk');
 };
 
 VIEWS.kb = async (v) => {
