@@ -1,0 +1,20 @@
+## P3.2 gap: castVote — audience-favourite vote. The app's idempotencyKey is the
+## sort key (one vote per user per event), so a re-drained queue entry upserts
+## the same row.
+#if($util.isNull($ctx.identity.sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "PutItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("VOTE"),
+    "sk": $util.dynamodb.toDynamoDBJson($ctx.args.input.idempotencyKey)
+  },
+  "attributeValues": {
+    "eventId": $util.dynamodb.toDynamoDBJson($ctx.args.input.eventId),
+    "category": $util.dynamodb.toDynamoDBJson($ctx.args.input.category),
+    "sub": $util.dynamodb.toDynamoDBJson($ctx.identity.sub),
+    "votedAt": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds())
+  }
+}

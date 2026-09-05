@@ -1,0 +1,10 @@
+## P3.1 gap: ticketTiers — public list of ticket tiers (pk = TIER). Pricing on
+## the server (create-order) is authoritative; this is the display list.
+{
+  "version": "2018-05-29",
+  "operation": "Query",
+  "query": {
+    "expression": "pk = :pk",
+    "expressionValues": { ":pk": $util.dynamodb.toDynamoDBJson("TIER") }
+  }
+}

@@ -51,7 +51,7 @@ const NOW_MS = 1_763_700_000_000;
 describe('demo mode', () => {
   it('only the demo OTP opens a session', async () => {
     const { deps, kv } = fakeDeps();
-    expect(await tryDemoOtp(deps, '000000', NOW_MS)).toBe(false);
+    expect(await tryDemoOtp(deps, '123456', NOW_MS)).toBe(false); // not the demo code
     expect(await isDemoSession(kv)).toBe(false);
 
     expect(await tryDemoOtp(deps, DEMO_OTP, NOW_MS)).toBe(true);

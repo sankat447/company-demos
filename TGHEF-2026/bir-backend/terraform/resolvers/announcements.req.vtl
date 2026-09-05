@@ -1,0 +1,9 @@
+## Festival-wide notices — active announcements for any signed-in user.
+{
+  "version": "2018-05-29",
+  "operation": "Query",
+  "query": {
+    "expression": "pk = :p",
+    "expressionValues": { ":p": $util.dynamodb.toDynamoDBJson("ANNOUNCE") }
+  }
+}

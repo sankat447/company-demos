@@ -1,0 +1,15 @@
+## B2c: lodgingRooms — admin-hospitality guarded (IAM callers trusted).
+#if($util.isNull($ctx.identity.userArn))
+  #set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+  #if(!$groups.contains("admin-hospitality"))
+    $util.unauthorized()
+  #end
+#end
+{
+  "version": "2018-05-29",
+  "operation": "Query",
+  "query": {
+    "expression": "pk = :pk",
+    "expressionValues": { ":pk": $util.dynamodb.toDynamoDBJson("ROOM") }
+  }
+}

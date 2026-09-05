@@ -1,0 +1,18 @@
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+#set($out = [])
+#foreach($it in $ctx.result.items)
+#if($it.active != false)
+$util.qr($out.add({
+  "id": $it.sk,
+  "titleEn": $it.titleEn,
+  "titleHi": $it.titleHi,
+  "bodyEn": $it.bodyEn,
+  "bodyHi": $it.bodyHi,
+  "level": $util.defaultIfNull($it.level, "info"),
+  "updatedAt": $it.updatedAt
+}))
+#end
+#end
+$util.toJson($out)

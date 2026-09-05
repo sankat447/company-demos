@@ -1,0 +1,21 @@
+## P3.3 gap: reportSos — one consented location report per SOS. The dialer call
+## is the primary action (connectivity-independent); this row is the backend
+## record. Idempotent on the app's key.
+#if($util.isNull($ctx.identity.sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "PutItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("SOS"),
+    "sk": $util.dynamodb.toDynamoDBJson($ctx.args.input.idempotencyKey)
+  },
+  "attributeValues": {
+    "lat": $util.dynamodb.toDynamoDBJson($ctx.args.input.lat),
+    "lng": $util.dynamodb.toDynamoDBJson($ctx.args.input.lng),
+    "ts": $util.dynamodb.toDynamoDBJson($ctx.args.input.ts),
+    "sub": $util.dynamodb.toDynamoDBJson($ctx.identity.sub),
+    "reportedAt": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds())
+  }
+}

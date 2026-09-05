@@ -1,0 +1,6 @@
+## Return the check-in rows as [PartnerCheckIn] ({regId, checkedIn}); extra
+## attributes (at) are ignored by the schema selection set.
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+$util.toJson($ctx.result.items)

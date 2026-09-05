@@ -19,16 +19,31 @@
     "flags"
   ],
   "properties": {
-    "region": { "type": "string", "minLength": 1 },
+    "region": {
+      "type": "string",
+      "minLength": 1
+    },
     "auth": {
       "type": "object",
       "additionalProperties": false,
       "required": ["userPoolId", "userPoolClientId", "identityPoolId", "otpChannel"],
       "properties": {
-        "userPoolId": { "type": "string", "minLength": 1 },
-        "userPoolClientId": { "type": "string", "minLength": 1 },
-        "identityPoolId": { "type": "string", "minLength": 1 },
-        "otpChannel": { "type": "string", "enum": ["sms"] }
+        "userPoolId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "userPoolClientId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identityPoolId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "otpChannel": {
+          "type": "string",
+          "enum": ["sms"]
+        }
       }
     },
     "api": {
@@ -36,9 +51,21 @@
       "additionalProperties": false,
       "required": ["graphqlEndpoint", "graphqlRealtime", "restBase"],
       "properties": {
-        "graphqlEndpoint": { "type": "string", "format": "uri", "pattern": "^https://" },
-        "graphqlRealtime": { "type": "string", "format": "uri", "pattern": "^wss://" },
-        "restBase": { "type": "string", "format": "uri", "pattern": "^https://" }
+        "graphqlEndpoint": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "graphqlRealtime": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^wss://"
+        },
+        "restBase": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        }
       }
     },
     "storage": {
@@ -46,10 +73,22 @@
       "additionalProperties": false,
       "required": ["mediaBucket", "cdnDomain", "appDistBucket", "appDistDomain"],
       "properties": {
-        "mediaBucket": { "type": "string", "minLength": 1 },
-        "cdnDomain": { "type": "string", "minLength": 1 },
-        "appDistBucket": { "type": "string", "minLength": 1 },
-        "appDistDomain": { "type": "string", "minLength": 1 }
+        "mediaBucket": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cdnDomain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "appDistBucket": {
+          "type": "string",
+          "minLength": 1
+        },
+        "appDistDomain": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "push": {
@@ -57,8 +96,14 @@
       "additionalProperties": false,
       "required": ["pinpointAppId", "fcmSenderId"],
       "properties": {
-        "pinpointAppId": { "type": "string", "minLength": 1 },
-        "fcmSenderId": { "type": "string", "minLength": 1 }
+        "pinpointAppId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fcmSenderId": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "ai": {
@@ -66,10 +111,22 @@
       "additionalProperties": false,
       "required": ["assistantPath", "plannerPath", "translatePath", "queuePredictPath"],
       "properties": {
-        "assistantPath": { "type": "string", "pattern": "^/" },
-        "plannerPath": { "type": "string", "pattern": "^/" },
-        "translatePath": { "type": "string", "pattern": "^/" },
-        "queuePredictPath": { "type": "string", "pattern": "^/" }
+        "assistantPath": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "plannerPath": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "translatePath": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "queuePredictPath": {
+          "type": "string",
+          "pattern": "^/"
+        }
       }
     },
     "payments": {
@@ -77,9 +134,29 @@
       "additionalProperties": false,
       "required": ["provider", "orderPath", "webhookVerified"],
       "properties": {
-        "provider": { "type": "string", "enum": ["razorpay", "cashfree"] },
-        "orderPath": { "type": "string", "pattern": "^/" },
-        "webhookVerified": { "type": "boolean", "const": true }
+        "provider": {
+          "type": "string",
+          "enum": ["razorpay", "cashfree", "paytm"]
+        },
+        "orderPath": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "webhookVerified": {
+          "type": "boolean",
+          "const": true
+        },
+        "paytm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["environment"],
+          "properties": {
+            "environment": {
+              "type": "string",
+              "enum": ["staging", "prod"]
+            }
+          }
+        }
       }
     },
     "passes": {
@@ -87,9 +164,18 @@
       "additionalProperties": false,
       "required": ["issuerKid", "jwksPath", "alg"],
       "properties": {
-        "issuerKid": { "type": "string", "minLength": 1 },
-        "jwksPath": { "type": "string", "pattern": "^/" },
-        "alg": { "type": "string", "enum": ["ES256"] }
+        "issuerKid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "jwksPath": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "alg": {
+          "type": "string",
+          "enum": ["ES256"]
+        }
       }
     },
     "realtime": {
@@ -97,7 +183,10 @@
       "additionalProperties": false,
       "required": ["alertTopicArnParam"],
       "properties": {
-        "alertTopicArnParam": { "type": "string", "minLength": 1 }
+        "alertTopicArnParam": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "geo": {
@@ -105,24 +194,50 @@
       "additionalProperties": false,
       "required": ["geofenceCollection", "shuttleTrackerName"],
       "properties": {
-        "geofenceCollection": { "type": "string", "minLength": 1 },
-        "shuttleTrackerName": { "type": "string", "minLength": 1 }
+        "geofenceCollection": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shuttleTrackerName": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "flags": {
       "type": "object",
       "required": ["festivalMode", "experiencesMarketplace"],
       "properties": {
-        "festivalMode": { "type": "boolean" },
-        "experiencesMarketplace": { "type": "boolean" }
+        "festivalMode": {
+          "type": "boolean"
+        },
+        "experiencesMarketplace": {
+          "type": "boolean"
+        }
       },
-      "additionalProperties": { "type": "boolean" }
+      "additionalProperties": {
+        "type": "boolean"
+      }
     },
     "observability": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "sentryDsn": { "type": "string", "format": "uri" }
+        "sentryDsn": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "highlights": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "catalogPath": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        }
       }
     }
   }

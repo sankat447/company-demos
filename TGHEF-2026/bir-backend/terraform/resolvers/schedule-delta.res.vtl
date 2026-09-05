@@ -1,0 +1,15 @@
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+#set($items = [])
+#set($cursor = 0)
+#foreach($it in $ctx.result.items)
+  #set($row = { "id": $it.sk, "day": $it.day, "titleEn": $it.titleEn, "titleHi": $it.titleHi })
+  #if(!$util.isNull($it.venue)) $util.qr($row.put("venue", $it.venue)) #end
+  #if(!$util.isNull($it.startsAt)) $util.qr($row.put("startsAt", $it.startsAt)) #end
+  #if(!$util.isNull($it.endsAt)) $util.qr($row.put("endsAt", $it.endsAt)) #end
+  #if(!$util.isNullOrEmpty($it.data)) $util.qr($row.put("data", $util.parseJson($it.data))) #end
+  $util.qr($items.add($row))
+  #if(!$util.isNull($it.startsAt) && $it.startsAt > $cursor) #set($cursor = $it.startsAt) #end
+#end
+$util.toJson({ "items": $items, "cursor": $cursor })

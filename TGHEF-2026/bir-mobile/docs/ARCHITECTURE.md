@@ -10,6 +10,19 @@ App Store and direct-QR channels without ever provisioning backend resources its
 
 ---
 
+> **Implementation update (2026-09-03).** The AWS backend called "the existing stack"
+> throughout this document is now implemented and deployed as the sibling **`bir-backend`**
+> Terraform project (`../bir-backend` in this repo), account **406337554361**, region
+> **us-east-1**. It is a DynamoDB **single-table** design (`pk`/`sk` + one GSI) — not
+> Aurora; see `bir-backend/` and the data-model reference. What does **not** change: the
+> mobile client's contract coupling (§2), its security model (§5), and the "never provision
+> from `bir-mobile`" rule (§8) — provisioning lives in `bir-backend` (Terraform), the mobile
+> repo still only consumes the contract. **Current state:** infra is live; AppSync resolvers
+> and Lambda bodies are being wired, so the client runs on `flags.mock*` fixtures until each
+> domain's resolver lands (Track B in IMPLEMENTATION_PLAN.md). The contract example below
+> still shows `ap-south-1` as an illustrative placeholder; the deployed stack emits its real
+> values (us-east-1) into `config/stack-outputs.json` via `bir-backend`'s deploy.
+
 ## 1. System context
 
 The app is the festival's mobile client for the three festival days and the close-out
@@ -22,12 +35,12 @@ flowchart LR
     OFF[(SQLite offline store\n+ outbox)]
   end
 
-  subgraph AWS["EXISTING AWS STACK (other project — consumed, never created)"]
+  subgraph AWS["AWS BACKEND — sibling bir-backend Terraform project (consumed by the app, never provisioned from it)"]
     COG[Cognito User Pool\n+ Identity Pool]
     GQL[AppSync GraphQL\nqueries/mutations/subscriptions]
     REST[API Gateway REST\npayments · AI endpoints]
     L[Lambda services]
-    DB[(DynamoDB / Aurora)]
+    DB[(DynamoDB single-table\npk/sk + GSI1)]
     S3[(S3: media, passes,\napp-distribution bucket)]
     CF[CloudFront\n+ Route53 domain]
     PIN[Pinpoint / SNS\nFCM · APNs]
@@ -216,9 +229,11 @@ in design.
 
 ---
 
-## 8. What Claude Code must NOT do
+## 8. What Claude Code must NOT do (in the `bir-mobile` client)
 
-- Create/modify any AWS resource, IAM policy, or Amplify backend.
+- Create/modify any AWS resource, IAM policy, or Amplify backend **from `bir-mobile`** —
+  all provisioning lives in the `bir-backend` Terraform project; the client only consumes
+  the contract.
 - Add analytics/ads SDKs, or any dependency phoning home outside the contract domains.
 - Store PII in SQLite beyond `{sub, displayName, role, phone-masked}`.
 - Bypass the payments webhook-confirmation pattern "to simplify testing".

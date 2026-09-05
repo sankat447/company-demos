@@ -1,0 +1,27 @@
+## B5: confirmOrder — SERVER-ONLY (the payment webhook, IAM). Persists the
+## order's CONFIRMED status + minted passTokens; being the @aws_subscribe
+## trigger for onOrderConfirmed, invoking it fans the tokens out to the app.
+## Any non-IAM (Cognito) caller is rejected — the app never self-confirms.
+#if($util.isNull($ctx.identity.userArn))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "UpdateItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("ORDER"),
+    "sk": $util.dynamodb.toDynamoDBJson($ctx.args.orderId)
+  },
+  "update": {
+    "expression": "SET #s = :s, passTokens = :p, confirmedAt = :t",
+    "expressionNames": { "#s": "status" },
+    "expressionValues": {
+      ":s": $util.dynamodb.toDynamoDBJson($ctx.args.status),
+      ":p": $util.dynamodb.toDynamoDBJson($util.defaultIfNull($ctx.args.passTokens, [])),
+      ":t": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds())
+    }
+  },
+  "condition": {
+    "expression": "attribute_exists(pk)"
+  }
+}

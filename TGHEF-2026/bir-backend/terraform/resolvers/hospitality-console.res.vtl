@@ -1,0 +1,11 @@
+## Return the partner's hospitality console as-is. allocations is stored as a
+## native list of maps; AppSync coerces it to the AWSJSON scalar (a JSON string)
+## the client parses. Occupant names are partner-facing here (their own guests),
+## never gender (§5). Fields mirror HospitalityConsole.
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+#if($util.isNull($ctx.result))
+  $util.error("no hospitality console for this account", "NotFound")
+#end
+$util.toJson($ctx.result)

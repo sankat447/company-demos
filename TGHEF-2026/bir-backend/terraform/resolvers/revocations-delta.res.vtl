@@ -1,0 +1,14 @@
+## Return {items:[{jti,revokedAt}], cursor}. cursor = the newest revokedAt seen
+## (or `since` when the page is empty) so the next pull fetches only newer rows.
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+#set($items = [])
+#set($cursor = $util.defaultIfNull($ctx.args.since, 0))
+#foreach($it in $ctx.result.items)
+  $util.qr($items.add({ "jti": $it.jti, "revokedAt": $it.revokedAt }))
+  #if($it.revokedAt > $cursor)
+    #set($cursor = $it.revokedAt)
+  #end
+#end
+{ "items": $util.toJson($items), "cursor": $cursor }

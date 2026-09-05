@@ -1,0 +1,11 @@
+## Return the partner's stall console as-is. analytics is stored as a native
+## list of maps; AppSync coerces it to the AWSJSON scalar (a JSON string) that
+## the client parses. Fields mirror StallConsole (stallName/category/stage/
+## allocationLabel/feeInr/paid/analytics/rules/rulesHi).
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+#if($util.isNull($ctx.result))
+  $util.error("no stall console for this account", "NotFound")
+#end
+$util.toJson($ctx.result)

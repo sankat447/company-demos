@@ -69,22 +69,43 @@ const MIGRATIONS: string[] = [
 ];
 
 let db: SQLite.SQLiteDatabase | null = null;
+let opening: Promise<SQLite.SQLiteDatabase> | null = null;
 
+/**
+ * Open + migrate exactly once, even under concurrent callers. Memoising only
+ * the handle (not the in-flight promise) let a startup burst — useAuth, the
+ * catalog + fly-status queries, the outbox drain — each open the file and run
+ * the migration in an exclusive transaction at the same time, racing to
+ * SQLITE_BUSY ("database is locked"). That transient surfaced as random auth
+ * drops (the demo session read threw → treated as signed-out) and failed
+ * registrations. Memoise the promise so everyone awaits one open; a failed
+ * open clears the latch so the next call retries. busy_timeout is a second
+ * belt: brief contention waits instead of throwing.
+ */
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
-  const opened = await SQLite.openDatabaseAsync('bir.db');
-  await opened.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
-  const row = await opened.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  let version = row?.user_version ?? 0;
-  while (version < MIGRATIONS.length) {
-    await opened.withExclusiveTransactionAsync(async (tx) => {
-      await tx.execAsync(MIGRATIONS[version]);
-      await tx.execAsync(`PRAGMA user_version = ${version + 1}`);
+  if (!opening) {
+    opening = (async () => {
+      const opened = await SQLite.openDatabaseAsync('bir.db');
+      await opened.execAsync(
+        'PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;',
+      );
+      const row = await opened.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+      let version = row?.user_version ?? 0;
+      while (version < MIGRATIONS.length) {
+        await opened.withExclusiveTransactionAsync(async (tx) => {
+          await tx.execAsync(MIGRATIONS[version]);
+          await tx.execAsync(`PRAGMA user_version = ${version + 1}`);
+        });
+        version += 1;
+      }
+      db = opened;
+      return opened;
+    })().finally(() => {
+      opening = null;
     });
-    version += 1;
   }
-  db = opened;
-  return db;
+  return opening;
 }
 
 /** kv-table backed store, used by JWKS cache, sync cursors and locale pref. */

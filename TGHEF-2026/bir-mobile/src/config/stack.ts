@@ -31,12 +31,19 @@ export interface StackContract {
     translatePath: string;
     queuePredictPath: string;
   };
-  payments: { provider: 'razorpay' | 'cashfree'; orderPath: string; webhookVerified: true };
+  payments: {
+    provider: 'razorpay' | 'cashfree' | 'paytm';
+    orderPath: string;
+    webhookVerified: true;
+    paytm?: { environment: 'staging' | 'prod' };
+  };
   passes: { issuerKid: string; jwksPath: string; alg: 'ES256' };
   realtime: { alertTopicArnParam: string };
   geo: { geofenceCollection: string; shuttleTrackerName: string };
   flags: { festivalMode: boolean; experiencesMarketplace: boolean } & Record<string, boolean>;
   observability?: { sentryDsn?: string };
+  /** CO-002 / B1: server-driven Highlights catalog (absolute CDN URL). */
+  highlights?: { catalogPath?: string };
 }
 
 const stack = raw as unknown as StackContract;
@@ -58,14 +65,24 @@ export function restUrl(path: string): string {
 }
 
 /**
- * JWKS for offline pass verification. The contract exports a path;
- * we resolve it against the REST origin (see docs/BACKEND_ASKS.md #2
- * asking the backend to confirm/export an absolute URL).
+ * JWKS for offline pass verification. The pass public keys are published as a
+ * static file on the CDN (storage.cdnDomain), NOT on the REST API origin — the
+ * API Gateway has no such route and 404s. Resolve the contract's jwksPath
+ * against the CDN so the scanner can actually fetch the keys.
  */
 export function jwksUrl(): string {
-  return `${restOrigin()}${stack.passes.jwksPath}`;
+  return cdnUrl(stack.passes.jwksPath);
 }
 
 export function cdnUrl(path: string): string {
   return `https://${stack.storage.cdnDomain}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
+/**
+ * Absolute URL of the server-driven Highlights catalog (B1). Prefers the
+ * contract's `highlights.catalogPath` when present; otherwise resolves the
+ * conventional CDN key so a stack that hasn't exported the path yet still works.
+ */
+export function highlightsCatalogUrl(): string {
+  return stack.highlights?.catalogPath ?? cdnUrl('/config/highlights/catalog.json');
 }

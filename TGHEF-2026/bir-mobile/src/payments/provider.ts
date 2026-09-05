@@ -8,15 +8,23 @@
 import { restPost } from '@/api/rest';
 import { getStack } from '@/config/stack';
 
+import { paytmProvider } from './providers/paytm';
 import { razorpayProvider } from './providers/razorpay';
 
 export interface PaymentOrder {
   orderId: string;
-  /** Provider-side token/order reference handed to the checkout SDK. */
+  /** Provider-side token/order reference handed to the checkout SDK
+   *  (Paytm: the txnToken; Razorpay: the order id). */
   providerOrderRef: string;
   amountInr: number;
-  /** Provider public key id for the checkout sheet (BACKEND_ASKS #14). */
+  /** Razorpay public key id for the checkout sheet (BACKEND_ASKS #14). */
   providerKeyId?: string;
+  /** Paytm merchant id (public; the merchant KEY never leaves the backend). */
+  mid?: string;
+  /** Paytm gateway environment for the SDK (staging vs prod). */
+  environment?: 'staging' | 'prod';
+  /** Server-to-server callback the SDK reports completion to. */
+  callbackUrl?: string;
 }
 
 export interface CheckoutOutcome {
@@ -25,7 +33,7 @@ export interface CheckoutOutcome {
 }
 
 export interface PaymentProvider {
-  readonly name: 'razorpay' | 'cashfree';
+  readonly name: 'razorpay' | 'cashfree' | 'paytm';
   openCheckout(
     order: PaymentOrder,
     opts: { phone: string; locale: string },
@@ -44,6 +52,7 @@ export async function createOrder(input: {
 
 export function getPaymentProvider(): PaymentProvider {
   const which = getStack().payments.provider;
+  if (which === 'paytm') return paytmProvider;
   if (which === 'razorpay') return razorpayProvider;
   throw new Error(`payment provider not implemented: ${which} — see docs/BACKEND_ASKS.md`);
 }
