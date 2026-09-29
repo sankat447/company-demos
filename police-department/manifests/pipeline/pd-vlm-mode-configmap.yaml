@@ -51,3 +51,6 @@ data:
   frames: "16"
   resolution: "1280"
   jpeg_quality: "2"
+  # Tracker/pose/weapon/action sampling rate for the CV stack (was a hard-coded 8).
+  # Muzzle-flash detection additionally scans the raw video at its native fps (flash-hr step).
+  cv_fps: "15"

@@ -169,7 +169,34 @@ spec:
           print(f"[structure] BGE-small cached: {sum(1 for _ in os.scandir(bge_local))} entries")
       print(f"[structure] loading BGE-small from {bge_local}...")
       embedder = SentenceTransformer(bge_local)
-      embedding = embedder.encode(narration.prose, normalize_embeddings=True).tolist()
+      # CV-derived findings are indexed directly: the caption model can omit or
+      # soften a shooting, but .events.json (event-fusion + shots-fusion) is
+      # machine evidence and must stay searchable on its own.
+      cv_events, cv_lines = [], []
+      try:
+          fused = json.loads((WORK / ".events.json").read_text())
+      except (OSError, ValueError):
+          fused = {}
+      shots = fused.get("shots_fired") or {}
+      tier_conf = {"HIGH": 0.9, "MEDIUM": 0.6}
+      for c in shots.get("candidates") or []:
+          if c.get("tier") in tier_conf:
+              who = f"; suspected shooter track {c['suspected_shooter_track']}" if c.get("suspected_shooter_track") is not None else ""
+              cv_events.append((c["sec"], c["sec"], f"[CV] Suspected gunshot ({c['tier']}): {'; '.join(c.get('evidence') or [])}{who}", tier_conf[c["tier"]]))
+      if shots.get("assessment") in ("LIKELY", "POSSIBLE"):
+          times = ", ".join(f"{c['sec']}s" for c in shots.get("candidates") or [] if c.get("tier") in tier_conf)
+          cv_lines.append(f"Shots fired assessment: {shots['assessment']} (suspected gunshots / gunfire at {times}). "
+                          + " ".join(shots.get("caveats") or []))
+      for tid, t in (fused.get("per_track") or {}).items():
+          v = t.get("verdict") or {}
+          if v.get("role") in ("ARMED_SUBJECT", "VICTIM"):
+              label = "Armed subject" if v["role"] == "ARMED_SUBJECT" else "Person down / victim"
+              cv_events.append((v.get("first_sec"), v.get("last_sec"), f"[CV] {label} (track {tid}): {v.get('reason')}", 0.7))
+              cv_lines.append(f"{label} track {tid}: {v.get('reason')}.")
+      embed_text = narration.prose + ("\n\nComputer-vision findings: " + " ".join(cv_lines) if cv_lines else "")
+      if cv_lines:
+          print(f"[structure] CV findings indexed: {len(cv_events)} events; {cv_lines[0][:160]}")
+      embedding = embedder.encode(embed_text, normalize_embeddings=True).tolist()
 
       # 3. Read transcript + detections + faces + plates (best-effort)
       transcript = json.loads((WORK / "transcript.json").read_text()) if (WORK / "transcript.json").exists() else {}
@@ -222,6 +249,12 @@ spec:
                       "make_interval(secs => COALESCE(%s, 0)), "
                       "%s, %s)",
                       (clip_id, ev.t_start_sec, ev.t_end_sec, ev.action, ev.confidence))
+              for t0, t1, action, conf in cv_events:
+                  cur.execute(
+                      "INSERT INTO pd_cctv.events (clip_id, t_start, t_end, action, confidence) "
+                      "VALUES (%s, make_interval(secs => COALESCE(%s, 0)), "
+                      "make_interval(secs => COALESCE(%s, 0)), %s, %s)",
+                      (clip_id, t0, t1, action, conf))
               # Plates: bulk-insert; the persona service aggregates per text
               # at chat time so duplicates across frames are fine.
               for p in (plates.get("plates") or []):

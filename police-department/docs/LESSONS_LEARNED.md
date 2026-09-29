@@ -1067,3 +1067,60 @@ track-ID references throughout.
 **17.49 — Torch CPU wheels prevent GPU use.** Every step that installed `torch` was using `--extra-index-url https://download.pytorch.org/whl/cpu`. Those wheels do NOT include CUDA runtime, so even with an `nvidia.com/gpu` resource allocated, torch reports `cuda.is_available() == False`. Fix: remove the CPU-wheel extra-index-url so pip pulls default PyPI wheels (which bundle CUDA runtime). Also add explicit `.to(device)` for torchvision models — Ultralytics auto-detects and moves tensors; torchvision does not.
 
 **17.50 — Root-required PVC cleanup.** The pipeline runs step containers as non-root but writes files as root (via SCC), so a subsequent non-root cleanup pod can't `rm -rf` them. Grant the ns `default` SA the `privileged` SCC temporarily (`oc -n <ns> adm policy add-scc-to-user privileged -z default`), run cleanup with `runAsUser: 0`, then remove the SCC binding. Applied for the demo-reset cleanup.
+
+---
+
+## Session 2026-09-29 — Shots-fired clip missed; frame rate; audio
+
+Clip `ae9a29a9` (96.8 s, 1280×698 @ 29.97 fps, daylight gas-station lot, masked
+subjects, arm extended toward a car at ~48-56 s) was narrated as "routine
+pedestrian traffic" with nothing indexed about a shooting.
+
+**17.51 — The CV stack was never on the deployed branch.** ArgoCD `pd-pipeline`
+(auto-sync + selfHeal + prune) tracks `feature/police-department-v1`, but the
+whole CV stack and the windowed keyframes only existed on `sanjeev-dev`. A
+re-sync on 2026-09-28 17:12 UTC put the 2-step VLM-only task back: 8 keyframes
+per clip (one every 12 s on this clip), no weapon/pose/flash/fusion, and every
+incident frame (36 s, 44-56 s, 85-88 s) fell between samples. Hand-applied
+fixes are reverted within minutes by selfHeal. **Rule: pipeline changes are
+not deployed until they are on `feature/police-department-v1`.** Check with
+`oc -n pd-cctv get task pd-task-vlm-caption -o jsonpath='{.spec.steps[*].name}'`.
+
+**17.52 — Model-guessed timestamps.** The old caption step told the model the
+frames were "evenly spaced" but never gave the duration or per-frame times;
+Claude labelled 8 frames 0-24 s on a 97 s clip (camera overlay proved 79 s
+elapsed), so every indexed event time was ~3.5× too early. The windowed
+extractor passes `clip_time_sec` per frame; incident anchor frames carry exact
+times in their label.
+
+**17.53 — Frame rate.** Tracker/pose/weapon/action now sample at `cv_fps`
+(pd-vlm-mode ConfigMap, default 15, was a hard-coded 8). Muzzle flashes (~30 ms)
+get a separate `flash-hr` scan of the RAW video at native fps (33 ms gaps) —
+the real fix called for in 17.42. In daylight the scan correctly returns 0
+flashes on this clip (flashes are below the visible threshold); absence of a
+flash is recorded as inconclusive, never "no shots".
+
+**17.54 — Listen for gunshots.** Whisper transcribes speech only; gunshots never
+appeared anywhere. `audio-events` finds impulses (≥15 dB over a 2 s median, ≥9 dB
+rise in 10 ms, broadband, ≤450 ms) and groups bursts. On this clip: a 4-impulse
+burst at 3.26-5.92 s and a single +31.9 dB impulse at 87.2 s. The recording is
+very quiet (peak -50.5 dBFS), so audio alone is capped at MEDIUM. Skip the first
+0.5 s (AAC priming makes digital silence "jump").
+
+**17.55 — Index machine evidence directly.** `pd_cctv.events` was filled only
+from the caption model's JSON; if the narrative omitted a shooting it was not
+searchable. `shots-fusion` writes `shots_fired` (LIKELY / POSSIBLE /
+INCONCLUSIVE, tiered candidates, suspected shooter track) into `.events.json`;
+`structure-and-write` inserts HIGH/MEDIUM gunshot candidates, ARMED_SUBJECT and
+VICTIM tracks as `[CV] …` event rows and appends the findings to the embedding
+text.
+
+**17.56 — place-scripts ceiling is the base64 single-argument limit.** The ~100 KB
+figure in 17.40 is really Linux MAX_ARG_STRLEN (128 KiB) applied to the
+base64-encoded scripts (×4/3). New CV logic goes in ConfigMap `pd-cv-scripts`,
+not inline; `tests/test_cv_scripts.py` fails above ~127 KB encoded (now ~122 KB).
+
+**17.57 — TLS.** The caption step disabled certificate verification for every
+call, including api.anthropic.com with the API key. Verified context for the
+public API; the unverified one stays only for the in-cluster self-signed VLM route.
+

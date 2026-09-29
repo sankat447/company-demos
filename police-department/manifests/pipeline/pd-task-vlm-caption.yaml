@@ -141,13 +141,20 @@ spec:
       printf '%s\n' "$TOTAL" > .vlm-frames
       printf '%s\n' "$duration" > .clip-duration-sec
       printf '%s\n' "${step:-${STEP:-0}}" > .clip-frame-step-sec
+      rm -f audio.wav
+      ffmpeg -hide_banner -loglevel error -y -i clip.mp4 -vn -ac 1 -ar 16000 -c:a pcm_s16le audio.wav 2>/dev/null || rm -f audio.wav
+      [ -s audio.wav ] && echo "[extract-keyframes] audio.wav written for audio-events" || echo "[extract-keyframes] clip has no audio track"
 
   # Phase 1: YOLOv8n + ByteTrack persistent person tracking on the raw
-  # video at ~8fps effective. Emits .tracks.json (per-track_id trajectory)
+  # video at cv_fps effective (pd-vlm-mode ConfigMap, default 15). Emits .tracks.json (per-track_id trajectory)
   # + dense_frames/ (640-wide JPEGs for downstream phases) +
   # .object-signals.json (backwards-compat person counts).
   - name: object-detect
     image: registry.access.redhat.com/ubi9/python-311:latest
+    volumeMounts:
+    - name: vlm-mode-cm
+      mountPath: "/etc/pd-vlm-mode"
+      readOnly: true
     env:
     - {name: PYTHONPATH,      value: /workspace/shared/.python-packages}
     - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
@@ -225,7 +232,10 @@ spec:
           src_frame_count = 0
       if src_fps < 1:
           src_fps = 30.0
-      TARGET_FPS = 8.0
+      try:
+          TARGET_FPS = float(open("/etc/pd-vlm-mode/cv_fps").read().strip())
+      except (OSError, ValueError):
+          TARGET_FPS = 15.0
       vid_stride = max(1, int(round(src_fps / TARGET_FPS)))
       effective_fps = src_fps / vid_stride
       print(f"[object-detect] video src_fps={src_fps:.1f} src_frames={src_frame_count} "
@@ -1399,6 +1409,46 @@ spec:
   # emits .events.json — a per-track chronological event timeline plus a
   # role verdict (VICTIM/ARMED/AGGRESSOR/BYSTANDER) and cross-track
   # correlations. Caption step reads this as its primary structured signal.
+  # Phase 5b: native-fps muzzle-flash scan of the raw video (lesson 17.42).
+  - name: flash-hr
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - name: PYTHONPATH
+      value: "/workspace/shared/.python-packages"
+    volumeMounts:
+    - name: cv-scripts
+      mountPath: "/etc/pd-cv-scripts"
+      readOnly: true
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: "2Gi"
+    script: |
+      #!/bin/sh
+      python3 /etc/pd-cv-scripts/flash_hr.py "$(workspaces.shared.path)/$(params.clip-id)" || echo "[flash-hr] failed (non-fatal)"
+  # Phase 5c: acoustic gunshot-candidate detection from audio.wav.
+  - name: audio-events
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - name: PYTHONPATH
+      value: "/workspace/shared/.python-packages"
+    volumeMounts:
+    - name: cv-scripts
+      mountPath: "/etc/pd-cv-scripts"
+      readOnly: true
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    script: |
+      #!/bin/sh
+      python3 /etc/pd-cv-scripts/audio_events.py "$(workspaces.shared.path)/$(params.clip-id)" || echo "[audio-events] failed (non-fatal)"
   - name: event-fusion
     image: registry.access.redhat.com/ubi9/python-311:latest
     script: |
@@ -1580,6 +1630,26 @@ spec:
                     f"(Δ={c['delta_sec']}s, flash={c['flash_within_2s']})",
                     flush=True)
 
+  # Phase 6b: shots-fired assessment + incident anchor frames into .events.json.
+  - name: shots-fusion
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - name: PYTHONPATH
+      value: "/workspace/shared/.python-packages"
+    volumeMounts:
+    - name: cv-scripts
+      mountPath: "/etc/pd-cv-scripts"
+      readOnly: true
+    computeResources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    script: |
+      #!/bin/sh
+      python3 /etc/pd-cv-scripts/shots_fusion.py "$(workspaces.shared.path)/$(params.clip-id)" || echo "[shots-fusion] failed (non-fatal)"
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
@@ -1653,7 +1723,7 @@ spec:
       import re as _re_fname
       frame_paths = sorted(glob.glob(f"{frames_dir}/window*_*.jpg"))
       if not frame_paths:
-          frame_paths = sorted(glob.glob(f"{frames_dir}/*.jpg"))
+          frame_paths = sorted(q for q in glob.glob(f"{frames_dir}/*.jpg") if not os.path.basename(q).startswith("anchor_"))
       windowed_frames = {}  # {window_index: [(within_win_idx, filepath), ...]}
       for fp in frame_paths:
           name = os.path.basename(fp)
@@ -2034,6 +2104,7 @@ spec:
       _ctx = ssl.create_default_context()
       _ctx.check_hostname = False
       _ctx.verify_mode = ssl.CERT_NONE
+      _ctx_public = ssl.create_default_context()
 
       try:
           with open("/etc/pd-vlm-system-prompt/system.txt") as f:
@@ -2123,6 +2194,30 @@ spec:
                              "media_type": "image/jpeg",
                              "data": b},
               })
+          try:
+              anchors = json.load(open(f"{workspace}/{clip_id}/.anchor-frames.json")).get("anchors", [])
+          except (OSError, ValueError):
+              anchors = []
+          if anchors:
+              content.append({"type": "text", "text": (
+                  f"\n\n── **Incident anchor frames** · {len(anchors)} frames pulled at EXACT clip times "
+                  "around CV-detected incidents (gunshot candidates, weapons, falls). Use these times verbatim. ──\n")})
+              for a in anchors:
+                  try:
+                      with open(f"{frames_dir}/{a['file']}", "rb") as af:
+                          ab = base64.b64encode(af.read()).decode("ascii")
+                  except OSError:
+                      continue
+                  content.append({"type": "text", "text": f"\nAnchor @ {a['clip_time_sec']:.2f}s — {a['reason']}\n"})
+                  content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": ab}})
+          shots = (fused_events or {}).get("shots_fired") or {}
+          shots_note = ""
+          if shots.get("assessment") in ("LIKELY", "POSSIBLE"):
+              top = [f"{c['sec']}s ({c['tier']})" for c in shots.get("candidates", []) if c["tier"] != "LOW"][:8]
+              shots_note = (f" TRUSTED SIGNALS rate shots fired as {shots['assessment']} at {', '.join(top)}. "
+                            "Inspect those anchor frames; if consistent, include an event whose action starts "
+                            "'Shots fired' with those clip times and name the suspected shooter; if the frames "
+                            "contradict it, say so explicitly rather than omitting it.")
           content.append({
               "type": "text",
               "text": ("\n\n── End of windows ──\n\n"
@@ -2130,7 +2225,7 @@ spec:
                        "analyze each window separately, then synthesize the master "
                        "narrative. If ANY window shows a person prone/fallen, arm "
                        "extended in firing posture, running-not-jogging, or scrambling "
-                       "low, that IS the incident — surface it prominently.")
+                       "low, that IS the incident — surface it prominently." + shots_note)
           })
           payload = {
               "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
@@ -2149,7 +2244,7 @@ spec:
               },
               method="POST",
           )
-          with urllib.request.urlopen(req, timeout=300, context=_ctx) as resp:
+          with urllib.request.urlopen(req, timeout=300, context=_ctx_public) as resp:
               ant = json.loads(resp.read())
           text = "".join(b.get("text", "") for b in ant.get("content", [])
                          if b.get("type") == "text")
@@ -2252,4 +2347,8 @@ spec:
   - name: vlm-system-prompt
     configMap:
       name: pd-vlm-system-prompt
+      optional: true
+  - name: cv-scripts
+    configMap:
+      name: pd-cv-scripts
       optional: true
