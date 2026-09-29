@@ -1132,9 +1132,19 @@ CUDA torch wheels (several GB of small files) into
 step's 600 s timeout on a fresh PVC — so tracking, pose, weapon, action and
 per-track flash checks were all skipped. Audio, the scene-wide native-fps
 flash scan, shots-fusion, anchors and the 60-frame windowed caption still ran.
-**Fix (pending):** bake a `pd-cv-runner` image with ultralytics + CUDA torch +
-opencv-headless (same pattern as `pd-structure-runner`), or pre-warm the PVC
-with a one-off pod that has no timeout. Every new cluster / new PVC hits this.
+**Fix (landed 2026-09-29):** baked `pd-cv-runner:0.1.0` (torch + torchvision +
+`ultralytics --no-deps` + opencv-python-headless + numpy/pillow/scipy/…) at
+`runner-images/pd-cv-runner/{Dockerfile,requirements.txt}`, mirroring the
+`pd-structure-runner` pattern. `pd-task-vlm-caption.yaml` pins the 4 heavy
+steps (`object-detect`, `pose-estimate`, `weapon-detect`, `action-recognize`)
+to `image-registry.openshift-image-registry.svc:5000/pd-cctv/pd-cv-runner:0.1.0`;
+the other 7 steps keep `ubi9/python-311:latest` because their deps are small
+enough that a runtime install stays well under 600 s. Runtime `pip install`
+fallback still exists in the scripts (defence-in-depth on a bare cluster
+before the image is built), but is a no-op when `import ultralytics` succeeds
+at the top. Provision script adds Step 13.8 that idempotently builds
+`pd-cv-runner:0.1.0` on first run (30-min ceiling — torch CUDA wheels are
+large), so every new cluster gets it automatically.
 
 **Re-run outcome on ae9a29a9 (partial fix).** Before: "routine pedestrian
 traffic", 3 events, nothing about a shooting. After: summary "Possible shooting
@@ -1146,4 +1156,16 @@ the dark car with an extended arm at ~44–56 s and the +31.9 dB impulse at
 got no anchor frames). Re-validate once 17.58 is fixed. Note: the earlier
 narration row and its 3 mis-timed events for this clip are still in Aurora
 (events are appended per run; the UI shows the newest narration).
+
+**17.59 — Persona UI: prefer neutral labels over LLM vendor names.** On demo
+day operators asked us to drop "Claude" / "Anthropic" from user-visible chrome:
+those names on the upload UI made the demo look like a Claude ad. `pd-persona`
+image tag bumped 0.2.0 → 0.2.1 with `web/templates/index.html` scrubbed —
+VLM/LLM dropdowns say "deep multimodal (hosted, ~$0.15/clip)" and
+"hosted LLM"; the deep-analysis checkbox says "hosted multimodal —
+recommended, ~$0.15"; tooltips talk about "the hosted VLM" instead of
+"Anthropic Claude". Backend mode identifiers (`claude`, `claude-multimodal`)
+stayed as-is so wiring didn't move. Rule of thumb: never name the vendor in
+UI text — pd-vlm-mode / pd-llm-mode ConfigMap keys already carry that fact
+for anyone who needs it operationally.
 

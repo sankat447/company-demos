@@ -680,6 +680,48 @@ elif ! "$DRY_RUN"; then
   fi
 fi
 
+# ── Step 13.8: build pd-cv-runner image (fixes lesson 17.58) ──────────────
+# The 4 heavy CV steps in pd-task-vlm-caption (object-detect, pose-estimate,
+# weapon-detect, action-recognize) used to `pip install` torch + ultralytics
+# to the shared EFS PVC at first run. On a fresh cluster / fresh PVC that
+# install blows past the 600s step timeout, so tracking/pose/weapon/action
+# are silently skipped and the caption misses armed subjects (17.58).
+# Bake torch + ultralytics + opencv-headless into an image once per cluster
+# and let the steps reference it — the runtime install path becomes a no-op.
+banner "Step 13.8 · pd-cv-runner image (Tekton task dependency)"
+if "$SKIP_BUILD"; then
+  ok "skipped (--skip-build) — assuming :0.1.0 is already in the registry"
+elif ! "$DRY_RUN"; then
+  RUNNER_DIR="$REPO_ROOT/police-department/runner-images/pd-cv-runner"
+  if [ ! -f "$RUNNER_DIR/Dockerfile" ]; then
+    err "pd-cv-runner Dockerfile not found at $RUNNER_DIR"; exit 1
+  fi
+  if ! oc -n "$PD_NS_CCTV" get bc pd-cv-runner >/dev/null 2>&1; then
+    log "creating pd-cv-runner BuildConfig + ImageStream (first-time setup)"
+    (cd "$RUNNER_DIR" && oc -n "$PD_NS_CCTV" new-build --binary --strategy=docker --name=pd-cv-runner >/dev/null 2>&1 || true)
+  fi
+  HAVE_TAG=$(oc -n "$PD_NS_CCTV" get is pd-cv-runner -o jsonpath='{.status.tags[?(@.tag=="0.1.0")].tag}' 2>/dev/null)
+  if [ "$HAVE_TAG" = "0.1.0" ]; then
+    ok "pd-cv-runner:0.1.0 already in registry"
+  else
+    BUILD=$(cd "$RUNNER_DIR" && oc -n "$PD_NS_CCTV" start-build pd-cv-runner --from-dir=. --follow=false 2>&1 | grep -oE 'pd-cv-runner-[0-9]+' | head -1)
+    if [ -z "$BUILD" ]; then err "pd-cv-runner start-build failed"; exit 1; fi
+    log "started build $BUILD; waiting for Complete (torch + ultralytics ~10-20 min)..."
+    LIM=$(($(date +%s)+1800))   # 30-min ceiling — torch CUDA wheels are large
+    while true; do
+      PH=$(oc -n "$PD_NS_CCTV" get build "$BUILD" -o jsonpath='{.status.phase}')
+      case "$PH" in
+        Complete) break ;;
+        Failed|Error|Cancelled) err "$BUILD ended $PH"; exit 1 ;;
+      esac
+      [ "$(date +%s)" -gt "$LIM" ] && { err "$BUILD timeout"; exit 1; }
+      sleep 30
+    done
+    oc -n "$PD_NS_CCTV" tag pd-cv-runner:latest pd-cv-runner:0.1.0 >/dev/null
+    ok "$BUILD Complete — pd-cv-runner:0.1.0 in registry"
+  fi
+fi
+
 # ── Step 14: apply IS + pipeline + triggers ───────────────────────────────
 banner "Step 14 · Apply InferenceService + Pipeline + Triggers"
 M="$REPO_ROOT/police-department/manifests"

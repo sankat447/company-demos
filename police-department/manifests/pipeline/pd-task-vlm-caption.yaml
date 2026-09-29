@@ -150,7 +150,7 @@ spec:
   # + dense_frames/ (640-wide JPEGs for downstream phases) +
   # .object-signals.json (backwards-compat person counts).
   - name: object-detect
-    image: registry.access.redhat.com/ubi9/python-311:latest
+    image: image-registry.openshift-image-registry.svc:5000/pd-cctv/pd-cv-runner:0.1.0
     volumeMounts:
     - name: vlm-mode-cm
       mountPath: "/etc/pd-vlm-mode"
@@ -401,7 +401,7 @@ spec:
   # Emits .poses.json (per-track segments/changes/downsampled_kps +
   # geometric_incident_candidates from raw bbox aspect trajectory).
   - name: pose-estimate
-    image: registry.access.redhat.com/ubi9/python-311:latest
+    image: image-registry.openshift-image-registry.svc:5000/pd-cctv/pd-cv-runner:0.1.0
     computeResources:
       limits: { nvidia.com/gpu: "1" }
     env:
@@ -761,7 +761,7 @@ spec:
   # bbox-containment. Emits .weapons.json with per-track associations
   # filtered to tracks with 2+ weapon frames (single-frame noise dropped).
   - name: weapon-detect
-    image: registry.access.redhat.com/ubi9/python-311:latest
+    image: image-registry.openshift-image-registry.svc:5000/pd-cctv/pd-cv-runner:0.1.0
     env:
     - {name: PYTHONPATH,      value: /workspace/shared/.python-packages}
     - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
@@ -980,7 +980,7 @@ spec:
   # v2-S (Kinetics-400, Apache-2.0). Emits top-5 + violence_signal +
   # running_signal per track. Runtime ~20s + one-time torch install.
   - name: action-recognize
-    image: registry.access.redhat.com/ubi9/python-311:latest
+    image: image-registry.openshift-image-registry.svc:5000/pd-cctv/pd-cv-runner:0.1.0
     env:
     - {name: PYTHONPATH,      value: /workspace/shared/.python-packages}
     - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}

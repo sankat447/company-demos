@@ -36,7 +36,7 @@ spec:
       serviceAccountName: pd-persona-sa
       containers:
       - name: pd-persona
-        image: image-registry.openshift-image-registry.svc:5000/pd-personas/pd-persona:0.2.0
+        image: image-registry.openshift-image-registry.svc:5000/pd-personas/pd-persona:0.2.1
         # Always pull because we re-tag new builds at :0.2.0 in-place (oc tag).
         # IfNotPresent left the node pinned to the first sha forever, ignoring
         # subsequent rebuilds. Use sha-pinned image refs if you want the

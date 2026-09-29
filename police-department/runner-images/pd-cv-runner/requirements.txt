@@ -1,0 +1,17 @@
+# Heavy CV deps for object-detect, pose-estimate, weapon-detect, action-recognize.
+# Baked in so PipelineRun steps skip the ~10 min pip install to EFS (lesson 17.58).
+torch
+torchvision
+ultralytics
+opencv-python-headless
+numpy
+pillow
+pyyaml
+requests
+tqdm
+scipy
+matplotlib
+pandas
+psutil
+py-cpuinfo
+seaborn
