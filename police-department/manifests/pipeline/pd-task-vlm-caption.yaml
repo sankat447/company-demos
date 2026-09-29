@@ -70,58 +70,1521 @@ spec:
       set -eu
       cd "$(workspaces.shared.path)/$(params.clip-id)"
 
-      # Effective mode: param override > ConfigMap > "local".
       MODE="$(params.vlm-mode-override)"
       [ -z "$MODE" ] && MODE="$(cat /etc/pd-vlm-mode/mode 2>/dev/null || echo local)"
 
-      # Effective frames + resolution + jpeg quality.
       F_OVERRIDE="$(params.frames-override)"
       F_CM="$(cat /etc/pd-vlm-mode/frames 2>/dev/null || echo 16)"
       RES_CM="$(cat /etc/pd-vlm-mode/resolution 2>/dev/null || echo 1280)"
       JPEG_CM="$(cat /etc/pd-vlm-mode/jpeg_quality 2>/dev/null || echo 2)"
 
-      if [ -n "$F_OVERRIDE" ]; then
-        FRAMES="$F_OVERRIDE"
-      else
-        FRAMES="$F_CM"
-      fi
-      # local mode caps at 4 (vLLM --limit-mm-per-prompt={"image":4}).
-      if [ "$MODE" = "local" ] && [ "$FRAMES" -gt 4 ] 2>/dev/null; then
-        FRAMES=4
-      fi
-      # claude-multimodal: stay well under the API's 100-image cap.
-      if [ "$MODE" = "claude-multimodal" ] && [ "$FRAMES" -gt 30 ] 2>/dev/null; then
-        FRAMES=30
-      fi
-
-      # Clear stale keyframes — the shared workspace is RWX EFS and persists
-      # across PipelineRuns. If a previous run extracted N=8 and we now
-      # extract N=4, the old frame_005..008.jpg would remain and the caption
-      # step's glob picks up too many.
       rm -rf frames
       mkdir -p frames
 
       duration=$(ffprobe -v error -show_entries format=duration \
                   -of default=noprint_wrappers=1:nokey=1 clip.mp4 | awk '{printf "%d", $1}')
       [ "$duration" -lt 1 ] && duration=1
-      step=$(( duration / FRAMES ))
-      [ "$step" -lt 1 ] && step=1
 
-      echo "[extract-keyframes] mode=$MODE frames=$FRAMES res=${RES_CM} jpeg_q=${JPEG_CM} dur=${duration}s step=${step}s"
-      ffmpeg -hide_banner -loglevel error -i clip.mp4 \
-             -vf "fps=1/${step},scale=${RES_CM}:-1" \
-             -frames:v "$FRAMES" \
-             -q:v "$JPEG_CM" \
-             frames/frame_%03d.jpg
-      ls frames/
-      # Stash the resolved mode + frame count for the next step (env vars
-      # don't survive across Tekton steps, but workspace files do).
+      RES_FORENSIC=1600
+      JPEG_FORENSIC=1
+
+      if [ -n "$F_OVERRIDE" ]; then
+        FRAMES="$F_OVERRIDE"
+        step=$(awk -v d=$duration -v n=$FRAMES 'BEGIN{s=d/n; if(s<0.1)s=0.1; printf "%.3f", s}')
+        echo "[extract-keyframes] mode=$MODE · explicit override: FRAMES=${FRAMES} · step=${step}s · single window"
+        ffmpeg -hide_banner -loglevel error -i clip.mp4 \
+               -vf "fps=1/${step},scale=${RES_CM}:-1" \
+               -frames:v "$FRAMES" \
+               -q:v "$JPEG_CM" \
+               frames/window1_%03d.jpg
+        printf '1\n' > .num-windows
+        printf '%s\n' "$duration" > .window-durations
+      elif [ "$MODE" = "claude-multimodal" ]; then
+        K=$(awk -v d=$duration 'BEGIN{k=int(d/25+0.5); if(k<3)k=3; if(k>6)k=6; print k}')
+        FPW=$(awk -v k=$K 'BEGIN{n=int(60/k); if(n<10)n=10; if(n>20)n=20; print n}')
+        WIN_DUR=$(awk -v d=$duration -v k=$K 'BEGIN{printf "%.3f", d/k}')
+        STEP=$(awk -v w=$WIN_DUR -v n=$FPW 'BEGIN{s=w/n; if(s<0.1)s=0.1; printf "%.3f", s}')
+        FRAMES=$(( K * FPW ))
+        echo "[extract-keyframes] mode=claude-multimodal · chunked-window forensic:"
+        echo "  dur=${duration}s → K=${K} windows · window_duration=${WIN_DUR}s · frames_per_window=${FPW} · total=${FRAMES} · step_within=${STEP}s"
+        echo "  res=${RES_FORENSIC} jpeg_q=${JPEG_FORENSIC} (bumped from ${RES_CM}/${JPEG_CM} for far-field detail)"
+
+        for i in $(seq 1 $K); do
+          START=$(awk -v i=$i -v w=$WIN_DUR 'BEGIN{printf "%.3f", (i-1)*w}')
+          ffmpeg -hide_banner -loglevel error \
+                 -ss "$START" -t "$WIN_DUR" -i clip.mp4 \
+                 -vf "fps=1/${STEP},scale=${RES_FORENSIC}:-1" \
+                 -frames:v "$FPW" \
+                 -q:v "$JPEG_FORENSIC" \
+                 "frames/window${i}_%03d.jpg"
+        done
+        printf '%s\n' "$K" > .num-windows
+        printf '%s\n' "$WIN_DUR" > .window-durations
+      else
+        FRAMES="$F_CM"
+        [ "$FRAMES" -gt 4 ] 2>/dev/null && FRAMES=4
+        step=$(( duration / FRAMES ))
+        [ "$step" -lt 1 ] && step=1
+        echo "[extract-keyframes] mode=local · frames=${FRAMES} (vLLM cap) · dur=${duration}s · step=${step}s"
+        ffmpeg -hide_banner -loglevel error -i clip.mp4 \
+               -vf "fps=1/${step},scale=${RES_CM}:-1" \
+               -frames:v "$FRAMES" \
+               -q:v "$JPEG_CM" \
+               frames/window1_%03d.jpg
+        printf '1\n' > .num-windows
+        printf '%s\n' "$duration" > .window-durations
+      fi
+
+      TOTAL=$(ls frames/ 2>/dev/null | wc -l | tr -d ' ')
+      echo "[extract-keyframes] extracted ${TOTAL} frame files across $(cat .num-windows) window(s)"
       printf '%s\n' "$MODE" > .vlm-mode
-      printf '%s\n' "$FRAMES" > .vlm-frames
+      printf '%s\n' "$TOTAL" > .vlm-frames
+      printf '%s\n' "$duration" > .clip-duration-sec
+      printf '%s\n' "${step:-${STEP:-0}}" > .clip-frame-step-sec
+
+  # Phase 1: YOLOv8n + ByteTrack persistent person tracking on the raw
+  # video at ~8fps effective. Emits .tracks.json (per-track_id trajectory)
+  # + dense_frames/ (640-wide JPEGs for downstream phases) +
+  # .object-signals.json (backwards-compat person counts).
+  - name: object-detect
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - {name: PYTHONPATH,      value: /workspace/shared/.python-packages}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json, subprocess, traceback
+      # Enable user-site so imports find prior pip --user installs on PVC
+      sys.path.insert(0, '/workspace/shared/.python-packages')
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      clip_dir = f"{workspace}/{clip_id}"
+      video_path = f"{clip_dir}/clip.mp4"
+      dense_dir = f"{clip_dir}/dense_frames"
+      signals_path = f"{clip_dir}/.object-signals.json"
+      tracks_path  = f"{clip_dir}/.tracks.json"
+      cache_dir  = f"{workspace}/.ultralytics-cache"
+      weights_path = f"{cache_dir}/yolov8n.pt"
+
+      def _bail(reason):
+          for p in (signals_path, tracks_path):
+              try:
+                  with open(p, "w") as f:
+                      json.dump({"available": False, "reason": reason}, f)
+              except Exception:
+                  pass
+          print(f"[object-detect] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not os.path.exists(video_path):
+          _bail(f"video not found at {video_path}")
+
+      try:
+          import ultralytics  # noqa
+      except ImportError:
+          print("[object-detect] installing ultralytics + torch (headless cv2) — ~60-90s first time...", flush=True)
+          try:
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--target=/workspace/shared/.python-packages", "--upgrade", "--quiet",
+                   "--disable-pip-version-check",
+                   "opencv-python-headless", "torch", "torchvision", "numpy",
+                   "pyyaml", "pillow", "requests", "tqdm", "scipy", "matplotlib",
+                   "pandas", "psutil", "py-cpuinfo", "seaborn"],
+                  timeout=600,
+              )
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--target=/workspace/shared/.python-packages", "--upgrade", "--quiet", "--no-deps",
+                   "--disable-pip-version-check",
+                   "ultralytics"],
+                  timeout=180,
+              )
+              import importlib; importlib.invalidate_caches()
+          except subprocess.CalledProcessError as e:
+              _bail(f"ultralytics install failed: {e}")
+          except subprocess.TimeoutExpired:
+              _bail("ultralytics install timed out (>10min)")
+
+      try:
+          os.makedirs(cache_dir, exist_ok=True)
+          os.makedirs(dense_dir, exist_ok=True)
+          os.environ["YOLO_CONFIG_DIR"] = cache_dir
+          import cv2
+          from ultralytics import YOLO
+          model = YOLO(weights_path if os.path.exists(weights_path) else "yolov8n.pt")
+      except Exception as e:
+          _bail(f"model load failed: {type(e).__name__}: {e}")
+
+      try:
+          cap = cv2.VideoCapture(video_path)
+          src_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+          src_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+          cap.release()
+      except Exception:
+          src_fps = 30.0
+          src_frame_count = 0
+      if src_fps < 1:
+          src_fps = 30.0
+      TARGET_FPS = 8.0
+      vid_stride = max(1, int(round(src_fps / TARGET_FPS)))
+      effective_fps = src_fps / vid_stride
+      print(f"[object-detect] video src_fps={src_fps:.1f} src_frames={src_frame_count} "
+            f"vid_stride={vid_stride} effective_fps={effective_fps:.2f}", flush=True)
+
+      for old in os.listdir(dense_dir):
+          if old.startswith("f_") and old.endswith(".jpg"):
+              try: os.remove(os.path.join(dense_dir, old))
+              except OSError: pass
+
+      try:
+          num_windows = int(open(f"{clip_dir}/.num-windows").read().strip())
+          window_dur = float(open(f"{clip_dir}/.window-durations").read().strip())
+      except Exception:
+          num_windows, window_dur = 1, 60.0
+      try:
+          duration_sec = int(open(f"{clip_dir}/.clip-duration-sec").read().strip())
+      except Exception:
+          duration_sec = int(num_windows * window_dur)
+
+      CONF = 0.4
+      IMGSZ = 640
+      SAVE_W = 640   # width of saved dense_frame JPEGs
+
+      tracks = {}
+      persons_per_frame = []
+      per_window_max = {str(w): 0 for w in range(1, num_windows + 1)}
+      frame_count = 0
+
+      try:
+          stream = model.track(
+              source=video_path, tracker="bytetrack.yaml",
+              classes=[0], conf=CONF, imgsz=IMGSZ,
+              vid_stride=vid_stride, stream=True,
+              persist=True, save=False, verbose=False,
+          )
+          src_w_native = None  # captured on first frame
+          scale_to_dense = 1.0
+          dense_w = None
+          dense_h = None
+          for frame_idx, res in enumerate(stream):
+              frame_count = frame_idx + 1
+              sec = round(frame_idx * vid_stride / src_fps, 3)
+              if res.orig_img is not None:
+                  h, w = res.orig_img.shape[:2]
+                  if src_w_native is None:
+                      src_w_native = w
+                      if w > SAVE_W:
+                          scale_to_dense = SAVE_W / float(w)
+                          dense_w = SAVE_W
+                          dense_h = int(round(h * scale_to_dense))
+                      else:
+                          scale_to_dense = 1.0
+                          dense_w, dense_h = w, h
+                  if w > SAVE_W:
+                      new_h = int(h * SAVE_W / w)
+                      img_out = cv2.resize(res.orig_img, (SAVE_W, new_h))
+                  else:
+                      img_out = res.orig_img
+                  cv2.imwrite(
+                      f"{dense_dir}/f_{frame_idx:06d}.jpg",
+                      img_out, [int(cv2.IMWRITE_JPEG_QUALITY), 85],
+                  )
+              ids = boxes = confs = None
+              if res.boxes is not None and res.boxes.id is not None:
+                  ids = res.boxes.id.int().cpu().tolist()
+                  boxes = res.boxes.xyxy.cpu().tolist()
+                  confs = res.boxes.conf.cpu().tolist()
+              n = len(ids) if ids else 0
+              persons_per_frame.append(n)
+              if ids:
+                  for tid, bx, cf in zip(ids, boxes, confs):
+                      bx_dense = [round(x * scale_to_dense, 1) for x in bx]
+                      tracks.setdefault(str(tid), []).append({
+                          "frame_idx": frame_idx,
+                          "sec": sec,
+                          "bbox": bx_dense,
+                          "conf": round(float(cf), 3),
+                      })
+              w2 = min(int(sec / window_dur) + 1, num_windows) if window_dur > 0 else 1
+              key = str(w2)
+              per_window_max[key] = max(per_window_max.get(key, 0), n)
+      except Exception as e:
+          traceback.print_exc()
+          _bail(f"tracking failed: {type(e).__name__}: {e}")
+
+      tracks_meta = {}
+      for tid, dets in tracks.items():
+          firsts, lasts = dets[0], dets[-1]
+          confs = [d["conf"] for d in dets]
+          tracks_meta[tid] = {
+              "track_id": int(tid),
+              "first_frame_idx": firsts["frame_idx"],
+              "last_frame_idx":  lasts["frame_idx"],
+              "first_sec": firsts["sec"],
+              "last_sec":  lasts["sec"],
+              "duration_sec": round(lasts["sec"] - firsts["sec"], 2),
+              "num_detections": len(dets),
+              "mean_confidence": round(sum(confs)/len(confs), 3),
+              "first_bbox": firsts["bbox"],
+              "last_bbox":  lasts["bbox"],
+              "detections": dets,
+          }
+
+      MIN_DETS, MIN_DUR = 3, 0.4
+      stable_tracks = {
+          tid: t for tid, t in tracks_meta.items()
+          if t["num_detections"] >= MIN_DETS and t["duration_sec"] >= MIN_DUR
+      }
+      dropped = len(tracks_meta) - len(stable_tracks)
+
+      max_simultaneous = max(persons_per_frame) if persons_per_frame else 0
+      counts_sorted = sorted(persons_per_frame)
+      median_count = counts_sorted[len(counts_sorted)//2] if counts_sorted else 0
+
+      signals = {
+          "available": True,
+          "detector": "yolov8n",
+          "tracker": "bytetrack",
+          "class_filter": "person",
+          "confidence_threshold": CONF,
+          "effective_fps": round(effective_fps, 2),
+          "frame_count_scanned": frame_count,
+          "max_simultaneous_people": max_simultaneous,
+          "median_people_per_frame": int(median_count),
+          "unique_subjects_lower_bound": len(stable_tracks),
+          "num_unique_tracks": len(stable_tracks),
+          "noise_tracks_dropped": dropped,
+          "per_window_max_people": per_window_max,
+      }
+      with open(signals_path, "w") as f:
+          json.dump(signals, f, indent=2)
+
+      tracks_out = {
+          "available": True,
+          "source": "yolov8n + bytetrack",
+          "video_src_fps": round(src_fps, 2),
+          "effective_fps": round(effective_fps, 2),
+          "vid_stride": vid_stride,
+          "frame_count": frame_count,
+          "clip_duration_sec": duration_sec,
+          "src_video_native_w": src_w_native,
+          "dense_frame_w": dense_w,
+          "dense_frame_h": dense_h,
+          "coord_space": "dense_frames",
+          "num_unique_tracks": len(stable_tracks),
+          "noise_tracks_dropped": dropped,
+          "tracks": stable_tracks,
+      }
+      with open(tracks_path, "w") as f:
+          json.dump(tracks_out, f, indent=2)
+
+      print(f"[object-detect] frames={frame_count} tracks={len(tracks_meta)} "
+            f"stable={len(stable_tracks)} dropped_noise={dropped} "
+            f"max_simultaneous={max_simultaneous} per_window={per_window_max}", flush=True)
+      for tid, t in sorted(stable_tracks.items(), key=lambda x: int(x[0])):
+          print(f"  track {tid}: {t['first_sec']:.1f}s → {t['last_sec']:.1f}s "
+                f"({t['num_detections']} dets, mean_conf={t['mean_confidence']:.2f})",
+                flush=True)
+
+  # Phase 2: YOLOv8n-pose keypoints + posture classification per track.
+  # Matches poses to ByteTrack IDs via IoU on 640-wide dense_frames.
+  # Emits .poses.json (per-track segments/changes/downsampled_kps +
+  # geometric_incident_candidates from raw bbox aspect trajectory).
+  - name: pose-estimate
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    computeResources:
+      limits: { nvidia.com/gpu: "1" }
+    env:
+    - {name: PYTHONPATH,      value: /workspace/shared/.python-packages}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json, subprocess, traceback
+      sys.path.insert(0, '/workspace/shared/.python-packages')
+      import glob, math
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      clip_dir = f"{workspace}/{clip_id}"
+      dense_dir = f"{clip_dir}/dense_frames"
+      tracks_path = f"{clip_dir}/.tracks.json"
+      poses_path = f"{clip_dir}/.poses.json"
+      cache_dir = f"{workspace}/.ultralytics-cache"
+      pose_weights = f"{cache_dir}/yolov8n-pose.pt"
+
+      def _bail(reason):
+          try:
+              with open(poses_path, "w") as f:
+                  json.dump({"available": False, "reason": reason}, f)
+          except Exception:
+              pass
+          print(f"[pose-estimate] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not os.path.exists(tracks_path):
+          _bail(".tracks.json not found — Phase 1 (object-detect) must run first")
+      if not os.path.isdir(dense_dir) or not os.listdir(dense_dir):
+          _bail("dense_frames/ empty — object-detect didn't save frames")
+      try:
+          with open(tracks_path) as f:
+              tracks_data = json.load(f)
+          if not tracks_data.get("available"):
+              _bail(f"tracks unavailable: {tracks_data.get('reason','unknown')}")
+      except Exception as e:
+          _bail(f"tracks.json read failed: {e}")
+
+      try:
+          import ultralytics  # noqa
+      except ImportError:
+          print("[pose-estimate] installing ultralytics + torch (headless cv2)...", flush=True)
+          try:
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--target=/workspace/shared/.python-packages", "--upgrade", "--quiet",
+                   "--disable-pip-version-check",
+                   "opencv-python-headless", "torch", "torchvision", "numpy",
+                   "pyyaml", "pillow", "requests", "tqdm", "scipy", "matplotlib",
+                   "pandas", "psutil", "py-cpuinfo", "seaborn"],
+                  timeout=600,
+              )
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--target=/workspace/shared/.python-packages", "--upgrade", "--quiet", "--no-deps",
+                   "--disable-pip-version-check",
+                   "ultralytics"],
+                  timeout=180,
+              )
+              import importlib; importlib.invalidate_caches()
+          except subprocess.CalledProcessError as e:
+              _bail(f"install failed: {e}")
+
+      try:
+          os.environ["YOLO_CONFIG_DIR"] = cache_dir
+          from ultralytics import YOLO
+          model = YOLO(pose_weights if os.path.exists(pose_weights) else "yolov8n-pose.pt")
+      except Exception as e:
+          _bail(f"model load failed: {type(e).__name__}: {e}")
+
+      tracks = tracks_data.get("tracks", {})
+      frame_to_track_bboxes = {}
+      for tid, t in tracks.items():
+          for det in t.get("detections", []):
+              frame_to_track_bboxes.setdefault(det["frame_idx"], []).append(
+                  (int(tid), det["bbox"])
+              )
+
+      def _mid(a, b):
+          return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+      def _dist(a, b):
+          return math.hypot(a[0] - b[0], a[1] - b[1])
+      def _visible(kp, thr=0.3):
+          return kp[2] >= thr
+
+      def classify_posture(kps, bbox):
+          bw = max(1.0, bbox[2] - bbox[0])
+          bh = max(1.0, bbox[3] - bbox[1])
+          aspect = bw / bh  # >1 means wider than tall → prone-ish
+          nose = kps[0]; ls, rs = kps[5], kps[6]
+          lh, rh = kps[11], kps[12]; lk, rk = kps[13], kps[14]
+          la, ra = kps[15], kps[16]; lw, rw = kps[9], kps[10]
+          le, re = kps[7], kps[8]
+
+          if _visible(ls) and _visible(rs) and _visible(lh) and _visible(rh):
+              sh = _mid(ls, rs); hp = _mid(lh, rh)
+              dy, dx = hp[1] - sh[1], hp[0] - sh[0]
+              torso_from_vertical_deg = math.degrees(math.atan2(abs(dx), max(abs(dy), 0.001)))
+              if aspect > 1.4 and torso_from_vertical_deg > 45:
+                  return "prone", {"torso_angle_deg": round(torso_from_vertical_deg, 1),
+                                   "bbox_aspect": round(aspect, 2)}
+              if torso_from_vertical_deg > 60:
+                  return "falling", {"torso_angle_deg": round(torso_from_vertical_deg, 1)}
+
+          def arm_extended(s, e, w, torso_mid_x):
+              if not (_visible(s) and _visible(e) and _visible(w)):
+                  return False
+              v1 = (s[0] - e[0], s[1] - e[1])
+              v2 = (w[0] - e[0], w[1] - e[1])
+              n1 = math.hypot(*v1); n2 = math.hypot(*v2)
+              if n1 < 5 or n2 < 5:
+                  return False
+              cosang = (v1[0]*v2[0] + v1[1]*v2[1]) / (n1 * n2)
+              cosang = max(-1.0, min(1.0, cosang))
+              ang = math.degrees(math.acos(cosang))
+              wrist_lateral = abs(w[0] - torso_mid_x) > 0.35 * bw
+              return ang > 150 and wrist_lateral
+          if _visible(ls) and _visible(rs):
+              tmid_x = (ls[0] + rs[0]) / 2
+              if arm_extended(ls, le, lw, tmid_x) or arm_extended(rs, re, rw, tmid_x):
+                  return "arm-extended", {"note": "possible aim/point/reach"}
+
+          if _visible(lk) and _visible(rk) and _visible(lh) and _visible(rh):
+              if lk[1] < lh[1] and rk[1] < rh[1]:
+                  return "crouched", {}
+
+          if _visible(la) and _visible(ra) and _visible(ls) and _visible(rs):
+              ankle_spread = _dist(la, ra)
+              shoulder_spread = _dist(ls, rs)
+              if ankle_spread > 1.6 * shoulder_spread:
+                  return "running", {"ankle_over_shoulder_ratio":
+                                     round(ankle_spread / max(shoulder_spread, 1), 2)}
+
+          return "standing", {}
+
+      frame_paths = sorted(glob.glob(f"{dense_dir}/f_*.jpg"))
+      if not frame_paths:
+          _bail("no dense frames to process")
+
+      def frame_idx_from_path(p):
+          try:
+              return int(os.path.basename(p)[2:8])
+          except Exception:
+              return -1
+
+      BATCH = 16
+      per_track_postures = {tid: [] for tid in tracks.keys()}
+      processed_frames = 0
+      matched_poses = 0
+      unmatched_poses = 0
+
+      def iou(a, b):
+          ax1, ay1, ax2, ay2 = a; bx1, by1, bx2, by2 = b
+          ix1 = max(ax1, bx1); iy1 = max(ay1, by1)
+          ix2 = min(ax2, bx2); iy2 = min(ay2, by2)
+          iw = max(0, ix2 - ix1); ih = max(0, iy2 - iy1)
+          inter = iw * ih
+          ua = (ax2 - ax1) * (ay2 - ay1)
+          ub = (bx2 - bx1) * (by2 - by1)
+          union = ua + ub - inter
+          return inter / union if union > 0 else 0.0
+
+      try:
+          for i in range(0, len(frame_paths), BATCH):
+              batch = frame_paths[i:i+BATCH]
+              results = model(batch, conf=0.3, imgsz=640, verbose=False)
+              for fp, res in zip(batch, results):
+                  fidx = frame_idx_from_path(fp)
+                  processed_frames += 1
+                  if res.keypoints is None or res.boxes is None:
+                      continue
+                  try:
+                      boxes = res.boxes.xyxy.cpu().tolist()
+                      kps_all = res.keypoints.data.cpu().tolist()
+                  except Exception:
+                      continue
+                  candidates = frame_to_track_bboxes.get(fidx, [])
+                  for box, kps in zip(boxes, kps_all):
+                      best_tid, best_iou = None, 0.0
+                      for tid, tbbox in candidates:
+                          ov = iou(box, tbbox)
+                          if ov > best_iou:
+                              best_tid, best_iou = tid, ov
+                      if best_tid is None or best_iou < 0.3:
+                          unmatched_poses += 1
+                          continue
+                      matched_poses += 1
+                      posture, meta = classify_posture(kps, box)
+                      per_track_postures[str(best_tid)].append({
+                          "frame_idx": fidx,
+                          "sec": round(fidx * tracks_data["vid_stride"]
+                                        / tracks_data["video_src_fps"], 3),
+                          "posture": posture,
+                          "posture_meta": meta,
+                          "kps": [[round(k[0], 1), round(k[1], 1),
+                                    round(k[2], 3)] for k in kps],
+                          "bbox": [round(x, 1) for x in box],
+                      })
+      except Exception as e:
+          traceback.print_exc()
+          _bail(f"pose inference failed: {type(e).__name__}: {e}")
+
+      per_track_summary = {}
+      for tid, postures in per_track_postures.items():
+          if not postures:
+              continue
+          postures.sort(key=lambda p: p["frame_idx"])
+          segments = []
+          cur = None
+          for p in postures:
+              if cur is None:
+                  cur = {"posture": p["posture"], "start_sec": p["sec"],
+                         "end_sec": p["sec"], "frame_count": 1}
+                  continue
+              if p["posture"] == cur["posture"]:
+                  cur["end_sec"] = p["sec"]
+                  cur["frame_count"] += 1
+              else:
+                  segments.append(cur)
+                  cur = {"posture": p["posture"], "start_sec": p["sec"],
+                         "end_sec": p["sec"], "frame_count": 1}
+          if cur:
+              segments.append(cur)
+          segments = [s for s in segments if s["frame_count"] >= 2]
+          changes = []
+          for a, b in zip(segments, segments[1:]):
+              changes.append({
+                  "sec": round(b["start_sec"], 2),
+                  "from": a["posture"],
+                  "to":   b["posture"],
+              })
+          counts = {}
+          for s in segments:
+              counts[s["posture"]] = counts.get(s["posture"], 0) + s["frame_count"]
+          kps_downsampled = postures[::4]
+          per_track_summary[tid] = {
+              "track_id": int(tid),
+              "pose_frame_count": len(postures),
+              "posture_counts": counts,
+              "segments": segments,
+              "changes": changes,
+              "keypoints_downsampled": kps_downsampled,
+          }
+
+      geometric_all = {}
+      for tid, t in tracks.items():
+          dets = t.get("detections", [])
+          if len(dets) < 3:
+              continue
+          per_frame = []
+          for d in dets:
+              x1, y1, x2, y2 = d["bbox"]
+              w, h = max(x2-x1, 0.001), max(y2-y1, 0.001)
+              per_frame.append({"sec": d["sec"], "aspect": w/h,
+                                "bbox_h": h, "bbox_w": w})
+          intervals = []
+          cur = None
+          for pf in per_frame:
+              if pf["aspect"] > 0.9:
+                  if cur is None:
+                      cur = {"start_sec": pf["sec"], "end_sec": pf["sec"],
+                              "peak_aspect": pf["aspect"], "frames": 1}
+                  else:
+                      cur["end_sec"] = pf["sec"]
+                      cur["peak_aspect"] = max(cur["peak_aspect"], pf["aspect"])
+                      cur["frames"] += 1
+              else:
+                  if cur and cur["frames"] >= 3:
+                      cur["duration_sec"] = round(cur["end_sec"] - cur["start_sec"], 2)
+                      intervals.append(cur)
+                  cur = None
+          if cur and cur["frames"] >= 3:
+              cur["duration_sec"] = round(cur["end_sec"] - cur["start_sec"], 2)
+              intervals.append(cur)
+          fall_events = []
+          for i in range(4, len(per_frame)):
+              window = per_frame[max(0, i-6):i]
+              if not window:
+                  continue
+              min_prev = min(pf["aspect"] for pf in window)
+              curr = per_frame[i]["aspect"]
+              if curr > 0.9 and min_prev < 0.75 and (curr / max(min_prev, 0.1)) >= 1.5:
+                  fall_events.append({
+                      "sec": round(per_frame[i]["sec"], 2),
+                      "aspect_before": round(min_prev, 2),
+                      "aspect_after": round(curr, 2),
+                  })
+          prone_ratio = sum(1 for pf in per_frame if pf["aspect"] > 0.9) / len(per_frame)
+          aspect_range = (max(pf["aspect"] for pf in per_frame)
+                          - min(pf["aspect"] for pf in per_frame))
+          longest_interval_dur = max((iv["duration_sec"] for iv in intervals),
+                                      default=0.0)
+          if fall_events or (0.3 < prone_ratio < 0.95
+                              and longest_interval_dur > 3.0
+                              and aspect_range > 0.4):
+              tier = "HIGH_CONFIDENCE"
+          else:
+              tier = "NOISE"
+          if intervals or fall_events or prone_ratio > 0.3:
+              geometric_all[tid] = {
+                  "track_id": int(tid),
+                  "tier": tier,
+                  "prone_ratio": round(prone_ratio, 3),
+                  "aspect_range": round(aspect_range, 2),
+                  "num_detections": len(dets),
+                  "sustained_prone_intervals": intervals,
+                  "longest_prone_duration_sec": round(longest_interval_dur, 2),
+                  "fall_events": fall_events,
+              }
+      geometric = {tid: g for tid, g in geometric_all.items()
+                   if g["tier"] == "HIGH_CONFIDENCE"}
+      geometric_noise = {tid: g for tid, g in geometric_all.items()
+                          if g["tier"] == "NOISE"}
+
+      poses_out = {
+          "available": True,
+          "model": "yolov8n-pose",
+          "iou_match_threshold": 0.3,
+          "processed_frames": processed_frames,
+          "matched_poses": matched_poses,
+          "unmatched_poses": unmatched_poses,
+          "num_tracks_with_poses": len(per_track_summary),
+          "tracks": per_track_summary,
+          "geometric_incident_candidates": geometric,
+          "geometric_noise_tracks_count": len(geometric_noise),
+      }
+      with open(poses_path, "w") as f:
+          json.dump(poses_out, f)
+      size_kb = os.path.getsize(poses_path) / 1024
+      print(f"[pose-estimate] frames_processed={processed_frames} matched={matched_poses} "
+            f"unmatched={unmatched_poses} tracks_with_poses={len(per_track_summary)} "
+            f"HIGH_CONFIDENCE_incident={len(geometric)} NOISE_prone_tracks={len(geometric_noise)} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      if geometric:
+          print("[pose-estimate] 🚨 HIGH-CONFIDENCE incident candidates (posture-change based):")
+          for tid, g in sorted(geometric.items(), key=lambda x: int(x[0])):
+              parts = [f"track {tid}: prone_ratio={g['prone_ratio']} aspect_range={g['aspect_range']} "
+                       f"longest_prone={g['longest_prone_duration_sec']}s"]
+              for iv in g["sustained_prone_intervals"][:3]:
+                  parts.append(f"prone-interval {iv['start_sec']:.1f}s→{iv['end_sec']:.1f}s ({iv['frames']}f, peak_aspect={iv['peak_aspect']:.2f})")
+              for fe in g["fall_events"][:3]:
+                  parts.append(f"FALL@{fe['sec']:.1f}s (aspect {fe['aspect_before']}→{fe['aspect_after']})")
+              print("  " + "; ".join(parts), flush=True)
+      for tid, s in sorted(per_track_summary.items(), key=lambda x: int(x[0])):
+          counts_str = ", ".join(f"{p}:{n}" for p, n in
+                                  sorted(s["posture_counts"].items(),
+                                         key=lambda kv: -kv[1]))
+          changes_str = " → ".join(f"{c['from']}→{c['to']}@{c['sec']}s"
+                                    for c in s["changes"][:6])
+          print(f"  track {tid}: [{counts_str}]" +
+                (f"  changes: {changes_str}" if changes_str else ""),
+                flush=True)
+
+  # Phase 3: open-vocabulary weapon detector (YOLO-World v2-S, Apache-2.0).
+  # Matches every weapon detection to the nearest ByteTrack ID via IoU +
+  # bbox-containment. Emits .weapons.json with per-track associations
+  # filtered to tracks with 2+ weapon frames (single-frame noise dropped).
+  - name: weapon-detect
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - {name: PYTHONPATH,      value: /workspace/shared/.python-packages}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json, subprocess, traceback
+      sys.path.insert(0, '/workspace/shared/.python-packages')
+      import glob, re
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      clip_dir = f"{workspace}/{clip_id}"
+      dense_dir = f"{clip_dir}/dense_frames"
+      tracks_path = f"{clip_dir}/.tracks.json"
+      weapons_path = f"{clip_dir}/.weapons.json"
+      cache_dir = f"{workspace}/.ultralytics-cache"
+      weapon_weights = f"{cache_dir}/yolov8s-worldv2.pt"
+
+      WEAPON_CLASSES = [
+          "pistol", "handgun", "gun", "firearm", "revolver",
+          "rifle", "long gun", "shotgun", "assault rifle",
+          "knife", "blade", "kitchen knife", "machete",
+          "baseball bat", "crowbar", "hammer",
+      ]
+
+      def _bail(reason):
+          try:
+              with open(weapons_path, "w") as f:
+                  json.dump({"available": False, "reason": reason}, f)
+          except Exception:
+              pass
+          print(f"[weapon-detect] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not os.path.isdir(dense_dir):
+          _bail("dense_frames/ not present — Phase 1 must run first")
+      if not os.path.exists(tracks_path):
+          _bail(".tracks.json not found — Phase 1 must run first")
+      try:
+          with open(tracks_path) as f:
+              tracks_data = json.load(f)
+          if not tracks_data.get("available"):
+              _bail(f"tracks unavailable: {tracks_data.get('reason','unknown')}")
+      except Exception as e:
+          _bail(f"tracks.json read failed: {e}")
+
+      try:
+          import ultralytics  # noqa
+      except ImportError:
+          print("[weapon-detect] installing ultralytics + torch (headless cv2)...", flush=True)
+          try:
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--target=/workspace/shared/.python-packages", "--upgrade", "--quiet",
+                   "--disable-pip-version-check",
+                   "opencv-python-headless", "torch", "torchvision", "numpy",
+                   "pyyaml", "pillow", "requests", "tqdm", "scipy", "matplotlib",
+                   "pandas", "psutil", "py-cpuinfo", "seaborn"],
+                  timeout=600,
+              )
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--target=/workspace/shared/.python-packages", "--upgrade", "--quiet", "--no-deps",
+                   "--disable-pip-version-check",
+                   "ultralytics"],
+                  timeout=180,
+              )
+              import importlib; importlib.invalidate_caches()
+          except subprocess.CalledProcessError as e:
+              _bail(f"install failed: {e}")
+
+      try:
+          os.environ["YOLO_CONFIG_DIR"] = cache_dir
+          from ultralytics import YOLOWorld
+          model_id = (weapon_weights if os.path.exists(weapon_weights)
+                      else "yolov8s-worldv2.pt")
+          model = YOLOWorld(model_id)
+          model.set_classes(WEAPON_CLASSES)
+      except Exception as e:
+          _bail(f"model load failed: {type(e).__name__}: {e}")
+
+      tracks = tracks_data.get("tracks", {})
+      frame_to_track_bboxes = {}
+      for tid, t in tracks.items():
+          for det in t.get("detections", []):
+              frame_to_track_bboxes.setdefault(det["frame_idx"], []).append(
+                  (int(tid), det["bbox"])
+              )
+
+      frame_paths = sorted(glob.glob(f"{dense_dir}/f_*.jpg"))
+      if not frame_paths:
+          _bail("no dense frames on workspace")
+
+      def frame_idx_from_path(p):
+          try:
+              return int(os.path.basename(p)[2:8])
+          except Exception:
+              return -1
+
+      def iou(a, b):
+          ax1, ay1, ax2, ay2 = a; bx1, by1, bx2, by2 = b
+          ix1 = max(ax1, bx1); iy1 = max(ay1, by1)
+          ix2 = min(ax2, bx2); iy2 = min(ay2, by2)
+          iw = max(0, ix2 - ix1); ih = max(0, iy2 - iy1)
+          inter = iw * ih
+          ua = (ax2 - ax1) * (ay2 - ay1); ub = (bx2 - bx1) * (by2 - by1)
+          union = ua + ub - inter
+          return inter / union if union > 0 else 0.0
+
+      def bbox_contains(person_bbox, weapon_bbox):
+          px1, py1, px2, py2 = person_bbox
+          wcx = (weapon_bbox[0] + weapon_bbox[2]) / 2
+          wcy = (weapon_bbox[1] + weapon_bbox[3]) / 2
+          pw = px2 - px1
+          ex = pw * 0.3
+          return (px1 - ex) <= wcx <= (px2 + ex) and py1 <= wcy <= py2
+
+      CONF = 0.15
+      IMGSZ = 640
+      BATCH = 8
+
+      weapons_per_frame = {}  # frame_idx → list of {bbox, cls, conf}
+      per_track_weapons = {}  # tid → list of {frame_idx, sec, class, conf, bbox, iou_or_contain}
+      total_detections = 0
+      unmatched = 0
+
+      try:
+          for i in range(0, len(frame_paths), BATCH):
+              batch = frame_paths[i:i+BATCH]
+              results = model(batch, conf=CONF, imgsz=IMGSZ, verbose=False)
+              for fp, res in zip(batch, results):
+                  fidx = frame_idx_from_path(fp)
+                  if res.boxes is None or len(res.boxes) == 0:
+                      continue
+                  try:
+                      boxes = res.boxes.xyxy.cpu().tolist()
+                      classes = res.boxes.cls.int().cpu().tolist()
+                      confs = res.boxes.conf.cpu().tolist()
+                  except Exception:
+                      continue
+                  weapons_per_frame.setdefault(fidx, [])
+                  candidates = frame_to_track_bboxes.get(fidx, [])
+                  for bx, cls_idx, cf in zip(boxes, classes, confs):
+                      total_detections += 1
+                      cls_name = WEAPON_CLASSES[cls_idx] if 0 <= cls_idx < len(WEAPON_CLASSES) else str(cls_idx)
+                      wep = {"bbox": [round(v, 1) for v in bx],
+                             "class": cls_name, "conf": round(float(cf), 3)}
+                      weapons_per_frame[fidx].append(wep)
+                      best_tid, best_score = None, 0.0
+                      for tid, tbbox in candidates:
+                          ov = iou(bx, tbbox)
+                          contained = bbox_contains(tbbox, bx)
+                          score = max(ov, 0.35 if contained else 0.0)
+                          if score > best_score:
+                              best_tid, best_score = tid, score
+                      if best_tid is None or best_score < 0.15:
+                          unmatched += 1
+                          continue
+                      sec = round(fidx * tracks_data["vid_stride"]
+                                    / tracks_data["video_src_fps"], 3)
+                      per_track_weapons.setdefault(str(best_tid), []).append({
+                          "frame_idx": fidx, "sec": sec,
+                          "class": cls_name, "conf": round(float(cf), 3),
+                          "bbox": [round(v, 1) for v in bx],
+                          "match_score": round(best_score, 3),
+                      })
+      except Exception as e:
+          traceback.print_exc()
+          _bail(f"inference failed: {type(e).__name__}: {e}")
+
+      MIN_WEAPON_FRAMES = 2
+      per_track_summary = {}
+      for tid, dets in per_track_weapons.items():
+          if len(dets) < MIN_WEAPON_FRAMES:
+              continue
+          dets.sort(key=lambda d: d["frame_idx"])
+          class_counts = {}
+          for d in dets:
+              class_counts[d["class"]] = class_counts.get(d["class"], 0) + 1
+          per_track_summary[tid] = {
+              "track_id": int(tid),
+              "num_weapon_frames": len(dets),
+              "first_weapon_sec": dets[0]["sec"],
+              "last_weapon_sec":  dets[-1]["sec"],
+              "weapon_classes": class_counts,
+              "max_conf": max(d["conf"] for d in dets),
+              "mean_conf": round(sum(d["conf"] for d in dets)/len(dets), 3),
+              "detections": dets[:20],  # cap payload
+          }
+
+      weapons_out = {
+          "available": True,
+          "model": "yolov8s-worldv2",
+          "classes": WEAPON_CLASSES,
+          "confidence_threshold": CONF,
+          "min_frames_for_track_association": MIN_WEAPON_FRAMES,
+          "processed_frames": len(frame_paths),
+          "total_raw_detections": total_detections,
+          "unmatched_detections": unmatched,
+          "num_tracks_with_weapons": len(per_track_summary),
+          "tracks_with_weapons": per_track_summary,
+      }
+      with open(weapons_path, "w") as f:
+          json.dump(weapons_out, f)
+      size_kb = os.path.getsize(weapons_path) / 1024
+      print(f"[weapon-detect] frames={len(frame_paths)} raw_detections={total_detections} "
+            f"unmatched={unmatched} tracks_with_weapons={len(per_track_summary)} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      if per_track_summary:
+          print("[weapon-detect] 🚨 Armed subjects detected:")
+          for tid, s in sorted(per_track_summary.items(), key=lambda x: int(x[0])):
+              cls_str = ", ".join(f"{c}:{n}" for c, n in s["weapon_classes"].items())
+              print(f"  track {tid}: {s['num_weapon_frames']} weapon-frames "
+                    f"({s['first_weapon_sec']}s → {s['last_weapon_sec']}s) "
+                    f"[{cls_str}] max_conf={s['max_conf']}", flush=True)
+
+  # Phase 4: per-track temporal action classification. torchvision MViT
+  # v2-S (Kinetics-400, Apache-2.0). Emits top-5 + violence_signal +
+  # running_signal per track. Runtime ~20s + one-time torch install.
+  - name: action-recognize
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - {name: PYTHONPATH,      value: /workspace/shared/.python-packages}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json, subprocess, traceback
+      sys.path.insert(0, '/workspace/shared/.python-packages')
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      clip_dir = f"{workspace}/{clip_id}"
+      dense_dir = f"{clip_dir}/dense_frames"
+      tracks_path  = f"{clip_dir}/.tracks.json"
+      actions_path = f"{clip_dir}/.actions.json"
+      cache_dir = f"{workspace}/.torchvision-cache"
+
+      VIOLENCE_LABELS = {
+          "punching person (boxing)", "boxing punching bag",
+          "wrestling", "sword fighting", "high kick", "side kick",
+          "punching bag", "krav maga", "capoeira", "arm wrestling",
+          "headbutting", "slapping", "sword swallowing",  # sanity — mostly harmless
+      }
+      RUNNING_LABELS = {"running on treadmill", "jogging", "sprint racing"}
+      FALL_LABELS = {"falling off bike", "falling off chair"}
+
+      def _bail(reason):
+          try:
+              with open(actions_path, "w") as f:
+                  json.dump({"available": False, "reason": reason}, f)
+          except Exception:
+              pass
+          print(f"[action-recognize] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not os.path.exists(tracks_path):
+          _bail(".tracks.json not found — Phase 1 must run first")
+      if not os.path.isdir(dense_dir):
+          _bail("dense_frames/ not present")
+      try:
+          with open(tracks_path) as f:
+              tracks_data = json.load(f)
+          if not tracks_data.get("available"):
+              _bail(f"tracks unavailable: {tracks_data.get('reason','unknown')}")
+      except Exception as e:
+          _bail(f"tracks.json read failed: {e}")
+
+      try:
+          import torch  # noqa
+          import torchvision  # noqa
+      except ImportError:
+          print("[action-recognize] installing torch + torchvision (CPU-only)...", flush=True)
+          try:
+              subprocess.check_call(
+                  [sys.executable, "-m", "pip", "install", "--target=/workspace/shared/.python-packages", "--upgrade", "--quiet",
+                   "--disable-pip-version-check",
+                   # CUDA wheels (default PyPI); GPU auto-detected
+                   "opencv-python-headless", "torch", "torchvision"],
+                  timeout=600,
+              )
+              import importlib; importlib.invalidate_caches()
+          except subprocess.CalledProcessError as e:
+              _bail(f"install failed: {e}")
+
+      try:
+          import cv2, torch, numpy as np
+          from torchvision.models.video import mvit_v2_s, MViT_V2_S_Weights
+          from torchvision.transforms import v2 as T
+          os.makedirs(cache_dir, exist_ok=True)
+          os.environ["TORCH_HOME"] = cache_dir
+          weights = MViT_V2_S_Weights.KINETICS400_V1
+          device = "cuda" if torch.cuda.is_available() else "cpu"
+          model = mvit_v2_s(weights=weights).eval().to(device)
+          labels = weights.meta["categories"]
+          transforms = weights.transforms()
+          print(f"[action-recognize] model=mvit_v2_s Kinetics-400 loaded ({len(labels)} classes) device={device}",
+                flush=True)
+      except Exception as e:
+          traceback.print_exc()
+          _bail(f"model load failed: {type(e).__name__}: {e}")
+
+      tracks = tracks_data.get("tracks", {})
+      vid_stride = tracks_data.get("vid_stride", 1)
+      src_fps = tracks_data.get("video_src_fps", 30.0)
+
+      def sec_of(fidx):
+          return round(fidx * vid_stride / src_fps, 3)
+
+      NUM_FRAMES = 16
+      CROP_PAD = 0.25   # add 25% padding around bbox for context
+
+      def crop_and_stack(track_dets):
+          """Return a tensor (T, C, H, W) of NUM_FRAMES bbox crops
+          uniformly sampled across the track's lifetime, or None if too
+          few detections available."""
+          if len(track_dets) < 3:
+              return None
+          idxs = [int(round(i * (len(track_dets) - 1) / (NUM_FRAMES - 1)))
+                  for i in range(NUM_FRAMES)]
+          frames = []
+          for i in idxs:
+              det = track_dets[i]
+              fp = f"{dense_dir}/f_{det['frame_idx']:06d}.jpg"
+              if not os.path.exists(fp):
+                  return None
+              img = cv2.imread(fp)  # BGR
+              if img is None:
+                  return None
+              h, w = img.shape[:2]
+              x1, y1, x2, y2 = det["bbox"]
+              bw, bh = x2 - x1, y2 - y1
+              pad_x = bw * CROP_PAD; pad_y = bh * CROP_PAD
+              cx1 = max(0, int(x1 - pad_x))
+              cy1 = max(0, int(y1 - pad_y))
+              cx2 = min(w, int(x2 + pad_x))
+              cy2 = min(h, int(y2 + pad_y))
+              crop = img[cy1:cy2, cx1:cx2]
+              if crop.size == 0:
+                  return None
+              resized = cv2.resize(crop, (256, 256))
+              resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+              frames.append(resized)
+          arr = np.stack(frames, axis=0)   # (T, H, W, C)
+          tensor = torch.from_numpy(arr).permute(0, 3, 1, 2)   # (T, C, H, W)
+          return tensor
+
+      per_track_actions = {}
+      violence_flagged = []
+      running_flagged = []
+
+      for tid, t in tracks.items():
+          dets = t.get("detections", [])
+          if len(dets) < 3:
+              continue
+          try:
+              clip = crop_and_stack(dets)
+              if clip is None:
+                  continue
+              x = transforms(clip)         # (C, T, H, W)
+              x = x.unsqueeze(0).to(device)  # (1, C, T, H, W) on GPU when available
+              with torch.no_grad():
+                  logits = model(x)
+              probs = torch.softmax(logits, dim=-1)[0]
+              top_p, top_i = torch.topk(probs, 5)
+              preds = [(labels[i.item()], round(p.item(), 4))
+                       for p, i in zip(top_p, top_i)]
+              is_violence = any(cls in VIOLENCE_LABELS for cls, _ in preds)
+              is_running = any(cls in RUNNING_LABELS for cls, _ in preds)
+              per_track_actions[tid] = {
+                  "track_id": int(tid),
+                  "middle_sec": round((t["first_sec"] + t["last_sec"]) / 2, 2),
+                  "duration_sec": t["duration_sec"],
+                  "top5": preds,
+                  "top1": preds[0][0],
+                  "top1_conf": preds[0][1],
+                  "violence_signal": is_violence,
+                  "running_signal": is_running,
+              }
+              if is_violence:
+                  violence_flagged.append((tid, preds[0][0], preds[0][1]))
+              if is_running:
+                  running_flagged.append((tid, preds[0][0], preds[0][1]))
+          except Exception as e:
+              print(f"  ⚠️ track {tid} failed: {type(e).__name__}: {e}", flush=True)
+              continue
+
+      actions_out = {
+          "available": True,
+          "model": "mvit_v2_s",
+          "dataset": "Kinetics-400",
+          "frames_per_clip": NUM_FRAMES,
+          "crop_padding_ratio": CROP_PAD,
+          "num_tracks_analyzed": len(per_track_actions),
+          "num_tracks_violence_flagged": len(violence_flagged),
+          "num_tracks_running_flagged": len(running_flagged),
+          "tracks": per_track_actions,
+      }
+      with open(actions_path, "w") as f:
+          json.dump(actions_out, f)
+      size_kb = os.path.getsize(actions_path) / 1024
+      print(f"[action-recognize] tracks_analyzed={len(per_track_actions)} "
+            f"violence_flagged={len(violence_flagged)} "
+            f"running_flagged={len(running_flagged)} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      if violence_flagged:
+          print("[action-recognize] 🚨 Violence-labeled tracks (Kinetics-400):")
+          for tid, cls, cf in violence_flagged:
+              print(f"  track {tid}: '{cls}' conf={cf}", flush=True)
+      if running_flagged:
+          print("[action-recognize] 🏃 Running-labeled tracks:")
+          for tid, cls, cf in running_flagged:
+              print(f"  track {tid}: '{cls}' conf={cf}", flush=True)
+
+  # Phase 5: pixel-level muzzle-flash detector per track (pure Python).
+  # For each arm-extended pose frame, probe a 25x25 ROI at the wrist +
+  # projected-muzzle points; a flash = ROI luma >=225 AND >=30 above the
+  # same-position ROI luma in the immediately-adjacent keypoint frames.
+  - name: muzzle-flash-detect
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    env:
+    - {name: PYTHONPATH, value: /workspace/shared/.python-packages}
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json, subprocess, math
+      sys.path.insert(0, '/workspace/shared/.python-packages')
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      clip_dir = f"{workspace}/{clip_id}"
+      dense_dir = f"{clip_dir}/dense_frames"
+      poses_path   = f"{clip_dir}/.poses.json"
+      tracks_path  = f"{clip_dir}/.tracks.json"
+      flashes_path = f"{clip_dir}/.flashes.json"
+
+      def _bail(reason):
+          try:
+              with open(flashes_path, "w") as f:
+                  json.dump({"available": False, "reason": reason}, f)
+          except Exception:
+              pass
+          print(f"[muzzle-flash-detect] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not os.path.isdir(dense_dir):
+          _bail("dense_frames/ not present")
+      if not os.path.exists(poses_path):
+          _bail(".poses.json missing")
+      if not os.path.exists(tracks_path):
+          _bail(".tracks.json missing")
+      try:
+          poses_data = json.load(open(poses_path))
+          tracks_data = json.load(open(tracks_path))
+          if not poses_data.get("available") or not tracks_data.get("available"):
+              _bail("prerequisite signal(s) unavailable")
+      except Exception as e:
+          _bail(f"json read failed: {e}")
+
+      try:
+          from PIL import Image
+      except ImportError:
+          subprocess.check_call(
+              [sys.executable, "-m", "pip", "install", "--target=/workspace/shared/.python-packages", "--upgrade", "--quiet",
+               "--disable-pip-version-check", "Pillow"],
+              timeout=120,
+          )
+          import importlib; importlib.invalidate_caches()
+          from PIL import Image
+
+      FLASH_LUMA_THRESHOLD = 225
+      ROI_HALF = 12          # 25x25 window
+      MIN_SPIKE_OVER_BASELINE = 40   # ROI max must exceed clip-baseline+40
+      MAX_CONSECUTIVE_FLASH_FRAMES = 3
+
+      vid_stride = tracks_data.get("vid_stride", 1)
+      src_fps = tracks_data.get("video_src_fps", 30.0)
+
+      def wrist_and_muzzle(kps):
+          def visible(k): return k[2] >= 0.3
+          wrist = None; elbow = None; shoulder = None
+          if visible(kps[10]):
+              wrist, elbow, shoulder = kps[10], kps[8], kps[6]
+          elif visible(kps[9]):
+              wrist, elbow, shoulder = kps[9], kps[7], kps[5]
+          if wrist is None:
+              return None, None
+          origin = elbow if elbow and elbow[2] >= 0.3 else shoulder
+          if origin is None or origin[2] < 0.3:
+              return (wrist[0], wrist[1]), None
+          dx = wrist[0] - origin[0]; dy = wrist[1] - origin[1]
+          scale = 0.5
+          muzzle = (wrist[0] + dx * scale, wrist[1] + dy * scale)
+          return (wrist[0], wrist[1]), muzzle
+
+      def sample_roi_max(img_gray, cx, cy):
+          w, h = img_gray.size
+          x1 = max(0, int(cx - ROI_HALF)); y1 = max(0, int(cy - ROI_HALF))
+          x2 = min(w, int(cx + ROI_HALF)); y2 = min(h, int(cy + ROI_HALF))
+          if x2 <= x1 or y2 <= y1:
+              return 0
+          crop = img_gray.crop((x1, y1, x2, y2))
+          return max(crop.getdata())
+
+      import glob
+      all_frames = sorted(glob.glob(f"{dense_dir}/f_*.jpg"))
+      if len(all_frames) < 5:
+          _bail("too few dense frames")
+      baseline_samples = all_frames[::max(1, len(all_frames)//20)][:20]
+      p99_values = []
+      for fp in baseline_samples:
+          g = Image.open(fp).convert("L")
+          data = sorted(g.getdata(), reverse=True)
+          cutoff_idx = max(1, len(data) // 100)
+          p99_values.append(data[cutoff_idx])
+      baseline_max = max(p99_values)   # 99th-percentile-max across sampled frames
+      spike_threshold = max(FLASH_LUMA_THRESHOLD, baseline_max + MIN_SPIKE_OVER_BASELINE)
+      print(f"[muzzle-flash-detect] baseline_p99_max={baseline_max} "
+            f"spike_threshold={spike_threshold}", flush=True)
+
+      per_track_flashes = {}
+      arm_extended_track_count = 0
+      arm_extended_frames_scanned = 0
+
+      _img_cache = {}
+      def _get_gray(frame_idx):
+          if frame_idx in _img_cache:
+              return _img_cache[frame_idx]
+          fp = f"{dense_dir}/f_{frame_idx:06d}.jpg"
+          if not os.path.exists(fp):
+              return None
+          g = Image.open(fp).convert("L")
+          _img_cache[frame_idx] = g
+          return g
+
+      TEMPORAL_JUMP_MIN = 30
+
+      for tid, t in poses_data.get("tracks", {}).items():
+          arm_segments = [s for s in t.get("segments", [])
+                          if s.get("posture") == "arm-extended"]
+          if not arm_segments:
+              continue
+          arm_extended_track_count += 1
+          def in_arm_segment(sec):
+              return any(s["start_sec"] <= sec <= s["end_sec"] for s in arm_segments)
+
+          kp_frames = t.get("keypoints_downsampled", [])
+          samples = []
+          for kpf in kp_frames:
+              kps = kpf.get("kps") or []
+              if len(kps) < 17:
+                  continue
+              wrist, muzzle = wrist_and_muzzle(kps)
+              if wrist is None:
+                  continue
+              samples.append({"sec": kpf["sec"], "frame_idx": kpf["frame_idx"],
+                              "wrist": wrist, "muzzle": muzzle})
+
+          candidate_events = []
+          for i, s in enumerate(samples):
+              if not in_arm_segment(s["sec"]):
+                  continue
+              arm_extended_frames_scanned += 1
+              img = _get_gray(s["frame_idx"])
+              if img is None:
+                  continue
+              w_max = sample_roi_max(img, s["wrist"][0], s["wrist"][1])
+              m_max = sample_roi_max(img, s["muzzle"][0], s["muzzle"][1]) if s["muzzle"] else 0
+              cur_max = max(w_max, m_max)
+
+              neighbour_maxes = []
+              for j in (i - 1, i + 1):
+                  if 0 <= j < len(samples):
+                      nimg = _get_gray(samples[j]["frame_idx"])
+                      if nimg is not None:
+                          nw = sample_roi_max(nimg, s["wrist"][0], s["wrist"][1])
+                          nm = sample_roi_max(nimg, s["muzzle"][0], s["muzzle"][1]) if s["muzzle"] else 0
+                          neighbour_maxes.append(max(nw, nm))
+              neighbour_max = max(neighbour_maxes) if neighbour_maxes else 0
+
+              if (cur_max >= FLASH_LUMA_THRESHOLD
+                  and cur_max >= neighbour_max + TEMPORAL_JUMP_MIN):
+                  candidate_events.append({
+                      "sec": s["sec"],
+                      "frame_idx": s["frame_idx"],
+                      "wrist_roi_max": w_max,
+                      "muzzle_roi_max": m_max,
+                      "over_baseline": cur_max - baseline_max,
+                      "over_neighbours": cur_max - neighbour_max,
+                  })
+
+          if not candidate_events:
+              continue
+          candidate_events.sort(key=lambda e: e["sec"])
+          groups = []
+          cur = [candidate_events[0]]
+          for e in candidate_events[1:]:
+              if e["sec"] - cur[-1]["sec"] <= 0.75:
+                  cur.append(e)
+              else:
+                  groups.append(cur); cur = [e]
+          groups.append(cur)
+          transient = [g for g in groups if len(g) <= MAX_CONSECUTIVE_FLASH_FRAMES]
+          if not transient:
+              continue
+          flashes = []
+          for g in transient:
+              peak = max(g, key=lambda e: max(e["wrist_roi_max"], e["muzzle_roi_max"]))
+              flashes.append({
+                  "sec": round(peak["sec"], 2),
+                  "frame_idx": peak["frame_idx"],
+                  "peak_roi_max": max(peak["wrist_roi_max"], peak["muzzle_roi_max"]),
+                  "over_baseline": peak["over_baseline"],
+                  "group_size": len(g),
+              })
+          per_track_flashes[tid] = {
+              "track_id": int(tid),
+              "num_flashes": len(flashes),
+              "flashes": flashes,
+          }
+
+      flashes_out = {
+          "available": True,
+          "baseline_max": baseline_max,
+          "spike_threshold": spike_threshold,
+          "flash_luma_threshold": FLASH_LUMA_THRESHOLD,
+          "roi_half": ROI_HALF,
+          "arm_extended_tracks_scanned": arm_extended_track_count,
+          "arm_extended_frames_scanned": arm_extended_frames_scanned,
+          "num_tracks_with_flashes": len(per_track_flashes),
+          "tracks_with_flashes": per_track_flashes,
+      }
+      with open(flashes_path, "w") as f:
+          json.dump(flashes_out, f)
+      size_kb = os.path.getsize(flashes_path) / 1024
+      print(f"[muzzle-flash-detect] arm_extended_tracks={arm_extended_track_count} "
+            f"frames_scanned={arm_extended_frames_scanned} "
+            f"tracks_with_flashes={len(per_track_flashes)} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      if per_track_flashes:
+          print("[muzzle-flash-detect] 💥 Flash candidates:")
+          for tid, ft in sorted(per_track_flashes.items(), key=lambda x: int(x[0])):
+              for f in ft["flashes"]:
+                  print(f"  track {tid}: flash@{f['sec']}s peak={f['peak_roi_max']} "
+                        f"(+{f['over_baseline']} over baseline, group={f['group_size']})",
+                        flush=True)
+
+  # Phase 6: event-fusion. Consumes tracks/poses/weapons/actions/flashes and
+  # emits .events.json — a per-track chronological event timeline plus a
+  # role verdict (VICTIM/ARMED/AGGRESSOR/BYSTANDER) and cross-track
+  # correlations. Caption step reads this as its primary structured signal.
+  - name: event-fusion
+    image: registry.access.redhat.com/ubi9/python-311:latest
+    script: |
+      #!/usr/bin/env python3
+      import os, sys, json
+
+      clip_id = "$(params.clip-id)"
+      workspace = "$(workspaces.shared.path)"
+      d = f"{workspace}/{clip_id}"
+      events_path = f"{d}/.events.json"
+
+      def _load(p, default=None):
+          try:
+              with open(p) as f:
+                  data = json.load(f)
+              if data.get("available") is False:
+                  return default
+              return data
+          except Exception:
+              return default
+
+      tracks = _load(f"{d}/.tracks.json", {"tracks": {}}) or {"tracks": {}}
+      poses = _load(f"{d}/.poses.json", {"tracks": {}}) or {"tracks": {}}
+      weapons = _load(f"{d}/.weapons.json", {"tracks_with_weapons": {}}) or {"tracks_with_weapons": {}}
+      actions = _load(f"{d}/.actions.json", {"tracks": {}}) or {"tracks": {}}
+      flashes = _load(f"{d}/.flashes.json", {"tracks_with_flashes": {}}) or {"tracks_with_flashes": {}}
+
+      def _bail(reason):
+          with open(events_path, "w") as f:
+              json.dump({"available": False, "reason": reason}, f)
+          print(f"[event-fusion] skipped — {reason}", flush=True)
+          sys.exit(0)
+
+      if not tracks.get("tracks"):
+          _bail("no tracks — Phase 1 must run first")
+
+      clip_dur = tracks.get("clip_duration_sec", 0)
+      geo = poses.get("geometric_incident_candidates", {}) or {}
+
+      per_track_events = {}
+      master_timeline = []
+
+      for tid, t in tracks.get("tracks", {}).items():
+          events = []
+          first, last = t["first_sec"], t["last_sec"]
+          events.append({"sec": first, "event": "enters_frame"})
+          events.append({"sec": last,  "event": "exits_frame"})
+          pose_t = poses.get("tracks", {}).get(tid) or {}
+          for seg in pose_t.get("segments", []) or []:
+              if seg.get("posture") in ("prone", "arm-extended", "running", "crouched", "falling"):
+                  events.append({"sec": seg["start_sec"],
+                                 "event": f"posture_start:{seg['posture']}",
+                                 "duration_sec": round(seg["end_sec"] - seg["start_sec"], 2)})
+          for ch in pose_t.get("changes", []) or []:
+              events.append({"sec": ch["sec"],
+                             "event": f"posture_change:{ch['from']}→{ch['to']}"})
+          g = geo.get(tid) or {}
+          for iv in g.get("sustained_prone_intervals", []) or []:
+              events.append({"sec": iv["start_sec"],
+                             "event": "prone_interval",
+                             "duration_sec": iv["duration_sec"],
+                             "peak_aspect": iv.get("peak_aspect"),
+                             "confidence": "HIGH_CONFIDENCE"})
+          for fe in g.get("fall_events", []) or []:
+              events.append({"sec": fe["sec"], "event": "fall_event",
+                             "aspect_before": fe.get("aspect_before"),
+                             "aspect_after": fe.get("aspect_after")})
+          w = weapons.get("tracks_with_weapons", {}).get(tid) or {}
+          for det in w.get("detections", []) or []:
+              events.append({"sec": det["sec"],
+                             "event": f"weapon_visible:{det.get('class')}",
+                             "confidence": det.get("conf")})
+          a = actions.get("tracks", {}).get(tid) or {}
+          if a.get("top1"):
+              events.append({"sec": a.get("middle_sec", (first+last)/2),
+                             "event": f"action:{a['top1']}",
+                             "confidence": a.get("top1_conf"),
+                             "violence_signal": a.get("violence_signal", False),
+                             "running_signal": a.get("running_signal", False)})
+          f = flashes.get("tracks_with_flashes", {}).get(tid) or {}
+          for fl in f.get("flashes", []) or []:
+              events.append({"sec": fl["sec"], "event": "muzzle_flash_candidate",
+                             "peak_roi_max": fl.get("peak_roi_max"),
+                             "over_baseline": fl.get("over_baseline")})
+          events.sort(key=lambda e: e["sec"])
+          # Role verdict
+          is_victim = bool(g.get("sustained_prone_intervals") and
+                            g.get("longest_prone_duration_sec", 0) > 5)
+          is_armed  = bool(w.get("num_weapon_frames", 0) >= 2)
+          is_fleeing = bool(a.get("running_signal", False) and
+                             (last / max(clip_dur, 1)) > 0.66)
+          role = "BYSTANDER"
+          reason_parts = []
+          if is_victim:
+              role = "VICTIM"
+              reason_parts.append(
+                  f"prone {g.get('longest_prone_duration_sec')}s across "
+                  f"{len(g.get('sustained_prone_intervals') or [])} intervals")
+          elif is_armed:
+              role = "ARMED_SUBJECT"
+              cls_str = ",".join((w.get("weapon_classes") or {}).keys())
+              reason_parts.append(
+                  f"{w.get('num_weapon_frames')} weapon frames "
+                  f"({w.get('first_weapon_sec')}s→{w.get('last_weapon_sec')}s, "
+                  f"{cls_str})")
+              if a.get("violence_signal"):
+                  reason_parts.append(f"action='{a.get('top1')}'")
+          elif is_fleeing:
+              role = "FLEEING"
+              reason_parts.append(f"action='{a.get('top1')}' late in clip")
+          verdict = {
+              "track_id": int(tid),
+              "role": role,
+              "reason": "; ".join(reason_parts) if reason_parts else "no incident-relevant signals",
+              "first_sec": first, "last_sec": last,
+              "duration_sec": t["duration_sec"],
+              "num_events": len(events),
+          }
+          per_track_events[tid] = {"verdict": verdict, "events": events}
+          for e in events:
+              master_timeline.append({"track_id": int(tid), **e})
+
+      master_timeline.sort(key=lambda e: e["sec"])
+
+      # Cross-track correlations: an armed subject firing near another
+      # subject's knock-down = strongest shooting evidence.
+      correlations = []
+      victims = [(tid, per_track_events[tid]) for tid in per_track_events
+                 if per_track_events[tid]["verdict"]["role"] == "VICTIM"]
+      armed   = [(tid, per_track_events[tid]) for tid in per_track_events
+                 if per_track_events[tid]["verdict"]["role"] == "ARMED_SUBJECT"]
+      for vt, vd in victims:
+          vg = geo.get(vt) or {}
+          fall_times = [iv["start_sec"] for iv in (vg.get("sustained_prone_intervals") or [])]
+          for at, ad in armed:
+              aw = weapons.get("tracks_with_weapons", {}).get(at) or {}
+              wep_secs = [det["sec"] for det in (aw.get("detections") or [])]
+              af = flashes.get("tracks_with_flashes", {}).get(at) or {}
+              flash_secs = [fl["sec"] for fl in (af.get("flashes") or [])]
+              for ft in fall_times:
+                  for ws_ in wep_secs:
+                      if abs(ws_ - ft) <= 5.0:
+                          correlations.append({
+                              "kind": "ARMED_NEAR_VICTIM_DOWN",
+                              "victim_track": int(vt),
+                              "armed_track": int(at),
+                              "victim_prone_start_sec": ft,
+                              "armed_weapon_seen_sec": ws_,
+                              "delta_sec": round(ws_ - ft, 2),
+                              "flash_within_2s": any(abs(fs - ft) <= 2 for fs in flash_secs),
+                          })
+      out = {
+          "available": True,
+          "clip_duration_sec": clip_dur,
+          "num_tracks": len(per_track_events),
+          "role_counts": {r: sum(1 for e in per_track_events.values()
+                                  if e["verdict"]["role"] == r)
+                          for r in ("VICTIM","ARMED_SUBJECT","FLEEING","BYSTANDER")},
+          "per_track": per_track_events,
+          "master_timeline": master_timeline,
+          "cross_track_correlations": correlations,
+      }
+      with open(events_path, "w") as f:
+          json.dump(out, f)
+      size_kb = os.path.getsize(events_path) / 1024
+      print(f"[event-fusion] tracks={len(per_track_events)} "
+            f"master_timeline_events={len(master_timeline)} "
+            f"correlations={len(correlations)} "
+            f"role_counts={out['role_counts']} "
+            f"payload={size_kb:.1f}KB", flush=True)
+      for tid, e in sorted(per_track_events.items(), key=lambda x: int(x[0])):
+          v = e["verdict"]
+          print(f"  track {tid}: {v['role']} — {v['reason']}", flush=True)
+      if correlations:
+          print("[event-fusion] 🚨 Cross-track correlations:")
+          for c in correlations:
+              print(f"  {c['kind']}: victim={c['victim_track']}@{c['victim_prone_start_sec']}s, "
+                    f"armed={c['armed_track']}@{c['armed_weapon_seen_sec']}s "
+                    f"(Δ={c['delta_sec']}s, flash={c['flash_within_2s']})",
+                    flush=True)
 
   - name: caption
     image: registry.access.redhat.com/ubi9/python-311:latest
     env:
+    - {name: PYTHONPATH,      value: /workspace/shared/.python-packages}
+    - {name: PIP_CACHE_DIR,  value: /workspace/shared/.pip-cache}
     # Local Qwen-VL endpoint (Knative Route, OpenShift Router → activator → vLLM).
     - name: VLM_ENDPOINT
       value: "https://pd-qwen25-vl-7b-predictor-pd-cctv.apps.ai-demo.iisdemolab.click/v1/chat/completions"
@@ -140,95 +1603,479 @@ spec:
     - name: vlm-mode-cm
       mountPath: /etc/pd-vlm-mode
       readOnly: true
+    - name: vlm-system-prompt
+      mountPath: /etc/pd-vlm-system-prompt
+      readOnly: true
     script: |
       #!/usr/bin/env python3
-      import base64, json, os, sys, glob, urllib.request, urllib.error, ssl
+      import base64, json, os, sys, glob, subprocess, urllib.request, urllib.error, ssl
 
       clip_id = "$(params.clip-id)"
       workspace = "$(workspaces.shared.path)"
       frames_dir = f"{workspace}/{clip_id}/frames"
       out_path  = f"{workspace}/{clip_id}/caption.json"
       mode_path = f"{workspace}/{clip_id}/.vlm-mode"
+      dur_path  = f"{workspace}/{clip_id}/.clip-duration-sec"
+      step_path = f"{workspace}/{clip_id}/.clip-frame-step-sec"
       try:
           mode = open(mode_path).read().strip()
       except FileNotFoundError:
           mode = "local"
+      try:
+          duration_sec = int(open(dur_path).read().strip())
+      except (FileNotFoundError, ValueError):
+          duration_sec = 0
+      try:
+          frame_step_sec = float(open(step_path).read().strip())
+      except (FileNotFoundError, ValueError):
+          frame_step_sec = 0.0
 
+      try:
+          from PIL import Image, ImageChops  # noqa
+      except ImportError:
+          # ubi9/python-311 is a virtualenv; pip refuses --user inside a venv.
+          # Install to the venv's site-packages (ephemeral per container, ~5s).
+          subprocess.check_call(
+              [sys.executable, "-m", "pip", "install", "--quiet",
+               "--disable-pip-version-check", "Pillow"],
+          )
+          from PIL import Image, ImageChops
+
+      try:
+          num_windows = int(open(f"{workspace}/{clip_id}/.num-windows").read().strip())
+      except (FileNotFoundError, ValueError):
+          num_windows = 1
+      try:
+          window_duration_sec = float(open(f"{workspace}/{clip_id}/.window-durations").read().strip())
+      except (FileNotFoundError, ValueError):
+          window_duration_sec = float(duration_sec) if num_windows == 1 else float(duration_sec) / max(num_windows, 1)
+
+      import re as _re_fname
+      frame_paths = sorted(glob.glob(f"{frames_dir}/window*_*.jpg"))
+      if not frame_paths:
+          frame_paths = sorted(glob.glob(f"{frames_dir}/*.jpg"))
+      windowed_frames = {}  # {window_index: [(within_win_idx, filepath), ...]}
+      for fp in frame_paths:
+          name = os.path.basename(fp)
+          m = _re_fname.match(r"window(\d+)_(\d+)\.jpg", name)
+          if m:
+              w_idx, w_pos = int(m.group(1)), int(m.group(2))
+          else:
+              w_idx, w_pos = 1, len(windowed_frames.get(1, [])) + 1
+          windowed_frames.setdefault(w_idx, []).append((w_pos, fp))
+      for w in windowed_frames:
+          windowed_frames[w].sort()
+
+      frame_meta = []
       images_b64 = []
-      for fp in sorted(glob.glob(f"{frames_dir}/*.jpg")):
-          with open(fp, "rb") as f:
-              images_b64.append(base64.b64encode(f.read()).decode("ascii"))
-      print(f"[caption] mode={mode} frames={len(images_b64)}")
+      for w_idx in sorted(windowed_frames.keys()):
+          fpw = len(windowed_frames[w_idx])
+          win_start_sec = (w_idx - 1) * window_duration_sec
+          step_in_win = window_duration_sec / fpw if fpw else 0
+          for pos, (w_pos, fp) in enumerate(windowed_frames[w_idx]):
+              t_sec = round(win_start_sec + (w_pos - 1) * step_in_win, 2)
+              with open(fp, "rb") as f:
+                  images_b64.append(base64.b64encode(f.read()).decode("ascii"))
+              frame_meta.append({"window": w_idx, "within_window_idx": w_pos,
+                                 "clip_time_sec": t_sec, "path": fp})
+      frame_paths = [m["path"] for m in frame_meta]
+
+      print(f"[caption] mode={mode} frames={len(images_b64)} in {num_windows} window(s) · "
+            f"duration={duration_sec}s window_dur={window_duration_sec:.1f}s")
+
+      per_frame_luminance = []
+      motion_scores = []
+      prev_img = None
+      for fp in frame_paths:
+          img = Image.open(fp).convert("L")            # grayscale, 0–255
+          w, h = img.size
+          mean_lum = sum(img.getdata()) / (w * h)
+          per_frame_luminance.append(round(mean_lum, 1))
+          small = img.resize((160, 90))
+          if prev_img is not None:
+              diff = ImageChops.difference(small, prev_img)
+              motion_scores.append(round(sum(diff.getdata()) / (160 * 90), 2))
+          prev_img = small
+
+      avg_lum = sum(per_frame_luminance) / len(per_frame_luminance) if per_frame_luminance else 0
+      if avg_lum < 60:
+          lighting_class = "NIGHT"
+      elif avg_lum > 130:
+          lighting_class = "DAY"
+      else:
+          lighting_class = "AMBIGUOUS"
+
+      hotspot_ranked = sorted(enumerate(motion_scores), key=lambda x: -x[1])[:5]
+      hotspot_frames = sorted(idx + 2 for idx, _ in hotspot_ranked)   # +2: motion is diff between frame N-1 and N
+      hotspot_times  = sorted(round((idx - 1) * frame_step_sec, 1) for idx, _ in hotspot_ranked) if frame_step_sec else []
+
+      windows_meta = []
+      for w_idx in sorted(windowed_frames.keys()):
+          fpw = len(windowed_frames[w_idx])
+          w_start = round((w_idx - 1) * window_duration_sec, 2)
+          w_end   = round(w_idx * window_duration_sec, 2) if w_idx < num_windows else duration_sec
+          windows_meta.append({"window": w_idx, "start_sec": w_start,
+                               "end_sec": w_end, "frame_count": fpw})
+
+      object_signals = None
+      obj_path = f"{workspace}/{clip_id}/.object-signals.json"
+      tracks_path = f"{workspace}/{clip_id}/.tracks.json"
+      try:
+          with open(obj_path) as f:
+              _obj = json.load(f)
+          if _obj.get("available"):
+              tracks_summary = []
+              try:
+                  with open(tracks_path) as tf:
+                      _tr = json.load(tf)
+                  if _tr.get("available"):
+                      for tid, t in sorted(_tr.get("tracks", {}).items(),
+                                            key=lambda x: int(x[0])):
+                          tracks_summary.append({
+                              "track_id": t["track_id"],
+                              "first_sec": t["first_sec"],
+                              "last_sec":  t["last_sec"],
+                              "duration_sec": t["duration_sec"],
+                              "detections": t["num_detections"],
+                              "mean_conf": t["mean_confidence"],
+                          })
+              except FileNotFoundError:
+                  pass
+              except Exception as e:
+                  print(f"[caption] tracks.json read failed: {e}")
+
+              object_signals = {
+                  "detector": _obj.get("detector"),
+                  "tracker":  _obj.get("tracker"),
+                  "effective_fps": _obj.get("effective_fps"),
+                  "frame_count_scanned": _obj.get("frame_count_scanned"),
+                  "max_simultaneous_people": _obj.get("max_simultaneous_people", 0),
+                  "median_people_per_frame": _obj.get("median_people_per_frame", 0),
+                  "num_unique_tracks": _obj.get("num_unique_tracks",
+                                                _obj.get("unique_subjects_lower_bound", 0)),
+                  "unique_subjects_lower_bound": _obj.get("unique_subjects_lower_bound", 0),
+                  "per_window_max_people": _obj.get("per_window_max_people", {}),
+                  "per_track_lifetimes": tracks_summary,
+                  "note": ("These are HARD counts from a YOLOv8n detector + "
+                           "ByteTrack tracker running on the full video at "
+                           "~8 fps. `num_unique_tracks` is the count of "
+                           "PERSISTENT SUBJECT IDs the tracker maintained "
+                           "across the whole clip — this is the TRUE number "
+                           "of distinguishable people, resolved for "
+                           "occlusion and re-entry. Your Suspects/People "
+                           "table MUST enumerate at least this many rows. "
+                           "The `per_track_lifetimes` array tells you WHEN "
+                           "each subject was on-screen — use these "
+                           "timestamps to place each person on the "
+                           "Timeline. If a subject appears only in the "
+                           "last 3 seconds, they are NOT the ringleader; "
+                           "if a track spans the whole clip, that subject "
+                           "is a persistent presence (loiterer, victim, "
+                           "or fixed observer). NEVER assert more subjects "
+                           "than num_unique_tracks — the tracker cannot be "
+                           "beaten by imagination. NEVER under-count."),
+              }
+              print(f"[caption] object-signals: tracks={object_signals['num_unique_tracks']} "
+                    f"max_simultaneous={object_signals['max_simultaneous_people']} "
+                    f"per_window={object_signals['per_window_max_people']}")
+              for ts in tracks_summary:
+                  print(f"  track {ts['track_id']}: {ts['first_sec']}s → {ts['last_sec']}s "
+                        f"({ts['detections']} dets)")
+          else:
+              print(f"[caption] object-signals unavailable: {_obj.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] object-signals file not found (object-detect step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] object-signals read failed: {e}")
+
+      pose_signals = None
+      poses_path = f"{workspace}/{clip_id}/.poses.json"
+      try:
+          with open(poses_path) as f:
+              _pose = json.load(f)
+          if _pose.get("available"):
+              track_pose_summary = {}
+              for tid, s in _pose.get("tracks", {}).items():
+                  track_pose_summary[tid] = {
+                      "track_id": s["track_id"],
+                      "posture_counts": s["posture_counts"],
+                      "segments": s["segments"],
+                      "changes": s["changes"],
+                  }
+              geometric = _pose.get("geometric_incident_candidates", {}) or {}
+              geometric_noise_count = _pose.get("geometric_noise_tracks_count", 0)
+              pose_signals = {
+                  "model": _pose.get("model"),
+                  "num_tracks_with_poses": _pose.get("num_tracks_with_poses"),
+                  "match_rate": (round(_pose.get("matched_poses", 0) /
+                                        max(_pose.get("matched_poses", 0)
+                                             + _pose.get("unmatched_poses", 0), 1), 3)),
+                  "tracks": track_pose_summary,
+                  "geometric_incident_candidates": geometric,
+                  "geometric_noise_tracks_count": geometric_noise_count,
+                  "note": ("Per-subject posture data from a YOLOv8-pose "
+                           "estimator matched to ByteTrack IDs by IoU. "
+                           "`segments` is the contiguous posture-time "
+                           "of each track; `changes` are the transition "
+                           "events (e.g. standing→prone at 12.3s = "
+                           "person hit the ground). If any track has a "
+                           "posture-change to `prone`, `arm-extended`, "
+                           "or `falling`, that IS the incident — surface "
+                           "it prominently in Modus Operandi, Timeline, "
+                           "and Forensic Conclusion. `standing`/`walking`/"
+                           "`running` are ambulatory; `prone`/`crouched`/"
+                           "`arm-extended` warrant scrutiny."),
+              }
+              print(f"[caption] pose-signals: tracks_with_poses={pose_signals['num_tracks_with_poses']} "
+                    f"match_rate={pose_signals['match_rate']} "
+                    f"HIGH_CONFIDENCE_incident={len(geometric)} "
+                    f"NOISE_dropped={geometric_noise_count}")
+              for tid, s in sorted(track_pose_summary.items(), key=lambda x: int(x[0])):
+                  print(f"  track {tid}: postures={s['posture_counts']} "
+                        f"changes={len(s['changes'])}")
+              if geometric:
+                  print("[caption] 🚨 HIGH-CONFIDENCE incident candidates injected into TRUSTED SIGNALS:")
+                  for tid, g in sorted(geometric.items(), key=lambda x: int(x[0])):
+                      msg = (f"    track {tid}: prone_ratio={g['prone_ratio']} "
+                             f"aspect_range={g['aspect_range']} "
+                             f"longest_prone={g['longest_prone_duration_sec']}s "
+                             f"intervals={len(g['sustained_prone_intervals'])} "
+                             f"fall_events={len(g['fall_events'])}")
+                      print(msg)
+          else:
+              print(f"[caption] pose-signals unavailable: {_pose.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] .poses.json not found (pose-estimate step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] pose-signals read failed: {e}")
+
+      weapon_signals = None
+      weapons_path = f"{workspace}/{clip_id}/.weapons.json"
+      try:
+          with open(weapons_path) as f:
+              _wep = json.load(f)
+          if _wep.get("available"):
+              tracks_wep = _wep.get("tracks_with_weapons", {}) or {}
+              weapon_signals = {
+                  "model": _wep.get("model"),
+                  "num_tracks_with_weapons": _wep.get("num_tracks_with_weapons"),
+                  "total_raw_detections": _wep.get("total_raw_detections"),
+                  "tracks_with_weapons": tracks_wep,
+                  "note": ("Per-subject weapon detections from a YOLO-World "
+                           "open-vocabulary detector. Each entry ties a "
+                           "weapon type (pistol / rifle / knife / etc.) "
+                           "to a persistent ByteTrack subject via IoU "
+                           "and bbox-containment matching. Only tracks "
+                           "with 2+ frames of weapon presence are "
+                           "surfaced (single-frame detections are "
+                           "filtered as noise). IF ANY TRACK APPEARS "
+                           "HERE, THAT SUBJECT IS ARMED — call it out "
+                           "explicitly in Weapons & Threats, Modus "
+                           "Operandi, and Forensic Conclusion with the "
+                           "weapon class and the timestamp range. "
+                           "Combine with pose_signals.geometric_"
+                           "incident_candidates: an armed subject + "
+                           "another subject going prone within a few "
+                           "seconds = armed assault. This is the "
+                           "definitive shootout / brandishing signal."),
+              }
+              print(f"[caption] weapon-signals: tracks_with_weapons="
+                    f"{weapon_signals['num_tracks_with_weapons']} "
+                    f"total_raw={weapon_signals['total_raw_detections']}")
+              for tid, s in sorted(tracks_wep.items(), key=lambda x: int(x[0])):
+                  classes = ", ".join(f"{c}:{n}" for c, n in
+                                       s["weapon_classes"].items())
+                  print(f"  🔫 track {tid}: {s['num_weapon_frames']} frames "
+                        f"({s['first_weapon_sec']}s→{s['last_weapon_sec']}s) "
+                        f"[{classes}] max_conf={s['max_conf']}")
+          else:
+              print(f"[caption] weapon-signals unavailable: {_wep.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] .weapons.json not found (weapon-detect step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] weapon-signals read failed: {e}")
+
+      action_signals = None
+      actions_path = f"{workspace}/{clip_id}/.actions.json"
+      try:
+          with open(actions_path) as f:
+              _act = json.load(f)
+          if _act.get("available"):
+              action_signals = {
+                  "model": _act.get("model"),
+                  "dataset": _act.get("dataset"),
+                  "num_tracks_analyzed": _act.get("num_tracks_analyzed"),
+                  "num_tracks_violence_flagged": _act.get("num_tracks_violence_flagged"),
+                  "num_tracks_running_flagged": _act.get("num_tracks_running_flagged"),
+                  "tracks": _act.get("tracks", {}),
+                  "note": ("Per-track Kinetics-400 action recognition from a "
+                           "torchvision MViT v2-S classifier applied to bbox "
+                           "crops sampled across each subject's on-screen "
+                           "lifetime. `top1` is the model's single best guess, "
+                           "`top5` is the confidence-ranked shortlist. Two "
+                           "boolean signals summarize forensic relevance:\n"
+                           " - violence_signal = TRUE if any top-5 class is a "
+                           "close-combat / striking action (boxing / wrestling / "
+                           "kicking / sword fighting etc.). Combine with "
+                           "pose_signals.geometric_incident_candidates: if a "
+                           "track has both violence_signal AND another track is "
+                           "prone within 5s, that's the assailant. Kinetics-400 "
+                           "has NO firearm-firing class, so shooting subjects "
+                           "will typically appear as 'punching person' or "
+                           "'boxing' when combined with arm-extended pose.\n"
+                           " - running_signal = TRUE if top-5 includes jogging/"
+                           "running. Late-clip runners are typically fleeing.\n"
+                           "Action confidence is often moderate (0.1-0.3) at "
+                           "night / on small subjects; treat as corroborating "
+                           "evidence, NOT as sole basis for a determination."),
+              }
+              print(f"[caption] action-signals: analyzed={action_signals['num_tracks_analyzed']} "
+                    f"violence_flagged={action_signals['num_tracks_violence_flagged']} "
+                    f"running_flagged={action_signals['num_tracks_running_flagged']}")
+              for tid, s in sorted(action_signals["tracks"].items(),
+                                    key=lambda x: int(x[0])):
+                  markers = []
+                  if s.get("violence_signal"): markers.append("💥")
+                  if s.get("running_signal"): markers.append("🏃")
+                  print(f"  track {tid}: top1='{s['top1']}' ({s['top1_conf']:.2f}) "
+                        f"{''.join(markers)}")
+          else:
+              print(f"[caption] action-signals unavailable: {_act.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] .actions.json not found (action-recognize step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] action-signals read failed: {e}")
+
+      flash_signals = None
+      flashes_path = f"{workspace}/{clip_id}/.flashes.json"
+      try:
+          with open(flashes_path) as f:
+              _flash = json.load(f)
+          if _flash.get("available"):
+              flash_signals = {
+                  "baseline_max_luma": _flash.get("baseline_max"),
+                  "spike_threshold": _flash.get("spike_threshold"),
+                  "arm_extended_tracks_scanned": _flash.get("arm_extended_tracks_scanned"),
+                  "num_tracks_with_flashes": _flash.get("num_tracks_with_flashes"),
+                  "tracks_with_flashes": _flash.get("tracks_with_flashes", {}),
+                  "note": ("Muzzle-flash detector: pixel-level brightness "
+                           "spike search around each arm-extended track's "
+                           "wrist and projected muzzle point. A candidate "
+                           "flash exceeds `spike_threshold` AND is transient "
+                           "(≤3 keypoint frames, ~0.4s) — persistent bright "
+                           "spots (headlights, floodlights) are rejected. "
+                           "Combined with weapon_signals and geometric_"
+                           "incident_candidates: a flash on Subject #A "
+                           "co-timed with weapon detection on the same "
+                           "track AND Subject #B going prone within ~2s = "
+                           "SHOOTING (not brandishing). A flash without a "
+                           "co-timed prone-transition on another track "
+                           "is BRANDISHING or a warning-shot. Low peak_roi_"
+                           "max (<250) and small over_baseline (<50) are "
+                           "less-certain and should be qualified as "
+                           "'possible muzzle flash'."),
+              }
+              print(f"[caption] flash-signals: tracks_with_flashes="
+                    f"{flash_signals['num_tracks_with_flashes']} "
+                    f"threshold={flash_signals['spike_threshold']}")
+              for tid, ft in sorted(flash_signals["tracks_with_flashes"].items(),
+                                     key=lambda x: int(x[0])):
+                  for f in ft["flashes"]:
+                      print(f"  💥 track {tid}: flash@{f['sec']}s "
+                            f"peak={f['peak_roi_max']} "
+                            f"(+{f['over_baseline']} over baseline)")
+          else:
+              print(f"[caption] flash-signals unavailable: {_flash.get('reason','unknown')}")
+      except FileNotFoundError:
+          print("[caption] .flashes.json not found (muzzle-flash-detect step may have failed silently)")
+      except Exception as e:
+          print(f"[caption] flash-signals read failed: {e}")
+
+      fused_events = None
+      events_path = f"{workspace}/{clip_id}/.events.json"
+      try:
+          with open(events_path) as f:
+              _ev = json.load(f)
+          if _ev.get("available"):
+              fused_events = _ev
+              print(f"[caption] fused-events: tracks={_ev.get('num_tracks')} "
+                    f"master_timeline={len(_ev.get('master_timeline', []))} "
+                    f"correlations={len(_ev.get('cross_track_correlations', []))} "
+                    f"role_counts={_ev.get('role_counts')}")
+              for c in _ev.get("cross_track_correlations", []):
+                  print(f"  🚨 {c['kind']}: victim={c['victim_track']}, armed={c['armed_track']}, "
+                        f"Δ={c['delta_sec']}s")
+      except FileNotFoundError:
+          print("[caption] .events.json not found (event-fusion step may have failed)")
+      except Exception as e:
+          print(f"[caption] fused-events read failed: {e}")
+
+      trusted_signals = {
+          "clip_duration_sec": duration_sec,
+          "frame_count": len(frame_paths),
+          "num_windows": num_windows,
+          "window_duration_sec": round(window_duration_sec, 2),
+          "mean_luminance_0_255": round(avg_lum, 1),
+          "lighting_class": lighting_class,
+          "per_frame_luminance": per_frame_luminance,
+          "top_motion_hotspot_frames_1indexed": hotspot_frames,
+          "top_motion_hotspot_timestamps_sec": hotspot_times,
+          "windows": windows_meta,
+          "object_detector_signals": object_signals,
+          "pose_signals": pose_signals,
+          "weapon_signals": weapon_signals,
+          "action_signals": action_signals,
+          "flash_signals": flash_signals,
+          "fused_events": fused_events,
+      }
+      print(f"[caption] TRUSTED SIGNALS lighting={lighting_class} avg_lum={avg_lum:.1f} "
+            f"hotspots={hotspot_frames}")
 
       _ctx = ssl.create_default_context()
       _ctx.check_hostname = False
       _ctx.verify_mode = ssl.CERT_NONE
 
-      # ── Forensic system prompt (used by both modes) ─────────────────
-      # Asks for the same JSON shape so structure-and-write doesn't care.
-      # Claude's reasoning is much richer over this prompt; Qwen-VL 7B
-      # ignores most of the analytical asks and produces a generic
-      # description, which is fine — the prompt floor doesn't hurt it.
-      SYSTEM_PROMPT = (
-          "You are a forensic CCTV analyst writing a post-incident report from a "
-          "short surveillance clip. The user is supplying you with chronologically "
-          "ordered keyframes (frame_001 = clip start, each subsequent frame is "
-          "evenly spaced through the clip duration).\n\n"
-          "Produce a STRICT JSON object with EXACTLY these keys, no preamble, no "
-          "code fence, no extra text:\n"
-          "  {\n"
-          "    \"summary\": \"<one short sentence, ≤20 words, describing the most distinctive observation in this clip — used as the clip-card preview in the UI. Lead with WHAT happens, not what's missing. Examples: 'Three masked subjects load a burgundy Jeep Grand Cherokee at a parking-lot loading dock.' / 'Routine pedestrian traffic through a transit station stairwell over ~8 minutes.' / 'Person walks across an empty lot; no other activity.'>\",\n"
-          "    \"prose\": \"<markdown narrative — see structure below>\",\n"
-          "    \"entities\": [{\"kind\": \"vehicle|person|object\", \"label\": \"<descriptor>\"}, ...],\n"
-          "    \"events\": [{\"action\": \"<verb phrase>\", \"t_start_sec\": <float>, \"t_end_sec\": <float>, \"confidence\": <0..1>}, ...]\n"
-          "  }\n\n"
-          "PROSE STRUCTURE (markdown, in this order):\n"
-          "## Vehicle\n"
-          "- make, model, generation/year if recognisable; color; condition; plate "
-          "(quote any visible characters even if partial); notable accessories or modifications.\n"
-          "## What Happened — Timeline\n"
-          "- Chronological narrative across the keyframes. **All timestamps must be "
-          "  CLIP-RELATIVE seconds with the `s` suffix** — e.g. '0.0s', '8.5s', '64s'. "
-          "  These are the only format the UI turns into clickable seek-pills. "
-          "  IF the video has a camera-overlay wall-clock (e.g. '10:40:40 AM' burned in), "
-          "  you MAY mention it in plain prose as context — but ONLY along with the "
-          "  clip-relative time, like 'at 8.5s (10:40:48 on the camera overlay)'. Never "
-          "  use a bare wall-clock timestamp as your primary marker, and never use "
-          "  `m:ss` or `hh:mm:ss` formats as anchors.\n"
-          "- Mention what each keyframe shows and what changes between consecutive frames.\n"
-          "## Suspects / People\n"
-          "- A markdown table with columns: # | Clothing | Build | Notes/Role.\n"
-          "  One row per distinguishable person. Cap masks/face coverings explicitly.\n"
-          "  Never assert identity; describe only what is visible.\n"
-          "## Crime Type / Pattern\n"
-          "- One sentence naming the apparent activity (e.g. 'smash-and-grab', "
-          "  'package theft', 'argument outside premises'). Include modus-operandi if obvious.\n"
-          "## Evidence Items Left Behind\n"
-          "- Bullet list of physical items visible in final frames that may have "
-          "  forensic value (discarded clothing, tools, vehicle parts, debris).\n\n"
-          "HARD RULES:\n"
-          "- Never invent named identities. Never infer race/religion/gender beyond "
-          "  what's plainly visible.\n"
-          "- If a section has no observable content, write 'Not visible in the supplied frames.' "
-          "  rather than inventing.\n"
-          "- claims[] (separate from prose) is for chat-time grounding — list 3-8 short "
-          "  factual claims the persona service can quote, each with a confidence (0..1) and a "
-          "  frame_refs list of clip-relative timestamps.\n"
-      )
+      try:
+          with open("/etc/pd-vlm-system-prompt/system.txt") as f:
+              SYSTEM_PROMPT = f.read()
+      except FileNotFoundError:
+          SYSTEM_PROMPT = (
+              "You are a forensic CCTV analyst. Describe the clip in JSON with "
+              "keys {summary, prose, entities, events}."
+          )
+          print("[caption] WARN: system-prompt ConfigMap missing, using stub", flush=True)
 
-      # The events array drives the Aurora pd_cctv.events table; the
-      # entities array drives pd_cctv.entities; both feed downstream chat
-      # context. claims[] is consumed by the persona service only.
       USER_TEXT = (
-          f"Clip {clip_id}. {len(images_b64)} keyframes follow in chronological order. "
-          "Produce the JSON-only narration as instructed."
+          "## TRUSTED SIGNALS (pixel-derived — DO NOT contradict)\n"
+          f"```json\n{json.dumps(trusted_signals, indent=2)}\n```\n\n"
+          f"Clip {clip_id} · duration {trusted_signals['clip_duration_sec']}s · "
+          f"split into {num_windows} time-windows.\n\n"
+          "The images below are **grouped by window**. Between each window you "
+          "will see a text label like `── Window N (start–end sec) ──` marking "
+          "the boundary. Each window contains a chunk of frames evenly sampled "
+          "across that time slice. Do NOT flatten these into one averaged "
+          "picture — analyze EACH WINDOW SEPARATELY as its own scene, then "
+          "synthesize the full-clip narrative from your per-window observations.\n\n"
+          "For each window, before you write anything else, silently ask:\n"
+          "  1. What is the lighting / setting? (must match TRUSTED SIGNALS lighting_class)\n"
+          "  2. Who is present? Where are they positioned? What are their body postures?\n"
+          "  3. Is anyone RUNNING, HIDING, JUMPING, PRONE, FALLING, CROUCHING, POINTING, FIGHTING,\n"
+          "     or otherwise in a non-ambulatory posture? If yes: what and when.\n"
+          "  4. Are there objects on the ground (weapons, bodies, debris) that weren't there before?\n"
+          "  5. What CHANGED between this window and the previous one?\n"
+          "If your answer to any of 3/4/5 is 'yes' → the incident lives in that window and MUST "
+          "surface as a top-priority event in your Timeline + Modus Operandi + Forensic Conclusion. "
+          "You are NOT permitted to conclude 'no incident occurred' or 'routine traffic' if ANY window "
+          "shows a person on the ground, an arm extended in a firing/pointing posture, running that "
+          "isn't jogging, or someone scrambling low. That's the exact failure class we're guarding "
+          "against.\n\n"
+          "Produce the JSON-only forensic narration as instructed by the SYSTEM prompt."
       )
 
       def _do_local_qwen():
-          # OpenAI-compat chat-completion against in-cluster Qwen-VL.
           payload = {
               "model": os.environ["VLM_MODEL"],
-              "max_tokens": 2048,
+              "max_tokens": 4096,
               "temperature": 0.2,
               "messages": [
                   {"role": "system", "content": SYSTEM_PROMPT},
@@ -251,23 +2098,43 @@ spec:
               return json.loads(resp.read())
 
       def _do_claude_multimodal():
-          # Anthropic Messages API. Wrap the response back into an
-          # OpenAI-compat shape so structure-and-write doesn't branch.
           api_key = os.environ.get("ANTHROPIC_API_KEY", "")
           if not api_key:
               raise RuntimeError("claude-multimodal mode requires "
                                  "ANTHROPIC_API_KEY (Secret pd-anthropic-key)")
           content = [{"type": "text", "text": USER_TEXT}]
-          for b in images_b64:
+          current_win = None
+          for meta, b in zip(frame_meta, images_b64):
+              if meta["window"] != current_win:
+                  w = meta["window"]
+                  w_meta = next((wm for wm in windows_meta if wm["window"] == w), None)
+                  if w_meta:
+                      label = (f"\n\n── **Window {w} of {num_windows}** · "
+                               f"clip time {w_meta['start_sec']:.1f}s to "
+                               f"{w_meta['end_sec']:.1f}s · "
+                               f"{w_meta['frame_count']} frames follow ──\n")
+                  else:
+                      label = f"\n\n── Window {w} of {num_windows} ──\n"
+                  content.append({"type": "text", "text": label})
+                  current_win = meta["window"]
               content.append({
                   "type": "image",
                   "source": {"type": "base64",
                              "media_type": "image/jpeg",
                              "data": b},
               })
+          content.append({
+              "type": "text",
+              "text": ("\n\n── End of windows ──\n\n"
+                       "Now produce the JSON-only forensic narration. Remember: "
+                       "analyze each window separately, then synthesize the master "
+                       "narrative. If ANY window shows a person prone/fallen, arm "
+                       "extended in firing posture, running-not-jogging, or scrambling "
+                       "low, that IS the incident — surface it prominently.")
+          })
           payload = {
               "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
-              "max_tokens": 4096,
+              "max_tokens": 16000,
               "temperature": 0.2,
               "system": SYSTEM_PROMPT,
               "messages": [{"role": "user", "content": content}],
@@ -286,8 +2153,6 @@ spec:
               ant = json.loads(resp.read())
           text = "".join(b.get("text", "") for b in ant.get("content", [])
                          if b.get("type") == "text")
-          # Wrap in OpenAI chat-completion shape so structure-and-write
-          # parses it identically to the Qwen-VL response.
           return {
               "id": ant.get("id"),
               "model": ant.get("model"),
@@ -307,9 +2172,71 @@ spec:
           print(f"[caption] HTTP {e.code}: {body}", file=sys.stderr)
           raise
 
+      import re as _re
+      def _extract_prose(res):
+          try:
+              text = res["choices"][0]["message"]["content"]
+              m = _re.search(r"\{[\s\S]*\}", text)
+              if m:
+                  parsed = json.loads(m.group(0))
+                  return parsed, text
+          except Exception:
+              pass
+          return None, text if isinstance(text, str) else ""
+
+      parsed, raw_text = _extract_prose(result)
+      prose = ""
+      if isinstance(parsed, dict):
+          prose = (parsed.get("prose") or "").lower()
+      elif isinstance(raw_text, str):
+          prose = raw_text.lower()
+
+      day_terms   = ["daylight", "daytime", "midday", "sunny afternoon", "broad daylight", "sunny day"]
+      night_terms = ["night", "after dark", "canopy light", "canopy-lit", "streetlight",
+                     "illuminated by", "dark scene", "evening", "dusk"]
+      claims_day   = any(t in prose for t in day_terms)
+      claims_night = any(t in prose for t in night_terms)
+
+      sanity_flags = []
+      if lighting_class == "NIGHT" and claims_day and not claims_night:
+          sanity_flags.append(
+              f"Model claimed daytime lighting while pixel-derived luminance "
+              f"({avg_lum:.1f}/255) indicates NIGHT — probable narrative hallucination."
+          )
+      if lighting_class == "DAY" and claims_night and not claims_day:
+          sanity_flags.append(
+              f"Model claimed night lighting while pixel-derived luminance "
+              f"({avg_lum:.1f}/255) indicates DAY — check narrative."
+          )
+      if duration_sec > 10:
+          timestamps = [float(m.group(1)) for m in _re.finditer(r"(\d+(?:\.\d+)?)\s*s\b", prose)]
+          max_ts = max(timestamps) if timestamps else 0
+          if max_ts < 0.8 * duration_sec:
+              sanity_flags.append(
+                  f"Timeline max timestamp is {max_ts:.1f}s but clip runs to "
+                  f"{duration_sec}s — model may have missed the tail "
+                  f"(where transient events often live)."
+              )
+
+      if sanity_flags and isinstance(parsed, dict):
+          warning_md = (
+              "> ⚠ **SANITY WARNING — human review recommended**  \n"
+              + "\n".join(f"> • {f}" for f in sanity_flags)
+              + "\n\n"
+          )
+          parsed["prose"] = warning_md + (parsed.get("prose") or "")
+          parsed["_sanity_flags"] = sanity_flags
+          parsed["_trusted_signals"] = trusted_signals
+          result["choices"][0]["message"]["content"] = json.dumps(parsed)
+          print(f"[caption] SANITY FLAGS raised: {sanity_flags}", file=sys.stderr)
+      elif isinstance(parsed, dict):
+          parsed["_trusted_signals"] = trusted_signals
+          result["choices"][0]["message"]["content"] = json.dumps(parsed)
+
       with open(out_path, "w") as f:
           json.dump(result, f)
-      print(f"[caption] wrote {out_path} ({os.path.getsize(out_path)} bytes)")
+      print(f"[caption] wrote {out_path} ({os.path.getsize(out_path)} bytes) "
+            f"lighting={lighting_class} flags={len(sanity_flags)}")
     computeResources:
       requests:
         cpu: "100m"
@@ -321,4 +2248,8 @@ spec:
   - name: vlm-mode-cm
     configMap:
       name: pd-vlm-mode
+      optional: true
+  - name: vlm-system-prompt
+    configMap:
+      name: pd-vlm-system-prompt
       optional: true

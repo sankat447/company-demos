@@ -347,21 +347,37 @@ else
   warn "$APP_OF_APPS not found; skipping ArgoCD bring-up"
 fi
 
+# ── Step 6.5: scale WORKERS ahead of Step 7 (fetcher pod needs headroom) ─
+# Lesson 17.33: on a fresh cluster, baseline is 1 worker/AZ (post-teardown
+# or fresh Terraform). The Step 7 fetcher requests 200m CPU + 2 GiB — small,
+# but combined with the platform workloads already on those workers (rhods,
+# argocd, notebooks, monitoring…) there's no headroom, so the fetcher pod
+# sits Pending for 20+ min until Step 8+9's worker scale-up finally
+# lands — by which time the script's `oc wait --timeout=20m` on the
+# fetcher Job has already given up. Move worker scale-up here (~4 min
+# EC2 boot happens in parallel with the ArgoCD Step 6 sync) so the
+# fetcher lands cleanly. GPU scale-up stays in Step 8+9 (which becomes
+# just "Step 9 · scale GPU + patch GPU MachineSet").
+banner "Step 6.5 · Scale worker MachineSets 1 → 2/AZ (before fetcher)"
+if ! "$DRY_RUN"; then
+  for az in 1a 1b 1c; do
+    ms="${PD_MACHINESET_PREFIX}-worker-us-east-${az}"
+    run oc -n openshift-machine-api annotate machineset "$ms" \
+         pd-cctv.iisl.com/scaled-up-by=demo-session --overwrite >/dev/null
+    run oc -n openshift-machine-api scale machineset "$ms" --replicas=2
+  done
+  ok "workers scaled — new nodes bootstrapping in the background"
+fi
+
 # ── Step 7: stage Qwen-VL model into S3 (idempotent) ──────────────────────
-banner "Step 7 · Stage Qwen-VL model in S3 (skips if already present)"
+banner "Step 7 · Stage Qwen-VL + BGE-small models in S3 (skips if present)"
 if [ -x "$REPO_ROOT/police-department/bootstrap/02_fetch_models.sh" ]; then
   HF_TOKEN="${PD_HF_TOKEN:-}" run "$REPO_ROOT/police-department/bootstrap/02_fetch_models.sh" || \
     warn "model fetch returned non-zero — predictor will fail to load if model missing"
 fi
 
-# ── Step 8 + 9: scale workers + GPU ───────────────────────────────────────
-banner "Step 8+9 · Scale MachineSets (workers 2/AZ + GPU 1)"
-for az in 1a 1b 1c; do
-  ms="${PD_MACHINESET_PREFIX}-worker-us-east-${az}"
-  run oc -n openshift-machine-api annotate machineset "$ms" \
-       pd-cctv.iisl.com/scaled-up-by=demo-session --overwrite >/dev/null
-  run oc -n openshift-machine-api scale machineset "$ms" --replicas=2
-done
+# ── Step 8 + 9: scale GPU (workers already at 2/AZ from Step 6.5) ─────────
+banner "Step 8+9 · Scale GPU MachineSet 0 → 1 + patch template"
 gpu_ms="${PD_MACHINESET_PREFIX}-gpu-demo-us-east-1a"
 
 # Lesson 17 — fresh Terraform leaves the GPU MachineSet with three quirks
@@ -379,18 +395,37 @@ if ! "$DRY_RUN"; then
   CUR_SUBNET=$(oc -n openshift-machine-api get machineset "$gpu_ms" -o jsonpath='{.spec.template.spec.providerSpec.value.subnet.filters[0].values[0]}' 2>/dev/null)
   WORKER_SG=$(oc -n openshift-machine-api get machineset "${PD_MACHINESET_PREFIX}-worker-us-east-1a" -o jsonpath='{.spec.template.spec.providerSpec.value.securityGroups[0].filters[0].values[0]}' 2>/dev/null)
   WORKER_SUBNET=$(oc -n openshift-machine-api get machineset "${PD_MACHINESET_PREFIX}-worker-us-east-1a" -o jsonpath='{.spec.template.spec.providerSpec.value.subnet.filters[0].values[0]}' 2>/dev/null)
+  # Lesson 17.23: the MachineSet template ships with NO `spec.template.spec.taints`,
+  # so the scheduler is free to drop ANY platform pod (rhods-dashboard,
+  # argocd-application-controller, notebook-controller, etc.) on the GPU
+  # node. A single g5.xlarge has only 3.5 CPU + 12.7 GiB allocatable — once
+  # the dashboard alone parks 1.5 CPU + 3 GiB there, the pipeline tasks
+  # (yolo + faces) can't fit even though 3 of 4 vGPUs are free. The result
+  # looks like time-slicing failure but is actually CPU/mem starvation.
+  # Add a `nvidia.com/gpu=true:NoSchedule` taint — all GPU-requesting
+  # workloads (predictor, yolo, faces) already declare a matching
+  # toleration, so only they will ever schedule on this node.
+  CUR_TAINT=$(oc -n openshift-machine-api get machineset "$gpu_ms" -o jsonpath='{.spec.template.spec.taints[?(@.key=="nvidia.com/gpu")].effect}' 2>/dev/null)
   needs_patch=false
   [ "$CUR_TYPE" != "g5.xlarge" ] && needs_patch=true
   [ "$CUR_SG" != "$WORKER_SG" ] && needs_patch=true
   [ "$CUR_SUBNET" != "$WORKER_SUBNET" ] && needs_patch=true
+  [ "$CUR_TAINT" != "NoSchedule" ] && needs_patch=true
   if "$needs_patch"; then
-    log "patching GPU MachineSet (type=$CUR_TYPE→g5.xlarge, sg=$CUR_SG→$WORKER_SG, subnet=$CUR_SUBNET→$WORKER_SUBNET)"
+    log "patching GPU MachineSet (type=$CUR_TYPE→g5.xlarge, sg=$CUR_SG→$WORKER_SG, subnet=$CUR_SUBNET→$WORKER_SUBNET, +taint nvidia.com/gpu=true:NoSchedule)"
     oc -n openshift-machine-api patch machineset "$gpu_ms" --type=json -p "[
       {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/instanceType\",\"value\":\"g5.xlarge\"},
       {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/securityGroups/0/filters/0/values\",\"value\":[\"$WORKER_SG\"]},
-      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/subnet/filters/0/values\",\"value\":[\"$WORKER_SUBNET\"]}
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/subnet/filters/0/values\",\"value\":[\"$WORKER_SUBNET\"]},
+      {\"op\":\"add\",\"path\":\"/spec/template/spec/taints\",\"value\":[{\"key\":\"nvidia.com/gpu\",\"value\":\"true\",\"effect\":\"NoSchedule\"}]}
+    ]" >/dev/null 2>&1 || \
+    oc -n openshift-machine-api patch machineset "$gpu_ms" --type=json -p "[
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/instanceType\",\"value\":\"g5.xlarge\"},
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/securityGroups/0/filters/0/values\",\"value\":[\"$WORKER_SG\"]},
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/providerSpec/value/subnet/filters/0/values\",\"value\":[\"$WORKER_SUBNET\"]},
+      {\"op\":\"replace\",\"path\":\"/spec/template/spec/taints\",\"value\":[{\"key\":\"nvidia.com/gpu\",\"value\":\"true\",\"effect\":\"NoSchedule\"}]}
     ]" >/dev/null
-    ok "GPU MachineSet patched (g5.xlarge + platform-matched SG/subnet)"
+    ok "GPU MachineSet patched (g5.xlarge + platform-matched SG/subnet + NoSchedule taint)"
   fi
 fi
 run oc -n openshift-machine-api scale machineset "$gpu_ms" --replicas=1

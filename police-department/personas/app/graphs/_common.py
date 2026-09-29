@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,35 @@ _MODELS = {
 
 def load_prompt(persona: str) -> str:
     return (_PROMPTS_DIR / f"{persona}.md").read_text(encoding="utf-8")
+
+
+# The 5 persona system prompts each end with a hardcoded "Output format
+# (JSON ...)" section that pins the model to a `{prose, claims}` JSON
+# shape. The non-streaming /chat endpoint parses that JSON. The streaming
+# endpoint needs Markdown — a JSON wrapper defeats streaming because the
+# frontend can't render partial JSON as text, and inner JSON blocks leak
+# into the visible prose. This helper rewrites the system prompt in-flight
+# so the streaming path gets Markdown without editing the disk prompts.
+_JSON_BLOCK_RE = re.compile(
+    r"(\*\*)?Output format[^\n]*\n```(?:json)?\n[\s\S]*?```",
+    re.MULTILINE,
+)
+_MARKDOWN_OVERRIDE = (
+    "**Output format: pure Markdown prose.** Use `##` headings, bullets, "
+    "**bold**, and Markdown tables where they help. Do NOT wrap the "
+    "response in a JSON object. Do NOT put a ```json code fence around "
+    "the whole response. Do NOT include a 'claims' array or any other "
+    "structured JSON payload — the streaming chat client renders your "
+    "response as Markdown directly, so any JSON you output will appear "
+    "to the operator as raw JSON text and is a bug."
+)
+
+
+def to_markdown_system(system: str) -> str:
+    if _JSON_BLOCK_RE.search(system):
+        return _JSON_BLOCK_RE.sub(_MARKDOWN_OVERRIDE, system, count=1)
+    # No JSON block found — append the Markdown directive at the end.
+    return system.rstrip() + "\n\n" + _MARKDOWN_OVERRIDE + "\n"
 
 
 def hybrid_retrieve(req: ChatRequest) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
@@ -199,3 +229,96 @@ def call_llm_as_persona(persona: str, req: ChatRequest) -> PersonaResponse:
         log.warning("real LLM call failed (mode=%s, model=%s, provider=%s): %s — falling back to mock",
                     m, model, provider, e)
         return _mock_call(persona, req)
+
+
+def stream_llm_as_persona(persona: str, req: ChatRequest):
+    """Streaming counterpart to call_llm_as_persona.
+
+    Yields ("token", "<delta>") events during generation, then a single
+    ("response", PersonaResponse) event when the stream completes. For
+    modes that don't support streaming (mock, local-Llama-via-Portkey),
+    falls back to a one-shot call: yields ONE big token event with the
+    full text, then the response.
+    """
+    from app.tools import anthropic_llm
+    m = mode.current()
+    log.info("persona=%s mode=%s (streaming) clip_id=%s", persona, m, req.clip_id)
+
+    # For non-claude modes, degrade gracefully to one-shot then emit a single token event
+    if m != "claude":
+        response = call_llm_as_persona(persona, req)
+        if response.prose:
+            yield ("token", response.prose)
+        yield ("response", response)
+        return
+
+    # Build the same system + user text as the non-streaming path — but for
+    # streaming, ask for Markdown prose directly (NOT JSON-wrapped). JSON
+    # wrapping defeats streaming: the frontend has to hide tokens until the
+    # closing brace arrives, so the user waits 60-90s staring at "drafting".
+    # With Markdown, tokens are user-visible from the second they arrive.
+    # Claims are inferred post-hoc from the prose (or left empty).
+    hits, expansion = hybrid_retrieve(req)
+    clip_ctx = clip_context.load(req.clip_id) if req.clip_id else None
+    # Rewrite the system prompt so the "Output format (JSON ...)" block is
+    # replaced with a Markdown directive — the disk prompts stay JSON-only
+    # so the non-streaming /chat endpoint keeps working.
+    system = to_markdown_system(load_prompt(persona))
+    user = (
+        f"OPERATOR QUESTION:\n{req.q}\n\n"
+        f"CONTEXT:\n{render_context(hits, expansion, clip_ctx)}\n\n"
+        "Respond in clean Markdown as instructed by the system prompt's "
+        "Output format section. Do NOT emit JSON."
+    )
+
+    try:
+        full_text = ""
+        for evt_type, payload in anthropic_llm.chat_stream(
+                system, user, temperature=0.2,
+                model=_MODELS.get("claude")):
+            if evt_type == "token":
+                full_text += payload
+                yield ("token", payload)
+            elif evt_type == "done":
+                full_text = payload["full_text"]
+        # Model may still slip in a ```json / ``` fence — strip if so and
+        # try to parse; otherwise treat the full text as Markdown prose.
+        txt = full_text.strip()
+        parsed = None
+        if txt.startswith("```"):
+            nl = txt.find("\n")
+            if nl != -1:
+                inner = txt[nl + 1:]
+                if inner.rstrip().endswith("```"):
+                    inner = inner.rstrip()[:-3].strip()
+                try:
+                    parsed = json.loads(inner)
+                except Exception:
+                    parsed = {"prose": inner, "claims": []}
+        if parsed is None:
+            try:
+                parsed = json.loads(txt)
+            except Exception:
+                parsed = {"prose": full_text, "claims": []}
+        claims = [Claim(**c) for c in parsed.get("claims", []) if isinstance(c, dict)]
+        provenance = Provenance(
+            clip_ids=list({h["clip_id"] for h in hits}),
+            narration_ids=[h["narration_id"] for h in hits],
+        )
+        evidence_clip = req.clip_id or (hits[0]["clip_id"] if hits else None)
+        response = PersonaResponse(
+            persona=persona,
+            prose=(parsed.get("prose") or "").strip()
+                  or "(model returned no prose; see raw)",
+            claims=claims,
+            provenance=provenance,
+            evidence_clip_id=evidence_clip,
+            raw=parsed,
+        )
+        yield ("response", response)
+    except Exception as e:
+        log.warning("streaming LLM call failed (mode=%s): %s — falling back to mock", m, e)
+        response = _mock_call(persona, req)
+        if response.prose:
+            yield ("token", response.prose)
+        yield ("response", response)

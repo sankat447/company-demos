@@ -25,13 +25,14 @@ from fastapi.responses import HTMLResponse, Response
 from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 
-from app.tools import chat_history, clip_context, clip_url, corrections, mode, pipeline_status, thumbnail, upload as s3_upload, vlm_mode
+from app.tools import chat_history, clip_context, clip_delete, clip_url, corrections, mode, pipeline_status, thumbnail, upload as s3_upload, vlm_mode
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 _INDEX_HTML = _TEMPLATE_DIR / "index.html"
+_PRESENTER_HTML = _TEMPLATE_DIR / "presenter.html"
 
 _MAX_UPLOAD_MB = int(os.environ.get("PD_MAX_UPLOAD_MB", "300"))
 _PD_LLM_MODE_CM = os.environ.get("PD_LLM_MODE_CM", "pd-llm-mode")
@@ -41,6 +42,15 @@ _PD_PERSONAS_NS = os.environ.get("PD_PERSONAS_NAMESPACE", "pd-personas")
 @router.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse(_INDEX_HTML.read_text(encoding="utf-8"))
+
+
+@router.get("/presenter", response_class=HTMLResponse)
+def presenter() -> HTMLResponse:
+    """Live demo presenter page — click a preset prompt → main demo UI focuses
+    the chat input, fills the prompt, and submits it. Opens the demo in a
+    separate window so the presenter screen stays in view on a second monitor.
+    """
+    return HTMLResponse(_PRESENTER_HTML.read_text(encoding="utf-8"))
 
 
 @router.get("/api/mode")
@@ -229,6 +239,22 @@ def undo_correction(clip_id: str) -> dict:
     if not row:
         raise HTTPException(404, "no corrections on file for this clip")
     return {"deleted": row}
+
+
+@router.delete("/api/clip/{clip_id}")
+def delete_clip(clip_id: str) -> dict:
+    """Irreversibly delete a clip + every downstream artefact (S3, Aurora,
+    chat history). Sentinel is protected. Returns a summary of what was
+    purged so the UI can render a truthful toast."""
+    try:
+        return clip_delete.delete_clip(clip_id)
+    except clip_delete.ClipNotFound as e:
+        raise HTTPException(404, str(e))
+    except clip_delete.ProtectedClip as e:
+        raise HTTPException(403, str(e))
+    except Exception as e:
+        log.exception("delete_clip failed for %s", clip_id)
+        raise HTTPException(500, f"delete failed: {e}")
 
 
 @router.delete("/api/chat/history/{clip_id}")

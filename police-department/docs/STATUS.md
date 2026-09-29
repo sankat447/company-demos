@@ -2,12 +2,38 @@
 
 Snapshot of what is built, what is verified, what is not, and the gotchas a future engineer needs to know on day one. Update this file whenever the truth shifts.
 
-**Last updated:** 2026-05-06
-**Branch:** `feature/police-department-v1`
-**PR:** https://github.com/sankat447/company-demos/pull/1 (open, against `sanjeev-dev`)
-**Cluster:** `https://api.ai-demo.iisdemolab.click:6443` (AWS, OCP 4.20)
+**Last updated:** 2026-08-04
+**Branch:** `sanjeev-dev` (milestone `pd-cv-stack-complete-2026-07-24`)
+**Cluster:** `https://api.ai-demo.iisdemolab.click:6443` (AWS, OCP 4.21 · RHEL 9.6)
+**MachineSet prefix:** `ai-demo-q9sq6` (auto-detected — see lesson 17.17; do not hardcode)
 **Kubeconfig:** `/Users/sanjeevkumar/GitHub/ai-demo-stack-aws/environments/demo/ocp-install-dir/ai-demo/auth/kubeconfig`
-**Live demo URL:** https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/
+**Demo URL** (operator chat): https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/
+**Presenter URL** (second-screen control deck): https://pd-persona-pd-personas.apps.ai-demo.iisdemolab.click/presenter
+**Predictor URL** (Knative KServe route): NOT DEPLOYED — pd-vlm-mode = `claude-multimodal` (uses Anthropic API, no local Qwen)
+**GPU node:** `ip-10-0-8-98.ec2.internal` (g5.xlarge, A10G, 4 vGPUs time-sliced, active — nvidia.com/gpu=4 on the node)
+**Demo state:** CLEAN — Aurora holds only the sentinel row, S3 clips/police-department/ is empty; ready for a fresh clip upload.
+
+## What's new since 2026-07-21 (session 2026-07-22 → 08-04)
+
+- ✅ **6-phase per-track CV stack** delivered end-to-end (Phases 1-6, milestone `pd-cv-stack-complete-2026-07-24`) — ByteTrack + pose + weapon + action + muzzle-flash + event-fusion, all inside a single Tekton Task `pd-task-vlm-caption`. Emits `.tracks.json`, `.poses.json`, `.weapons.json`, `.actions.json`, `.flashes.json`, `.events.json`. See `LESSONS_LEARNED.md` "Session 2026-07-22 → 07-24" for the full recap + 8 remediation lessons (17.38-17.47).
+- ✅ **Cluster rebuilt fresh** — old `ai-demo-6twt9` destroyed, new `ai-demo-q9sq6` provisioned. Aurora snapshotted + restored into new VPC. Persona service rebuilt (Deployment + Route + Aurora creds + Redis in `ai-demo` ns). Same demo URL, new endpoints under the hood.
+- ✅ **SSE streaming persona chat** with Anthropic prompt caching + Markdown-only prompt rewrite (in `personas/app/graphs/_common.py:to_markdown_system`). First-token latency ~2-3 s.
+- ✅ **GPU acceleration** — g5.xlarge in us-east-1a, NVIDIA operator + driver + device-plugin + time-slicing all live. 4 vGPUs exposed via ClusterPolicy + `time-slicing-config` ConfigMap. 4 CV pipeline ML steps request `nvidia.com/gpu:1`.
+- ✅ **External VLM system prompt** — extracted from inline Python to `pd-vlm-system-prompt.txt` + `pd-vlm-system-prompt` ConfigMap. Solves the Tekton ARG_MAX ~128KB ceiling (lesson 17.40).
+- ✅ **Fresh demo state** — Aurora cleared to sentinel-only; S3 clips prefix empty; PVC per-clip dirs deleted (model caches preserved).
+
+## What's new since 2026-05-21 (post-merge to sanjeev-dev)
+
+- ✅ **Presenter page at `/presenter`** — second-screen control deck with preset prompt buttons that type into the demo chat char-by-char and submit (lesson 17.30, 17.31)
+- ✅ **GPU MachineSet auto-taint** with `nvidia.com/gpu=true:NoSchedule` so platform pods don't squat (lesson 17.23)
+- ✅ **05_views.sql idempotent** — drops the `v_clip_summary` view before re-creating since 07_faces_plates.sql widens it (lesson 17.21)
+- ✅ **`pd_cctv.operator_corrections` table** baked into the schema CM (lesson 17.16)
+- ✅ **BGE-small staging** added to `bootstrap/02_fetch_models.sh` (lesson 17.22)
+- ✅ **MLflow `s3:PutObject` permission** on `mlflow-artifacts/*` for the pd-demo-s3-rw IAM user (lesson 17.15)
+- ✅ **Step 13.5** wires Tekton coschedule=disabled + `pd-results-prune-creds` + Pipelines console plugin (lessons 17.9, 17.10, 17.13)
+- ✅ **Persona prompts have ABSOLUTE override rule** for operator corrections (lesson 17.25)
+- ✅ **Chat-window CSS fix** — outer card no longer scrolls; video preview + input row stay pinned (lessons 17.27, 17.28)
+- ✅ **Pipeline `displayName: "Objects & Licence Plates"`** on faces-and-plates task
 
 ---
 
