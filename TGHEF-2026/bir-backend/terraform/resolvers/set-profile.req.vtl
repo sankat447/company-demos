@@ -1,0 +1,25 @@
+## Phase 1: setProfile — the caller's own DPDP-consented profile (name + DOB),
+## the DOB the master-ticket age-band is derived from. Keyed by the caller's sub.
+#if($util.isNull($ctx.identity.sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "PutItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("PROFILE#$ctx.identity.sub"),
+    "sk": $util.dynamodb.toDynamoDBJson("PROFILE")
+  },
+  "attributeValues": {
+    "displayName": $util.dynamodb.toDynamoDBJson($ctx.args.input.displayName),
+    "dob": $util.dynamodb.toDynamoDBJson($ctx.args.input.dob),
+    "consentDpdp": $util.dynamodb.toDynamoDBJson($ctx.args.input.consentDpdp),
+## DPDP (M6): a defensible consent artifact — the notice version consented to and
+## the moment of consent. Only stamped when consent is actually given.
+#if($ctx.args.input.consentDpdp == true)
+    "consentVersion": $util.dynamodb.toDynamoDBJson("2026-v1"),
+    "consentAt": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds()),
+#end
+    "updatedAt": $util.dynamodb.toDynamoDBJson($util.time.nowEpochSeconds())
+  }
+}

@@ -1,0 +1,11 @@
+## P2.4 gap: scheduleDelta — the festival programme (pk = SCHEDULE). The set is
+## small (three days), so we return all rows and hand back the max startsAt as
+## the cursor; the client upserts into SQLite (idempotent) on each foreground/nudge.
+{
+  "version": "2018-05-29",
+  "operation": "Query",
+  "query": {
+    "expression": "pk = :pk",
+    "expressionValues": { ":pk": $util.dynamodb.toDynamoDBJson("SCHEDULE") }
+  }
+}

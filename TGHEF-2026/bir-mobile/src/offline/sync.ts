@@ -54,7 +54,9 @@ export async function pullScheduleDelta(nowMs: number): Promise<number> {
           item.endsAt ?? null,
           item.titleEn ?? null,
           item.titleHi ?? null,
-          item.data ?? null,
+          // `data` may arrive as a JSON string (AWSJSON) or already-parsed object
+          // depending on the resolver — SQLite can only bind a string, so coerce.
+          item.data == null ? null : typeof item.data === 'string' ? item.data : JSON.stringify(item.data),
           nowMs,
         ],
       );
@@ -85,6 +87,16 @@ export async function pullRevocationsDelta(): Promise<number> {
   });
   await kvStore.set(CURSOR_REVOCATIONS, String(delta.cursor));
   return delta.items.length;
+}
+
+/**
+ * Load all revoked jtis into a Set for synchronous checks during a scan
+ * burst (the verdict path must not await per-scan). Bounded per festival.
+ */
+export async function loadRevokedSet(): Promise<Set<string>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ jti: string }>('SELECT jti FROM revocations');
+  return new Set(rows.map((r) => r.jti));
 }
 
 export async function isRevoked(jti: string): Promise<boolean> {

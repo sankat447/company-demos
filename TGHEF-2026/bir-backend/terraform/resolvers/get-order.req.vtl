@@ -1,0 +1,11 @@
+## B5: getOrder — the owning visitor recovers their order after a kill between
+## pay and confirm (the subscription can't replay events fired while the app was
+## dead). Ownership is enforced in the response template.
+{
+  "version": "2018-05-29",
+  "operation": "GetItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("ORDER"),
+    "sk": $util.dynamodb.toDynamoDBJson($ctx.args.orderId)
+  }
+}

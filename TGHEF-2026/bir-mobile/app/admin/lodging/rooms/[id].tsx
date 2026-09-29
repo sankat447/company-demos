@@ -7,10 +7,11 @@ import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { RoomForm } from '@/features/lodging/RoomForm';
 import { kvRoomStore, type RoomError } from '@/features/lodging/rooms';
 import { kvStore } from '@/offline/db';
+import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, radius, spacing, typeScale } from '@/ui/tokens';
 
-const store = kvRoomStore(kvStore);
+const store = kvRoomStore(kvStore, new SqliteOutboxStore());
 
 export default function EditRoom() {
   const { t } = useTranslation();

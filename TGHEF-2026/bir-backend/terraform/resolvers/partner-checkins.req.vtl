@@ -1,0 +1,19 @@
+## B4 GUI: partnerCheckIns — the caller's own guest check-in records, so the
+## hospitality board reflects check-ins made on any device (not just local UI
+## state). Partner-group guarded; Query the CHKIN#<sub> partition.
+#set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+#if(!$groups.contains("partner"))
+  $util.unauthorized()
+#end
+#set($sub = $ctx.identity.sub)
+#if($util.isNullOrEmpty($sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "Query",
+  "query": {
+    "expression": "pk = :pk",
+    "expressionValues": { ":pk": $util.dynamodb.toDynamoDBJson("CHKIN#$sub") }
+  }
+}

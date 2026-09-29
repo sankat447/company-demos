@@ -1,0 +1,22 @@
+## B6: revokePass — ops-guarded (safety-officer / organiser-lite). Writes a
+## REVOCATION row that the revocationsDelta feed serves to every device, so the
+## offline verifier rejects the pass on its next sync. Idempotent per jti.
+#set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+#if(!$groups.contains("safety-officer") && !$groups.contains("organiser-lite"))
+  $util.unauthorized()
+#end
+#set($now = $util.time.nowEpochSeconds())
+{
+  "version": "2018-05-29",
+  "operation": "PutItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("REV#$ctx.args.input.jti"),
+    "sk": $util.dynamodb.toDynamoDBJson("REV")
+  },
+  "attributeValues": {
+    "jti": $util.dynamodb.toDynamoDBJson($ctx.args.input.jti),
+    "revokedAt": $util.dynamodb.toDynamoDBJson($now),
+    "gsi1pk": $util.dynamodb.toDynamoDBJson("REVOCATION"),
+    "gsi1sk": $util.dynamodb.toDynamoDBJson("$now")
+  }
+}

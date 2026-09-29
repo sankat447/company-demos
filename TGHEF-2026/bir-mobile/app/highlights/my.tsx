@@ -8,13 +8,19 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { isEnabled } from '@/config/flags';
 import { addToDeviceCalendar, eventWindow } from '@/features/highlights/calendar';
 import { findItem, loadCatalog } from '@/features/highlights/catalog';
-import { cancelRegistration, kvRegistrationStore } from '@/features/highlights/registration';
+import {
+  cancelRegistration,
+  kvRegistrationStore,
+  mergeRegistrations,
+} from '@/features/highlights/registration';
+import { fetchMyRegistrations } from '@/features/highlights/myRegistrations';
 import type { RegistrationStatus } from '@/features/highlights/types';
 import {
   shouldIssueBadge,
   setRegistrationBadge,
   type RegistrationWithBadge,
 } from '@/features/badges/badges';
+import { issueParticipantBadge } from '@/features/badges/issue';
 import { issueDemoParticipantBadge } from '@/demo/demo';
 import { savePass } from '@/features/tickets/passStore';
 import { loadAllocation, loadPool, lodgingCardFor } from '@/features/lodging/allocation';
@@ -43,9 +49,20 @@ export default function MyRegistrations() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [calendarNote, setCalendarNote] = useState<'added' | 'failed' | null>(null);
+  // Local kv is the offline-safe base; when online the server-authoritative
+  // myRegistrations (B1) merges over it so confirmations/waitlist promotions
+  // made on another device appear here too.
   const registrations = useQuery({
     queryKey: ['registrations'],
-    queryFn: () => store.list(),
+    queryFn: async () => {
+      const local = await store.list();
+      try {
+        const server = await fetchMyRegistrations(Date.now());
+        return mergeRegistrations(local, server, Date.now());
+      } catch {
+        return local;
+      }
+    },
     networkMode: 'always',
   });
   const catalog = useQuery({
@@ -104,6 +121,13 @@ export default function MyRegistrations() {
               {reg.status === 'pending-sync' ? (
                 <Text style={styles.pendingNote}>{t('highlights.queuedBody')}</Text>
               ) : null}
+              {reg.status === 'cancelled' && reg.refundState && reg.refundState !== 'none' ? (
+                <Text style={styles.refundNote}>
+                  {reg.refundState === 'processed'
+                    ? t('highlights.refundProcessed')
+                    : t('highlights.refundPending')}
+                </Text>
+              ) : null}
               {(() => {
                 const lodging = lodgingCardFor(
                   reg.id,
@@ -142,12 +166,15 @@ export default function MyRegistrations() {
                   style={styles.passLink}
                   onPress={async () => {
                     let jti = (reg as RegistrationWithBadge).badgeJti;
-                    if (!jti && isEnabled('mockHighlights')) {
-                      const issued = await issueDemoParticipantBadge(
-                        { kv: kvStore, savePass },
-                        { competitionId: reg.itemId, sub: reg.id },
-                        Date.now(),
-                      );
+                    if (!jti) {
+                      // Mock demo signs locally; live issues via the backend (B2d).
+                      const issued = isEnabled('mockHighlights')
+                        ? await issueDemoParticipantBadge(
+                            { kv: kvStore, savePass },
+                            { competitionId: reg.itemId, sub: reg.id },
+                            Date.now(),
+                          )
+                        : await issueParticipantBadge(reg.id);
                       if (issued) {
                         await setRegistrationBadge(store, reg.id, issued);
                         await queryClient.invalidateQueries({ queryKey: ['registrations'] });
@@ -189,7 +216,7 @@ export default function MyRegistrations() {
                       const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'demo-user');
                       await cancelRegistration(
                         { outbox, store, mockMode: isEnabled('mockHighlights') },
-                        { sub, registrationId: reg.id },
+                        { sub, registrationId: reg.id, paid: (item?.fee?.amount ?? 0) > 0 },
                         Date.now(),
                       );
                       await queryClient.invalidateQueries({ queryKey: ['registrations'] });
@@ -231,6 +258,7 @@ const styles = StyleSheet.create({
   cardTitle: { ...typeScale.heading, color: color.text, flex: 1 },
   cardMeta: { ...typeScale.caption, color: color.textMuted },
   pendingNote: { ...typeScale.caption, color: palette.slate },
+  refundNote: { ...typeScale.caption, color: palette.pine, fontWeight: '600' },
   chip: { borderRadius: 999, paddingVertical: 3, paddingHorizontal: 9 },
   chipOk: { backgroundColor: '#E4EEE8' },
   chipWarn: { backgroundColor: '#FCF3E3' },

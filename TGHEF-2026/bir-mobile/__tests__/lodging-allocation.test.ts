@@ -1,3 +1,7 @@
+// allocation.ts imports the GraphQL client for loadPool (B2a); these tests
+// exercise the offline/pure paths, so stub the module to keep Amplify out.
+jest.mock('@/api/graphql', () => ({ gqlClient: jest.fn(), LODGING_POOL: 'LODGING_POOL_DOC' }));
+
 import poolFixture from '@/features/lodging/__fixtures__/pool.mock.json';
 import roomsFixture from '@/features/lodging/__fixtures__/rooms.mock.json';
 import {
@@ -46,6 +50,9 @@ describe('commitAllocation (idempotent, versioned, audit-noted)', () => {
     expect(head.mutation).toBe('commitAllocation');
     expect(head.idempotencyKey).toBe('alloc:admin1:v1');
     expect(head.variables.actorNote).toBe('initial run');
+    // assignments is serialized for the AWSJSON scalar (string, re-parsed server-side)
+    expect(typeof head.variables.assignments).toBe('string');
+    expect(JSON.parse(head.variables.assignments as string)).toEqual(proposal.assignments);
 
     // Post-commit reassignment → new version, new idempotency key.
     const v2 = await commitAllocation(

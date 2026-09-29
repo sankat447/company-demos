@@ -16,7 +16,7 @@ import { bytesToB64url, bytesToHex, hexToBytes, stringToUtf8 } from '@/offline/e
 import type { KvStore } from '@/offline/jwks';
 import type { EcJwk, PassClaims } from '@/offline/verifier';
 
-export const DEMO_OTP = '123456';
+export const DEMO_OTP = '000000';
 
 const SESSION_KEY = 'demo.session';
 const SEEDED_KEY = 'demo.seeded';

@@ -20,7 +20,9 @@ export interface EcJwk {
 // volunteer-attendance/seat-entry; CO-002 adds activity; CO-003 adds
 // participant (ASK #31).
 export type PassType =
+  | 'master'
   | 'ticket'
+  | 'entry'
   | 'volunteer'
   | 'volunteer-attendance'
   | 'seat-entry'
@@ -40,6 +42,9 @@ export interface PassClaims {
   seat?: string;
   /** Participant badges (CO-003): which competition the badge belongs to. */
   competition?: string;
+  /** Master ticket (Phase 1): minimal offline identity the coordinator sees. */
+  name?: string;
+  ageBand?: string;
 }
 
 export type VerifyFailure =

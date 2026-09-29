@@ -48,6 +48,38 @@ export const RECORD_SCAN = /* GraphQL */ `
   }
 `;
 
+// Revoke a pass/badge (B6) — safety-officer / organiser-lite. Writes a
+// REVOCATION row that the revocationsDelta feed serves to every device, so the
+// offline verifier rejects the pass on its next sync. Idempotent per jti.
+export const REVOKE_PASS = /* GraphQL */ `
+  mutation RevokePass($input: RevokePassInput!) {
+    revokePass(input: $input) {
+      accepted
+    }
+  }
+`;
+
+// Profile (Phase 1) — the DPDP-consented name + DOB the master ticket age-band
+// is derived from. Own-sub only; server keys it by the caller's identity.
+export const GET_PROFILE = /* GraphQL */ `
+  query GetProfile {
+    getProfile {
+      displayName
+      dob
+      consentDpdp
+    }
+  }
+`;
+export const SET_PROFILE = /* GraphQL */ `
+  mutation SetProfile($input: SetProfileInput!) {
+    setProfile(input: $input) {
+      displayName
+      dob
+      consentDpdp
+    }
+  }
+`;
+
 export const SCHEDULE_DELTA = /* GraphQL */ `
   query ScheduleDelta($since: AWSTimestamp) {
     scheduleDelta(since: $since) {
@@ -93,6 +125,20 @@ export const FLY_STATUS = /* GraphQL */ `
   }
 `;
 
+export const ANNOUNCEMENTS = /* GraphQL */ `
+  query Announcements {
+    announcements {
+      id
+      titleEn
+      titleHi
+      bodyEn
+      bodyHi
+      level
+      updatedAt
+    }
+  }
+`;
+
 export const ON_FLY_STATUS_CHANGED = /* GraphQL */ `
   subscription OnFlyStatusChanged {
     onFlyStatusChanged {
@@ -128,6 +174,103 @@ export const CREATE_REGISTRATION = /* GraphQL */ `
   }
 `;
 
+// My registrations (CO-002, B1): the server-authoritative list for the signed-in
+// visitor — status/qrPassJti/answers reflect confirmations & waitlist promotions
+// made on any device. answers is AWSJSON (a JSON string) — parse on ingest.
+export const MY_REGISTRATIONS = /* GraphQL */ `
+  query MyRegistrations {
+    myRegistrations {
+      id
+      itemId
+      slotId
+      status
+      qrPassJti
+      answers
+    }
+  }
+`;
+
+// Room inventory (CO-003 P6.10 / ASK #27, B2c): admin-hospitality-guarded read.
+export const LODGING_ROOMS = /* GraphQL */ `
+  query LodgingRooms {
+    lodgingRooms {
+      id
+      hotelName
+      propertyId
+      roomLabel
+      type
+      capacity
+      doubleOccupancy
+      availability {
+        from
+        to
+        nights
+      }
+      amenitiesNote
+      contactPhone
+      status
+    }
+  }
+`;
+
+// Room CRUD write-through (B2d): admin-hospitality guarded, server-audited.
+export const SAVE_ROOM = /* GraphQL */ `
+  mutation SaveRoom($input: SaveRoomInput!) {
+    saveRoom(input: $input) {
+      id
+      status
+    }
+  }
+`;
+export const RETIRE_ROOM = /* GraphQL */ `
+  mutation RetireRoom($input: RetireRoomInput!) {
+    retireRoom(input: $input) {
+      id
+      status
+    }
+  }
+`;
+
+// Participant badge issuance (CO-003, ASK #31 / B2d): signs an ES256 typ:'participant'
+// pass server-side; the app ingests + verifies it against the JWKS like any pass.
+export const ISSUE_BADGE = /* GraphQL */ `
+  mutation IssueBadge($input: IssueBadgeInput!) {
+    issueBadge(input: $input) {
+      jti
+      passToken
+    }
+  }
+`;
+
+// Lodging pool (CO-003, ASK #28 / B2a): confirmed participants who need lodging.
+// admin-hospitality-guarded server-side. gender is lodging-only (never on badges).
+export const LODGING_POOL = /* GraphQL */ `
+  query LodgingPool {
+    lodgingPool {
+      regId
+      name
+      competitionId
+      gender
+      coupleGroupId
+      nights
+      needsLodging
+    }
+  }
+`;
+
+// Occupancy board (CO-003, B2): server-computed rooms×nights fill for a hotel,
+// from the latest committed allocation. admin-hospitality-guarded server-side.
+export const LODGING_OCCUPANCY = /* GraphQL */ `
+  query LodgingOccupancy($hotelName: String!) {
+    lodgingOccupancy(hotelName: $hotelName) {
+      roomId
+      night
+      occupied
+      capacity
+    }
+  }
+`;
+
 // Lodging allocation commit (CO-003, ASK #29): server re-validates the §3
 // hard constraints, audit-logs (actorNote on overrides), notifies participants.
 export const COMMIT_ALLOCATION = /* GraphQL */ `
@@ -147,6 +290,101 @@ export const CANCEL_REGISTRATION = /* GraphQL */ `
       registrationId
       status
       refundState
+    }
+  }
+`;
+
+export const SET_FLY_STATUS = /* GraphQL */ `
+  mutation SetFlyStatus($input: SetFlyStatusInput!) {
+    setFlyStatus(input: $input) {
+      state
+      refundsAutoQueued
+      updatedAt
+    }
+  }
+`;
+
+// Partner consoles (CO-004, B4): the signed-in partner's own console.
+// analytics / allocations are AWSJSON (JSON strings) — parse on ingest.
+export const STALL_CONSOLE = /* GraphQL */ `
+  query StallConsole {
+    stallConsole {
+      stallName
+      category
+      stage
+      allocationLabel
+      feeInr
+      paid
+      analytics
+      rules
+      rulesHi
+    }
+  }
+`;
+
+export const HOSPITALITY_CONSOLE = /* GraphQL */ `
+  query HospitalityConsole {
+    hospitalityConsole {
+      hotelName
+      tier
+      complimentaryRooms
+      allocations
+    }
+  }
+`;
+
+// B4 GUI: persist + read-back hospitality guest check-in (own guests only).
+export const PARTNER_CHECKINS = /* GraphQL */ `
+  query PartnerCheckIns {
+    partnerCheckIns {
+      regId
+      checkedIn
+    }
+  }
+`;
+
+export const PARTNER_CHECK_IN = /* GraphQL */ `
+  mutation PartnerCheckIn($input: PartnerCheckInInput!) {
+    partnerCheckIn(input: $input) {
+      accepted
+    }
+  }
+`;
+
+// Volunteer roster (CO-004, B3): the signed-in volunteer's own profile + shifts.
+export const VOLUNTEER_ROSTER = /* GraphQL */ `
+  query VolunteerRoster {
+    volunteerRoster {
+      sub
+      name
+      team
+      idVerified
+      certificateJti
+      shifts {
+        id
+        date
+        zone
+        role
+        startsAtSec
+        endsAtSec
+      }
+    }
+  }
+`;
+
+export const RECORD_ATTENDANCE = /* GraphQL */ `
+  mutation RecordAttendance($input: RecordAttendanceInput!) {
+    recordAttendance(input: $input) {
+      accepted
+    }
+  }
+`;
+
+export const REPORT_INCIDENT = /* GraphQL */ `
+  mutation ReportIncident($input: ReportIncidentInput!) {
+    reportIncident(input: $input) {
+      incidentId
+      accepted
     }
   }
 `;

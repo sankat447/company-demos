@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bir Festival — Ops Console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ===== Login ===== -->
+<section id="login" class="login">
+  <div class="login-card">
+    <div class="brand">
+      <span class="mark">🪂</span>
+      <div>
+        <div class="brand-name">Bir Festival 2026</div>
+        <div class="brand-sub">Operations Console</div>
+      </div>
+    </div>
+    <p class="login-lede" id="login-lede">Sign in with your admin username and password.</p>
+    <form id="login-form" class="stack">
+      <label class="field">
+        <span>Username</span>
+        <input id="username" type="text" autocapitalize="none" autocomplete="username" spellcheck="false" required>
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input id="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="btn primary" type="submit" id="do-login">Sign in</button>
+      <button class="btn ghost" type="button" id="show-bootstrap">First-time setup — create master admin</button>
+    </form>
+    <form id="bootstrap-form" class="stack hidden">
+      <p class="hint" style="color:var(--muted);font-size:13px">Create the first <b>Superadmin</b>. This works only once, when no admin exists yet.</p>
+      <label class="field"><span>Full name</span><input id="bs-name" type="text" placeholder="Master Admin"></label>
+      <label class="field"><span>Username</span><input id="bs-username" type="text" autocapitalize="none" spellcheck="false" required></label>
+      <label class="field"><span>Password (min 8 chars)</span><input id="bs-password" type="password" autocomplete="new-password" required></label>
+      <div class="row">
+        <button class="btn ghost" type="button" id="bs-back">Back</button>
+        <button class="btn primary" type="submit" id="do-bootstrap">Create &amp; sign in</button>
+      </div>
+    </form>
+    <p id="login-error" class="error hidden"></p>
+  </div>
+  <footer class="login-foot mono">Bir Festival 2026 · 21–23 November · Bir–Billing</footer>
+</section>
+
+<!-- ===== App shell ===== -->
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand small">
+      <span class="mark">🪂</span>
+      <div>
+        <div class="brand-name">Bir Ops</div>
+        <div class="brand-sub" id="who">—</div>
+      </div>
+    </div>
+    <nav id="nav" class="nav">
+      <div class="nav-group">Monitor</div>
+      <button class="nav-item" data-view="overview"><span class="ni">◆</span> Overview</button>
+      <button class="nav-item" data-view="visitors"><span class="ni">◉</span> Visitors &amp; tickets</button>
+      <div class="nav-group">Manage</div>
+      <button class="nav-item" data-view="catalog"><span class="ni">✧</span> Catalog &amp; gates</button>
+      <button class="nav-item" data-view="incidents"><span class="ni">◈</span> Incidents</button>
+      <button class="nav-item" data-view="schedule"><span class="ni">▤</span> Schedule</button>
+      <button class="nav-item" data-view="stalls"><span class="ni">▮</span> Stalls</button>
+      <button class="nav-item" data-view="lodging"><span class="ni">⌂</span> Lodging</button>
+      <button class="nav-item" data-view="volunteers"><span class="ni">✷</span> Volunteers</button>
+      <button class="nav-item" data-view="wristbands"><span class="ni">☹</span> Wristbands</button>
+      <div class="nav-group">Money</div>
+      <button class="nav-item" data-view="orders"><span class="ni">₹</span> Orders</button>
+      <button class="nav-item" data-view="refunds"><span class="ni">⤺</span> Refunds</button>
+      <button class="nav-item" data-view="pricing"><span class="ni">◫</span> Prices</button>
+      <div class="nav-group">Operate</div>
+      <button class="nav-item" data-view="getapp"><span class="ni">📲</span> Get the app</button>
+      <button class="nav-item" data-view="fly"><span class="ni">▲</span> Fly-status</button>
+      <button class="nav-item" data-view="announce"><span class="ni">📣</span> Announcements</button>
+      <button class="nav-item" data-view="kb"><span class="ni">✦</span> Knowledge &amp; AI</button>
+      <button class="nav-item" data-view="passes"><span class="ni">⛔</span> Passes</button>
+      <div class="nav-group">Administration</div>
+      <button class="nav-item" data-view="people"><span class="ni">☺</span> People</button>
+      <button class="nav-item" data-view="admins"><span class="ni">♟</span> Admins</button>
+      <button class="nav-item" data-view="audit"><span class="ni">▤</span> Audit log</button>
+    </nav>
+    <div class="sidebar-foot">
+      <button class="btn ghost full" id="signout">Sign out</button>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div id="crumb" class="crumb">Overview</div>
+      <div class="topbar-right">
+        <span id="fly-chip" class="chip">fly-status —</span>
+        <button class="btn ghost sm" id="refresh">Refresh</button>
+      </div>
+    </header>
+    <div id="view" class="view"></div>
+  </main>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

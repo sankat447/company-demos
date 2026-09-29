@@ -1,0 +1,19 @@
+## B4: stallConsole — a food-stall partner reads THEIR OWN console. Partner-group
+## guarded server-side (the client route gate is UX only), keyed by the caller's
+## Cognito sub (STALL#<sub>) so one partner can never read another's console.
+#set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+#if(!$groups.contains("partner"))
+  $util.unauthorized()
+#end
+#set($sub = $ctx.identity.sub)
+#if($util.isNullOrEmpty($sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "GetItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("STALL"),
+    "sk": $util.dynamodb.toDynamoDBJson($sub)
+  }
+}

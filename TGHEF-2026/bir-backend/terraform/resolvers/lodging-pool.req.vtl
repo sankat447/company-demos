@@ -1,0 +1,22 @@
+## B2: lodgingPool — admin-hospitality only. IAM callers (server/admin) are
+## trusted; Cognito callers must carry the admin-hospitality group. Checking
+## userArn first avoids dereferencing null claims for the IAM path.
+#if($util.isNull($ctx.identity.userArn))
+  #set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+  #if(!$groups.contains("admin-hospitality"))
+    $util.unauthorized()
+  #end
+#end
+## The pool = confirmed participants who need lodging (REG partition).
+{
+  "version": "2018-05-29",
+  "operation": "Query",
+  "query": {
+    "expression": "pk = :pk",
+    "expressionValues": { ":pk": $util.dynamodb.toDynamoDBJson("REG") }
+  },
+  "filter": {
+    "expression": "needsLodging = :t",
+    "expressionValues": { ":t": $util.dynamodb.toDynamoDBJson(true) }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "stallName": "Kangra Kitchen (demo)",
+  "category": "Local food · siddu & dham",
+  "stage": "approved",
+  "allocationLabel": "Food Street · Stall F-12",
+  "feeInr": 3500,
+  "paid": false,
+  "analytics": [
+    { "day": "2026-11-21", "ordersEstimate": 220, "footfallIndex": 78 },
+    { "day": "2026-11-22", "ordersEstimate": 310, "footfallIndex": 91 },
+    { "day": "2026-11-23", "ordersEstimate": 265, "footfallIndex": 84 }
+  ],
+  "rules": [
+    "Single-use plastic is prohibited across the food street.",
+    "Serve on deposit-return cups and plates only.",
+    "Daily waste is weighed at the desk and published.",
+    "UPI payments accepted; display the QR at your counter."
+  ],
+  "rulesHi": [
+    "फ़ूड स्ट्रीट पर एकल-उपयोग प्लास्टिक निषिद्ध है।",
+    "केवल डिपॉज़िट-रिटर्न कप और प्लेट में परोसें।",
+    "रोज़ाना कचरा डेस्क पर तौला और प्रकाशित किया जाता है।",
+    "UPI भुगतान स्वीकार्य; अपने काउंटर पर QR दिखाएँ।"
+  ]
+}

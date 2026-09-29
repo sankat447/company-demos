@@ -1,0 +1,16 @@
+## B3: volunteerRoster — the signed-in volunteer reads THEIR OWN profile.
+## Keyed by the caller's Cognito sub (VOL#<sub>); there is no arg, so a caller
+## can only ever read their own roster. IAM/server callers have no sub and are
+## rejected here (this query is a member-facing read, not a server path).
+#set($sub = $ctx.identity.sub)
+#if($util.isNullOrEmpty($sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "GetItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("VOL"),
+    "sk": $util.dynamodb.toDynamoDBJson($sub)
+  }
+}

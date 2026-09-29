@@ -1,0 +1,10 @@
+## B10: flyStatus — public read of the current fly-status banner (any signed-in
+## visitor). Single well-known row.
+{
+  "version": "2018-05-29",
+  "operation": "GetItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("FLYSTATUS"),
+    "sk": $util.dynamodb.toDynamoDBJson("current")
+  }
+}

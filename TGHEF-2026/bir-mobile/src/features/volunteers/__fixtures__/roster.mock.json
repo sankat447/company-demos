@@ -1,0 +1,40 @@
+{
+  "sub": "demo-user",
+  "name": "Volunteer (demo)",
+  "team": "Gate & Access — Team C",
+  "idVerified": true,
+  "shifts": [
+    {
+      "id": "s-21-am",
+      "date": "2026-11-21",
+      "zone": "Chogan Gate 2",
+      "role": "Gate scanning",
+      "startsAtSec": 1795248000,
+      "endsAtSec": 1795266000
+    },
+    {
+      "id": "s-21-pm",
+      "date": "2026-11-21",
+      "zone": "Landing Site",
+      "role": "Crowd guidance",
+      "startsAtSec": 1795273200,
+      "endsAtSec": 1795291200
+    },
+    {
+      "id": "s-22-am",
+      "date": "2026-11-22",
+      "zone": "Food Street",
+      "role": "Deposit-return desk",
+      "startsAtSec": 1795334400,
+      "endsAtSec": 1795352400
+    },
+    {
+      "id": "s-23-eve",
+      "date": "2026-11-23",
+      "zone": "Chogan Ground",
+      "role": "Award-night ushering",
+      "startsAtSec": 1795456800,
+      "endsAtSec": 1795471200
+    }
+  ]
+}

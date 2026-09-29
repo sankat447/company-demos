@@ -46,6 +46,7 @@ const bucket = arg('bucket', `bir-festival-2026-demo-${account}`);
 const base = `https://${bucket}.s3.${region}.amazonaws.com`;
 const apkUrl = `${base}/bir-festival-demo.apk`;
 const pageUrl = `${base}/index.html`;
+const guideUrl = `${base}/test-guide.html`;
 
 // 1. bucket (idempotent)
 try {
@@ -83,6 +84,7 @@ aws(
         Action: 's3:GetObject',
         Resource: [
           `arn:aws:s3:::${bucket}/index.html`,
+          `arn:aws:s3:::${bucket}/test-guide.html`,
           `arn:aws:s3:::${bucket}/bir-festival-demo.apk`,
           `arn:aws:s3:::${bucket}/qr-android.png`,
           `arn:aws:s3:::${bucket}/qr-page.png`,
@@ -140,6 +142,8 @@ const html = `<!doctype html>
   .os{color:var(--slate);font-size:.8rem;text-transform:uppercase;letter-spacing:1.5px}
   .qr{display:block;width:220px;height:220px;margin:14px auto;border:1px solid #DDE2DC;border-radius:12px}
   .btn{display:block;text-align:center;background:var(--pine);color:#fff;padding:15px;border-radius:12px;text-decoration:none;font-weight:700;font-size:1.05rem}
+  .guide{display:block;text-align:center;background:var(--marigold);color:var(--ink);padding:14px;border-radius:12px;text-decoration:none;font-weight:700;font-size:1rem;margin:0 0 4px}
+  .whatsin{background:#fff;border:1px dashed var(--marigold);border-radius:12px;padding:12px 16px;margin:14px 0;font-size:.86rem;color:#3c4a52}
   .steps{font-size:.9rem;line-height:1.6;color:#3c4a52;padding-left:18px}
   .hi{color:var(--slate)}
   .meta{font-size:.75rem;color:#5B6B75;word-break:break-all}
@@ -165,15 +169,20 @@ const html = `<!doctype html>
 
 <div class="demo sans">EVALUATION BUILD · Sign in with any 10-digit number, OTP <b>123456</b> · डेमो: कोई भी नंबर, OTP <b>123456</b> · Sample data, payments disabled</div>
 
+<a class="guide sans" href="${guideUrl}">📋 Read the testing guide first / पहले टेस्टिंग गाइड पढ़ें</a>
+
+<p class="whatsin sans"><b>What’s inside this build:</b> passes &amp; offline QR, tickets, cultural nights + voting, the Highlights hub (competitions, yoga, adventure…), volunteer scanner/roster/incident, organiser ops + fly-status, admin lodging &amp; badges, and partner stall/hospitality consoles — all with sample data. All six roles are unlocked so one login can test everything.</p>
+
 <section class="card">
   <p class="os sans">Android</p>
   <h2>Point your camera here / यहाँ कैमरा करें</h2>
   <img class="qr" src="${qrAndroidData}" alt="QR: download the Android APK">
   <a class="btn sans" href="${apkUrl}">Download APK (${sizeMb} MB) / APK डाउनलोड करें</a>
   <ol class="steps sans">
+    <li><b>Already have an older “Bir” demo? Uninstall it first</b> (Settings → Apps → Bir), then continue.</li>
     <li>Scan the QR (or tap the button) → the app downloads.</li>
     <li>Open the file → allow <b>“Install from this source”</b> when asked → Install.</li>
-    <li class="hi">QR स्कैन करें → फ़ाइल खोलें → <b>“इस स्रोत से इंस्टॉल की अनुमति दें”</b> → इंस्टॉल।</li>
+    <li class="hi">पुराना डेमो अनइंस्टॉल करें → QR स्कैन करें → फ़ाइल खोलें → <b>“इस स्रोत से इंस्टॉल की अनुमति दें”</b> → इंस्टॉल।</li>
   </ol>
   <p class="meta sans">v${version} · Android 8.0+ · SHA-256 ${sha256}</p>
 </section>
@@ -218,11 +227,15 @@ function put(key, body, contentType, filePath) {
 }
 put('bir-festival-demo.apk', null, 'application/vnd.android.package-archive', apkPath);
 put('index.html', html, 'text/html; charset=utf-8');
+// Standalone tester's guide (authored in scripts/demo-assets/test-guide.html).
+const guideHtml = readFileSync(new URL('./demo-assets/test-guide.html', import.meta.url));
+put('test-guide.html', guideHtml, 'text/html; charset=utf-8');
 put('qr-android.png', null, 'image/png', join(tmp, 'qr-android.png'));
 put('qr-page.png', null, 'image/png', join(tmp, 'qr-page.png'));
 
 console.log('\n✔ published');
 console.log(`  page:  ${pageUrl}`);
+console.log(`  guide: ${guideUrl}`);
 console.log(`  apk:   ${apkUrl}`);
 console.log(`  poster QRs: ${base}/qr-android.png  ${base}/qr-page.png`);
 console.log(`  sha256: ${sha256}`);

@@ -8,7 +8,9 @@ import { restUrl } from '@/config/stack';
 
 async function authHeaders(): Promise<Record<string, string>> {
   const session = await fetchAuthSession();
-  const token = session.tokens?.accessToken?.toString();
+  // The HTTP API JWT authorizer validates `aud` = app client id, which the ID
+  // token carries (the access token has client_id, not aud).
+  const token = session.tokens?.idToken?.toString();
   if (!token) throw new Error('not authenticated');
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }

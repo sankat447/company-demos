@@ -1,0 +1,7 @@
+## Generic AppSync → Lambda invoke: pass the full context (identity + args);
+## the Lambda enforces the group and returns the field's shape.
+{
+  "version": "2018-05-29",
+  "operation": "Invoke",
+  "payload": $util.toJson($context)
+}

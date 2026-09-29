@@ -1,7 +1,15 @@
+// rooms.ts imports the GraphQL client for the live read path (B2c); these tests
+// run in mock mode, so stub the module to keep Amplify out.
+jest.mock('@/api/graphql', () => ({ gqlClient: jest.fn(), LODGING_ROOMS: 'LODGING_ROOMS_DOC' }));
+
+import { gqlClient } from '@/api/graphql';
 import roomsFixture from '@/features/lodging/__fixtures__/rooms.mock.json';
 import { kvRoomStore, newRoomId, validateRoom } from '@/features/lodging/rooms';
 import type { Room } from '@/features/lodging/types';
 import type { KvStore } from '@/offline/jwks';
+import { MemoryOutboxStore } from '@/offline/outbox';
+
+const mockClient = gqlClient as jest.Mock;
 
 const flagValue = { mockLodging: true };
 jest.mock('@/config/flags', () => ({
@@ -87,5 +95,46 @@ describe('room store', () => {
     await store.setStatus(newRoomId('New Stay', 'A1'), 'retired');
     const after = await store.list();
     expect(after.find((r) => r.id === newRoomId('New Stay', 'A1'))?.status).toBe('retired');
+  });
+});
+
+describe('room write-through (B2d)', () => {
+  afterEach(() => {
+    flagValue.mockLodging = true;
+  });
+
+  it('live mode: upsert queues saveRoom (availability stays a typed object)', async () => {
+    flagValue.mockLodging = false;
+    mockClient.mockReturnValue({
+      graphql: jest.fn().mockResolvedValue({ data: { lodgingRooms: [] } }),
+    });
+    const outbox = new MemoryOutboxStore();
+    const store = kvRoomStore(memoryKv(), outbox);
+    expect(await store.upsert(room({ id: 'r-live-1' }))).toEqual([]);
+    const [head] = await outbox.dueHeads(Date.now());
+    expect(head.mutation).toBe('saveRoom');
+    expect(head.variables.id).toBe('r-live-1');
+    expect(head.variables.availability).toBeDefined();
+  });
+
+  it('live mode: retire queues retireRoom', async () => {
+    flagValue.mockLodging = false;
+    mockClient.mockReturnValue({
+      graphql: jest.fn().mockResolvedValue({ data: { lodgingRooms: [] } }),
+    });
+    const outbox = new MemoryOutboxStore();
+    const store = kvRoomStore(memoryKv(), outbox);
+    await store.setStatus('r-live-2', 'retired');
+    const [head] = await outbox.dueHeads(Date.now());
+    expect(head.mutation).toBe('retireRoom');
+    expect(head.variables).toEqual({ id: 'r-live-2', status: 'retired' });
+  });
+
+  it('mock mode: no write-through (kv only)', async () => {
+    flagValue.mockLodging = true;
+    const outbox = new MemoryOutboxStore();
+    const store = kvRoomStore(memoryKv(), outbox);
+    await store.upsert(room({ id: 'r-mock-1' }));
+    expect(await outbox.dueHeads(Date.now())).toHaveLength(0);
   });
 });

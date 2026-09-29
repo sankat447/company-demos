@@ -5,9 +5,23 @@ import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-nati
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
 
 import type { RoomError } from './rooms';
-import { LODGING_NIGHTS, type Room, type RoomType } from './types';
+import { LODGING_NIGHTS, type Room, type RoomStatus, type RoomType } from './types';
 
 const TYPES: RoomType[] = ['twin', 'double', 'triple', 'dorm'];
+// Retiring is a distinct destructive action (room detail screen); the form
+// only moves a room between in-service and temporarily held.
+const FORM_STATUSES: RoomStatus[] = ['active', 'held'];
+
+/** The availability window follows the selected nights: from the first night
+ *  to the morning after the last (a night is keyed by its start date). */
+function windowFromNights(nights: string[]): { from: string; to: string } {
+  if (!nights.length) return { from: '', to: '' };
+  const sorted = [...nights].sort();
+  const from = sorted[0];
+  const last = sorted[sorted.length - 1];
+  const to = `${last.slice(0, 8)}${String(Number(last.slice(8)) + 1).padStart(2, '0')}`;
+  return { from, to };
+}
 
 /** Shared add/edit room form (P6.10) with inline EN+HI validation. */
 export function RoomForm({
@@ -33,8 +47,19 @@ export function RoomForm({
     const nights = room.availability.nights.includes(night)
       ? room.availability.nights.filter((n) => n !== night)
       : [...room.availability.nights, night].sort();
-    setRoom({ ...room, availability: { ...room.availability, nights } });
+    setRoom({
+      ...room,
+      availability: { ...room.availability, nights, ...windowFromNights(nights) },
+    });
   };
+
+  // Keep from/to consistent with the chosen nights on submit (covers the
+  // initial state where nights came pre-set).
+  const handleSubmit = () =>
+    onSubmit({
+      ...room,
+      availability: { ...room.availability, ...windowFromNights(room.availability.nights) },
+    });
 
   return (
     <View>
@@ -137,6 +162,40 @@ export function RoomForm({
         ))}
       </View>
 
+      {room.status !== 'retired' ? (
+        <>
+          <Text style={styles.label}>{t('lodging.status')}</Text>
+          <View style={styles.chips}>
+            {FORM_STATUSES.map((status) => (
+              <Pressable
+                key={status}
+                style={[styles.chip, room.status === status && styles.chipOn]}
+                onPress={() => setRoom({ ...room, status })}
+                accessibilityRole="button"
+                accessibilityLabel={t(`lodging.status_${status}`)}
+                accessibilityState={{ selected: room.status === status }}
+              >
+                <Text style={[styles.chipText, room.status === status && styles.chipTextOn]}>
+                  {t(`lodging.status_${status}`)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {room.status === 'held' ? <Text style={styles.hint}>{t('lodging.heldHint')}</Text> : null}
+        </>
+      ) : null}
+
+      <Text style={styles.label}>{t('lodging.amenitiesNote')}</Text>
+      <TextInput
+        style={[styles.input, styles.multiline]}
+        value={room.amenitiesNote ?? ''}
+        onChangeText={(amenitiesNote) => setRoom({ ...room, amenitiesNote })}
+        placeholder={t('lodging.amenitiesPlaceholder')}
+        placeholderTextColor={color.textMuted}
+        multiline
+        accessibilityLabel={t('lodging.amenitiesNote')}
+      />
+
       <Text style={styles.label}>{t('lodging.contactPhone')}</Text>
       <TextInput
         style={styles.input}
@@ -148,7 +207,7 @@ export function RoomForm({
 
       <Pressable
         style={styles.submit}
-        onPress={() => onSubmit(room)}
+        onPress={handleSubmit}
         accessibilityRole="button"
         accessibilityLabel={submitLabel}
       >
@@ -177,6 +236,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   inputError: { borderColor: color.danger },
+  multiline: { minHeight: 64, textAlignVertical: 'top' },
+  hint: { ...typeScale.caption, color: color.textMuted, marginTop: 4 },
   err: { ...typeScale.caption, color: color.danger, marginTop: 4 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {

@@ -10,17 +10,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'Bir',
   slug: 'bir-app',
-  version: '0.1.0',
+  version: '0.5.0',
   scheme: 'bir',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
-  splash: {
-    image: './assets/splash.png',
-    resizeMode: 'contain',
-    backgroundColor: '#17232B',
-  },
   ios: {
     bundleIdentifier: 'org.birfestival.app',
     supportsTablet: false,
@@ -28,12 +23,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSCameraUsageDescription:
         'Scanning festival passes and translating menus/signs requires the camera. / त्योहार पास स्कैन करने और मेनू/साइन अनुवाद के लिए कैमरा आवश्यक है।',
       NSLocationWhenInUseUsageDescription:
-        'Your location is used only for SOS reporting (with consent) and shuttle ETAs. / आपका स्थान केवल SOS रिपोर्ट (सहमति से) और शटल ETA के लिए उपयोग होता है।',
+        'Your location is used only for a consented SOS report. / आपका स्थान केवल सहमति-आधारित SOS रिपोर्ट के लिए उपयोग होता है।',
       UIBackgroundModes: ['remote-notification'],
     },
   },
   android: {
     package: 'org.birfestival.app',
+    versionCode: 11,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#17232B',
@@ -50,6 +46,43 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-secure-store',
     'expo-sqlite',
     'expo-localization',
+    [
+      // B5: the Paytm All-in-One SDK pulls com.paytm.appinvokesdk from Paytm's
+      // Maven repo; Expo's centralized dependency resolution needs it declared
+      // at the project level (the module's own repositories block is ignored).
+      'expo-build-properties',
+      {
+        android: {
+          extraMavenRepos: ['https://artifactory.paytm.in/libs-release-local'],
+        },
+      },
+    ],
+    [
+      // Native splash. On Android 12+ the OS shows only this icon centred on
+      // the background (the legacy full-bleed image is ignored there), so we
+      // give it a properly-sized paraglider on ink — which then hands off to
+      // the in-app animated LaunchSplash (same ink bg) with no visible seam.
+      'expo-splash-screen',
+      {
+        backgroundColor: '#17232B',
+        image: './assets/splash-icon.png',
+        imageWidth: 240,
+        resizeMode: 'contain',
+        dark: { backgroundColor: '#17232B', image: './assets/splash-icon.png', imageWidth: 240 },
+      },
+    ],
+    [
+      'expo-camera',
+      {
+        cameraPermission: 'Scan festival passes at the gate. / गेट पर महोत्सव पास स्कैन करें।',
+      },
+    ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'Attach a photo to an incident report. / घटना रिपोर्ट में फ़ोटो जोड़ें।',
+      },
+    ],
     [
       'expo-calendar',
       {

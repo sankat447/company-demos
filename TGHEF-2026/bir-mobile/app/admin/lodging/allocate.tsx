@@ -4,7 +4,12 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { commitAllocation, loadAllocation, loadPool } from '@/features/lodging/allocation';
+import {
+  commitAllocation,
+  loadAllocation,
+  loadCommitResult,
+  loadPool,
+} from '@/features/lodging/allocation';
 import { applyMove, propose, validateMove, type MoveViolation } from '@/features/lodging/engine';
 import { kvRoomStore } from '@/features/lodging/rooms';
 import type { Assignment, Participant, Unplaced } from '@/features/lodging/types';
@@ -50,6 +55,16 @@ export default function Allocate() {
   const [blockReason, setBlockReason] = useState<MoveViolation | null>(null);
   const [actorNote, setActorNote] = useState('');
   const [committedNow, setCommittedNow] = useState(false);
+
+  // The server's re-validation verdict (B2). commitAllocation rides the outbox,
+  // so the verdict arrives asynchronously — the reconcile persists it and this
+  // polls for it while a commit is in flight. Null in mock mode (no backend).
+  const commitResult = useQuery({
+    queryKey: ['lodging', 'commitResult'],
+    queryFn: () => loadCommitResult(kvStore),
+    networkMode: 'always',
+    refetchInterval: committedNow ? 1500 : false,
+  });
 
   const byId = new Map((pool.data ?? []).map((p) => [p.regId, p]));
   const activeRooms = (rooms.data ?? []).filter((r) => r.status === 'active');
@@ -255,6 +270,20 @@ export default function Allocate() {
               <Text style={styles.commitText}>{t('lodging.commit')}</Text>
             </Pressable>
             {committedNow ? <Text style={styles.done}>{t('lodging.committed')}</Text> : null}
+            {committedNow && commitResult.data ? (
+              commitResult.data.accepted ? (
+                <Text style={styles.done}>{t('lodging.serverAccepted')}</Text>
+              ) : (
+                <View style={styles.serverReject}>
+                  <Text style={styles.serverRejectTitle}>{t('lodging.serverRejected')}</Text>
+                  {commitResult.data.violations.map((v, i) => (
+                    <Text key={i} style={styles.serverRejectItem}>
+                      • {v}
+                    </Text>
+                  ))}
+                </View>
+              )
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -372,4 +401,13 @@ const styles = StyleSheet.create({
   },
   commitText: { ...typeScale.body, color: color.textInverse, fontWeight: '700' },
   done: { ...typeScale.caption, color: color.success, marginTop: spacing.sm, textAlign: 'center' },
+  serverReject: {
+    marginTop: spacing.sm,
+    backgroundColor: '#FBEFEA',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: 2,
+  },
+  serverRejectTitle: { ...typeScale.caption, color: color.danger, fontWeight: '700' },
+  serverRejectItem: { fontSize: 11.5, color: color.text, lineHeight: 16 },
 });

@@ -1,0 +1,10 @@
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/.build/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+terraform/tfplan
+*.pem
+cdk-outputs.json
+terraform/lambda/*/node_modules/

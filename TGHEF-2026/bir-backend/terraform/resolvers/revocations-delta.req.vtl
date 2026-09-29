@@ -1,0 +1,17 @@
+## B6: revocationsDelta — the offline gate verifier pulls revoked pass jtis since
+## its last cursor. Time-ordered via gsi1 (gsi1pk="REVOCATION", gsi1sk = the
+## epoch-seconds string, which is 10 chars for the next ~260 years so string
+## order == numeric order). `since` defaults to 0 → the full list.
+#set($since = "$util.defaultIfNull($ctx.args.since, 0)")
+{
+  "version": "2018-05-29",
+  "operation": "Query",
+  "index": "gsi1",
+  "query": {
+    "expression": "gsi1pk = :pk AND gsi1sk > :s",
+    "expressionValues": {
+      ":pk": $util.dynamodb.toDynamoDBJson("REVOCATION"),
+      ":s": $util.dynamodb.toDynamoDBJson($since)
+    }
+  }
+}

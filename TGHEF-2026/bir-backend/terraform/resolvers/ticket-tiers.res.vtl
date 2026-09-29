@@ -1,0 +1,11 @@
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+#set($items = [])
+#foreach($it in $ctx.result.items)
+  #set($row = { "id": $it.sk, "titleEn": $it.titleEn, "priceInr": $it.priceInr })
+  #if(!$util.isNull($it.titleHi)) $util.qr($row.put("titleHi", $it.titleHi)) #end
+  #if(!$util.isNull($it.description)) $util.qr($row.put("description", $it.description)) #end
+  $util.qr($items.add($row))
+#end
+$util.toJson({ "items": $items })

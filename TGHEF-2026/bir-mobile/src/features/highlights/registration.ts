@@ -10,7 +10,13 @@
 import type { KvStore } from '@/offline/jwks';
 import type { OutboxStore } from '@/offline/outbox';
 
-import type { FormField, HighlightItem, Registration, RegistrationStatus } from './types';
+import type {
+  FormField,
+  HighlightItem,
+  RefundState,
+  Registration,
+  RegistrationStatus,
+} from './types';
 
 // ---------- validation ----------
 
@@ -108,6 +114,8 @@ export interface SubmitInput {
   item: HighlightItem;
   slotId?: string;
   answers: Record<string, string>;
+  /** The item is full but takes a waitlist — record intent, not a confirmed seat. */
+  waitlist?: boolean;
 }
 
 /**
@@ -126,12 +134,28 @@ export async function submitFreeRegistration(
     {
       aggregate: `registrations:${input.sub}`,
       mutation: 'createRegistration',
-      variables: { itemId: input.item.id, slotId: input.slotId ?? null, answers: input.answers },
+      // `answers` maps to the GraphQL AWSJSON scalar, which requires a JSON
+      // STRING — AppSync rejects a raw object ("invalid value"). Serialize here;
+      // the local record below keeps the object for rendering.
+      // The CreateRegistrationInput schema is {itemId, slotId, answers,
+      // idempotencyKey} — there is no waitlist field. The server decides
+      // confirmed vs waitlisted from live capacity, so intent stays local.
+      variables: {
+        itemId: input.item.id,
+        slotId: input.slotId ?? null,
+        answers: JSON.stringify(input.answers),
+      },
       idempotencyKey: id,
     },
     nowMs,
   );
-  const status: RegistrationStatus = deps.mockMode ? 'confirmed' : 'pending-sync';
+  // Live: always pending-sync — the server's ack decides confirmed vs
+  // waitlisted (reconciled by the outbox drain). Mock: reflect intent locally.
+  const status: RegistrationStatus = deps.mockMode
+    ? input.waitlist
+      ? 'waitlisted'
+      : 'confirmed'
+    : 'pending-sync';
   const registration: Registration = {
     id,
     itemId: input.item.id,
@@ -178,12 +202,66 @@ export async function markRegistration(
   store: RegistrationStore,
   id: string,
   status: RegistrationStatus,
-  qrPassJti?: string,
+  extra?: { qrPassJti?: string; refundState?: RefundState },
 ): Promise<void> {
   const all = await store.list();
   const existing = all.find((r) => r.id === id);
   if (!existing) return;
-  await store.upsert({ ...existing, status, qrPassJti: qrPassJti ?? existing.qrPassJti });
+  await store.upsert({
+    ...existing,
+    status,
+    qrPassJti: extra?.qrPassJti ?? existing.qrPassJti,
+    refundState: extra?.refundState ?? existing.refundState,
+  });
+}
+
+/** Normalise the backend's refundState string onto our closed union. */
+export function normaliseRefundState(raw: string | null | undefined): RefundState {
+  if (raw === 'none' || raw === 'processed') return raw;
+  return 'pending';
+}
+
+/** Map the backend's registration status string onto our closed union. */
+export function mapServerRegistrationStatus(raw: unknown): RegistrationStatus | null {
+  switch (String(raw).toLowerCase()) {
+    case 'confirmed':
+      return 'confirmed';
+    case 'waitlisted':
+      return 'waitlisted';
+    case 'cancelled':
+      return 'cancelled';
+    case 'pending':
+    case 'pending-sync':
+      return 'pending-sync';
+    default:
+      return null; // unknown → don't downgrade the local record
+  }
+}
+
+/**
+ * Merge the server-authoritative registrations (myRegistrations, B1) over the
+ * local ones. The server wins for status/qrPassJti; local-only entries not yet
+ * synced (pending-sync/pending-payment) are kept, and local createdAtMs / badge
+ * / provisional refund fields are preserved so nothing the device knows is lost.
+ */
+export function mergeRegistrations(
+  local: Registration[],
+  server: Registration[],
+  nowMs: number,
+): Registration[] {
+  const byId = new Map(local.map((r) => [r.id, r]));
+  for (const s of server) {
+    const existing = byId.get(s.id);
+    byId.set(s.id, {
+      ...existing,
+      ...s,
+      answers: Object.keys(s.answers ?? {}).length ? s.answers : (existing?.answers ?? {}),
+      createdAtMs: existing?.createdAtMs ?? nowMs,
+      qrPassJti: s.qrPassJti ?? existing?.qrPassJti,
+      refundState: s.refundState ?? existing?.refundState,
+    });
+  }
+  return [...byId.values()];
 }
 
 /**
@@ -193,7 +271,7 @@ export async function markRegistration(
  */
 export async function cancelRegistration(
   deps: SubmitDeps,
-  input: { sub: string; registrationId: string },
+  input: { sub: string; registrationId: string; paid?: boolean },
   nowMs: number,
 ): Promise<void> {
   if (!deps.mockMode) {
@@ -207,7 +285,12 @@ export async function cancelRegistration(
       nowMs,
     );
   }
-  await markRegistration(deps.store, input.registrationId, 'cancelled');
+  // Provisional refund disposition so the UI reflects it immediately. A free
+  // item has nothing to refund; a paid one starts as pending (T+2). In live
+  // mode the outbox reconcile overwrites this with the server's authoritative
+  // RegistrationAck.refundState when the mutation drains.
+  const refundState: RefundState = input.paid ? 'pending' : 'none';
+  await markRegistration(deps.store, input.registrationId, 'cancelled', { refundState });
 }
 
 // ---------- helpers for the form renderer ----------

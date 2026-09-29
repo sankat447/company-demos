@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and adjust. All have sensible defaults.
+aws_region  = "us-east-1"
+aws_profile = "rhoai-demo"
+owner_tag   = "skumar@iisl.com"
+name_prefix = "bir-2026"
+
+# Set false for a fast, cheap bring-up (skips CloudFront; ~15 min saved).
+enable_cdn = true

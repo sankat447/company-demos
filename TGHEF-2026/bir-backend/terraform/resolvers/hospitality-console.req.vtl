@@ -1,0 +1,19 @@
+## B4: hospitalityConsole — a hospitality partner (hotel/homestay) reads THEIR
+## OWN console. Partner-group guarded, keyed by the caller's Cognito sub
+## (HOSP#<sub>) so one partner can never read another's allocations.
+#set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+#if(!$groups.contains("partner"))
+  $util.unauthorized()
+#end
+#set($sub = $ctx.identity.sub)
+#if($util.isNullOrEmpty($sub))
+  $util.unauthorized()
+#end
+{
+  "version": "2018-05-29",
+  "operation": "GetItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("HOSP"),
+    "sk": $util.dynamodb.toDynamoDBJson($sub)
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "bir-kb-ingest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bir Festival RAG ingestion: S3 KB docs -> DynamoDB chunks. No bundled deps: @aws-sdk/client-s3 + @aws-sdk/client-dynamodb are provided by the Node.js 20 Lambda runtime.",
+  "main": "index.js"
+}

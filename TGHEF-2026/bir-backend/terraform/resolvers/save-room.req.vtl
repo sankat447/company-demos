@@ -1,0 +1,35 @@
+## B2c: saveRoom (create/update) — admin-hospitality guarded. PutItem upsert.
+#if($util.isNull($ctx.identity.userArn))
+  #set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+  #if(!$groups.contains("admin-hospitality"))
+    $util.unauthorized()
+  #end
+#end
+#set($in = $ctx.args.input)
+{
+  "version": "2018-05-29",
+  "operation": "PutItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("ROOM"),
+    "sk": $util.dynamodb.toDynamoDBJson($in.id)
+  },
+  "attributeValues": {
+    "id": $util.dynamodb.toDynamoDBJson($in.id),
+    "hotelName": $util.dynamodb.toDynamoDBJson($in.hotelName),
+    "roomLabel": $util.dynamodb.toDynamoDBJson($in.roomLabel),
+    "type": $util.dynamodb.toDynamoDBJson($in.type),
+    "capacity": $util.dynamodb.toDynamoDBJson($in.capacity),
+    "doubleOccupancy": $util.dynamodb.toDynamoDBJson($in.doubleOccupancy),
+    "availability": $util.dynamodb.toDynamoDBJson($in.availability),
+    "status": $util.dynamodb.toDynamoDBJson($in.status)
+#if($in.propertyId)
+    , "propertyId": $util.dynamodb.toDynamoDBJson($in.propertyId)
+#end
+#if($in.amenitiesNote)
+    , "amenitiesNote": $util.dynamodb.toDynamoDBJson($in.amenitiesNote)
+#end
+#if($in.contactPhone)
+    , "contactPhone": $util.dynamodb.toDynamoDBJson($in.contactPhone)
+#end
+  }
+}

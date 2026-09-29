@@ -10,7 +10,7 @@ import { issueDemoActivityPass } from '@/demo/demo';
 import { getFlyStatus } from '@/features/flight-status/flyStatus';
 import { awaitOrderConfirmation, ingestPassTokens } from '@/features/tickets/purchase';
 import { savePass } from '@/features/tickets/passStore';
-import { findItem, loadCatalog } from '@/features/highlights/catalog';
+import { capacityState, findItem, loadCatalog } from '@/features/highlights/catalog';
 import {
   beginPaidRegistration,
   fieldLabel,
@@ -24,7 +24,7 @@ import {
 } from '@/features/highlights/registration';
 import type { FormField, HighlightItem } from '@/features/highlights/types';
 import { currentLocale, pickLang } from '@/i18n';
-import { isEnabled } from '@/config/flags';
+import { festivalConcluded, isEnabled } from '@/config/flags';
 import { kvStore } from '@/offline/db';
 import { ensureFreshJwks } from '@/offline/jwks';
 import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
@@ -35,7 +35,7 @@ import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/
 const outbox = new SqliteOutboxStore();
 const store = kvRegistrationStore(kvStore);
 
-type FlowState = 'form' | 'submitting' | 'confirming' | 'done' | 'queued' | 'failed';
+type FlowState = 'form' | 'submitting' | 'confirming' | 'done' | 'queued' | 'failed' | 'cancelled';
 
 function Field({
   field,
@@ -133,12 +133,25 @@ export default function Register() {
     );
   }
 
+  if (festivalConcluded()) {
+    return (
+      <Screen title={t('highlights.title')}>
+        <Text style={styles.concludedTitle}>{t('festival.concludedTitle')}</Text>
+        <Text style={styles.muted}>{t('festival.concludedBody')}</Text>
+      </Screen>
+    );
+  }
+
   const paid = requiresPayment(item);
   const mockMode = isEnabled('mockHighlights');
-  const paidBlocked = paid && (!online || mockMode);
+  // Full item that takes a waitlist: joining is free (you pay only if promoted),
+  // so the fee/payment gates don't apply to a waitlist join.
+  const waitlistMode = capacityState(item).state === 'waitlist';
+  const paidBlocked = paid && !waitlistMode && (!online || mockMode);
   const weatherHold = weatherBlocked(item, fly.data?.state ?? null);
 
   const submit = async (target: HighlightItem) => {
+    if (festivalConcluded()) return; // close-out: registration disabled (defense-in-depth)
     const input = { answers, consent, guardianConsent };
     const found = validateForm(target, input, target.slots?.length ? slotId : undefined);
     setErrors(found);
@@ -149,21 +162,23 @@ export default function Register() {
       const session = await fetchAuthSession().catch(() => null);
       const sub = String(session?.tokens?.idToken?.payload?.sub ?? 'demo-user');
 
-      if (!paid) {
+      // A waitlist join uses the free path regardless of fee — no seat, no pay.
+      if (!paid || waitlistMode) {
         const registration = await submitFreeRegistration(
           { outbox, store, mockMode },
-          { sub, item: target, slotId, answers },
+          { sub, item: target, slotId, answers, waitlist: waitlistMode },
           Date.now(),
         );
         // Demo-only: mock-confirmed gate-checked items get a locally-signed
-        // activity pass so the wallet + verifier path demos end-to-end.
-        if (mockMode && target.gateChecked) {
+        // activity pass so the wallet + verifier path demos end-to-end. A
+        // waitlisted entry has no confirmed seat, so it issues no pass.
+        if (mockMode && target.gateChecked && !waitlistMode) {
           const jti = await issueDemoActivityPass(
             { kv: kvStore, savePass },
             { itemId: target.id, slotId, sub },
             Date.now(),
           );
-          if (jti) await markRegistration(store, registration.id, 'confirmed', jti);
+          if (jti) await markRegistration(store, registration.id, 'confirmed', { qrPassJti: jti });
         }
         setState(online ? 'done' : 'queued');
       } else {
@@ -180,7 +195,7 @@ export default function Register() {
           locale: currentLocale(),
         });
         if (outcome.state !== 'submitted') {
-          setState('failed');
+          setState(outcome.state === 'cancelled' ? 'cancelled' : 'failed');
           return;
         }
         setState('confirming');
@@ -195,7 +210,7 @@ export default function Register() {
           );
           qrPassJti = claims[0]?.jti;
         }
-        await markRegistration(store, registration.id, 'confirmed', qrPassJti);
+        await markRegistration(store, registration.id, 'confirmed', { qrPassJti });
         setState('done');
       }
       await queryClient.invalidateQueries({ queryKey: ['registrations'] });
@@ -204,8 +219,9 @@ export default function Register() {
     }
   };
 
-  const ctaLabel =
-    item.regMode === 'register-participation'
+  const ctaLabel = waitlistMode
+    ? t('highlights.joinWaitlist')
+    : item.regMode === 'register-participation'
       ? t('highlights.registerParticipation')
       : t('highlights.register');
   const hasError = (key: string) => errors.some((e) => e.field === key);
@@ -216,10 +232,18 @@ export default function Register() {
         {state === 'done' || state === 'queued' ? (
           <View style={styles.doneBox}>
             <Text style={styles.doneTitle}>
-              {state === 'queued' ? t('highlights.queuedTitle') : t('highlights.doneTitle')}
+              {waitlistMode
+                ? t('highlights.waitlistDoneTitle')
+                : state === 'queued'
+                  ? t('highlights.queuedTitle')
+                  : t('highlights.doneTitle')}
             </Text>
             <Text style={styles.doneBody}>
-              {state === 'queued' ? t('highlights.queuedBody') : t('highlights.doneBody')}
+              {waitlistMode
+                ? t('highlights.waitlistDoneBody')
+                : state === 'queued'
+                  ? t('highlights.queuedBody')
+                  : t('highlights.doneBody')}
             </Text>
             <Pressable
               style={styles.cta}
@@ -307,10 +331,20 @@ export default function Register() {
               </View>
             ) : null}
 
-            {paid ? (
+            {waitlistMode ? (
+              <View style={styles.blocker}>
+                <Text style={styles.blockerText}>{t('highlights.waitlistNote')}</Text>
+              </View>
+            ) : paid ? (
               <Text style={styles.feeNote}>
                 {t('highlights.feeNote', { amount: item.fee!.amount })}
               </Text>
+            ) : null}
+            {paid && !waitlistMode && !paidBlocked ? (
+              <View style={styles.methods}>
+                <Text style={styles.methodsText}>{t('buy.methods')}</Text>
+                <Text style={styles.securedText}>{t('buy.securedBy')}</Text>
+              </View>
             ) : null}
             {paidBlocked ? (
               <View style={styles.blocker}>
@@ -326,7 +360,14 @@ export default function Register() {
                 </Text>
               </View>
             ) : null}
-            {state === 'failed' ? <Text style={styles.errorText}>{t('buy.failed')}</Text> : null}
+            {state === 'failed' ? (
+              <Text style={styles.errorText}>
+                {paid ? t('buy.failed') : t('highlights.regFailed')}
+              </Text>
+            ) : null}
+            {state === 'cancelled' ? (
+              <Text style={styles.errorText}>{t('buy.cancelled')}</Text>
+            ) : null}
             {errors.length ? (
               <Text style={styles.errorText}>{t('highlights.formErrors')}</Text>
             ) : null}
@@ -345,7 +386,11 @@ export default function Register() {
               accessibilityLabel={ctaLabel}
             >
               <Text style={styles.ctaText}>
-                {state === 'confirming' ? t('buy.confirming') : ctaLabel}
+                {state === 'confirming'
+                  ? t('buy.confirming')
+                  : state === 'failed' || state === 'cancelled'
+                    ? t('buy.tryAgain')
+                    : ctaLabel}
               </Text>
             </Pressable>
           </>
@@ -357,6 +402,7 @@ export default function Register() {
 
 const styles = StyleSheet.create({
   muted: { ...typeScale.body, color: color.textMuted, paddingVertical: spacing.md },
+  concludedTitle: { ...typeScale.heading, color: color.text, marginTop: spacing.md },
   scroll: { paddingBottom: spacing.xl },
   fieldWrap: { marginBottom: spacing.md },
   fieldLabel: { ...typeScale.caption, color: color.text, fontWeight: '600', marginBottom: 6 },
@@ -396,6 +442,9 @@ const styles = StyleSheet.create({
   },
   consentText: { ...typeScale.caption, color: color.textMuted, flex: 1, lineHeight: 17 },
   feeNote: { ...typeScale.body, color: palette.pine, fontWeight: '600', marginTop: spacing.sm },
+  methods: { alignItems: 'center', gap: 2, marginTop: spacing.sm },
+  methodsText: { ...typeScale.caption, color: color.text, fontWeight: '600' },
+  securedText: { ...typeScale.caption, color: color.textMuted, fontSize: 11 },
   blocker: {
     marginTop: spacing.sm,
     backgroundColor: '#FCF3E3',

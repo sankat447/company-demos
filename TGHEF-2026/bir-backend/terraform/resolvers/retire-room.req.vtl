@@ -1,0 +1,24 @@
+## B2c: retireRoom (status change) — admin-hospitality guarded.
+#if($util.isNull($ctx.identity.userArn))
+  #set($groups = $util.defaultIfNull($ctx.identity.claims.get("cognito:groups"), []))
+  #if(!$groups.contains("admin-hospitality"))
+    $util.unauthorized()
+  #end
+#end
+#set($in = $ctx.args.input)
+{
+  "version": "2018-05-29",
+  "operation": "UpdateItem",
+  "key": {
+    "pk": $util.dynamodb.toDynamoDBJson("ROOM"),
+    "sk": $util.dynamodb.toDynamoDBJson($in.id)
+  },
+  "update": {
+    "expression": "SET #s = :st, id = if_not_exists(id, :id)",
+    "expressionNames": { "#s": "status" },
+    "expressionValues": {
+      ":st": $util.dynamodb.toDynamoDBJson($in.status),
+      ":id": $util.dynamodb.toDynamoDBJson($in.id)
+    }
+  }
+}

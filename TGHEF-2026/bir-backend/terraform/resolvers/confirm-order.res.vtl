@@ -1,0 +1,6 @@
+## Return the confirmed Order {orderId, status, passTokens} — this is what the
+## onOrderConfirmed subscription delivers to the app.
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+$util.toJson($ctx.result)

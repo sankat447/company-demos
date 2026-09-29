@@ -251,15 +251,15 @@
   <span class="badge" id="ns-badge">pd-cctv</span>
   <div class="spacer"></div>
   <label for="vlm-mode">VLM (ingest)</label>
-  <select id="vlm-mode" title="VLM mode used at clip-ingest time. claude-multimodal sends N base64 frames to Anthropic ONCE per clip; chat is text-only afterwards.">
-    <option value="local">local (Qwen-VL on GPU)</option>
-    <option value="claude-multimodal">claude (Anthropic, ~$0.15/clip)</option>
+  <select id="vlm-mode" title="VLM mode used at clip-ingest time. Deep-multimodal sends N base64 keyframes to the hosted VLM ONCE per clip; chat is text-only afterwards.">
+    <option value="local">local (on GPU)</option>
+    <option value="claude-multimodal">deep multimodal (hosted, ~$0.15/clip)</option>
   </select>
   <label for="mode" style="margin-left: 12px;">LLM (chat)</label>
   <select id="mode">
     <option value="mock">mock (fast, no GPU)</option>
-    <option value="local">local (Llama on GPU)</option>
-    <option value="claude">claude (Anthropic via Portkey)</option>
+    <option value="local">local (on GPU)</option>
+    <option value="claude">hosted LLM</option>
   </select>
 </header>
 
@@ -280,9 +280,9 @@
         <p>or click to choose a file</p>
         <span class="hint">Up to 300 MB &middot; pushed to S3 &middot; perception pipeline auto-triggers</span>
       </label>
-      <label class="deep-toggle" title="Sends 16 high-resolution keyframes to Anthropic Claude at ingest time only. Frames never re-leave the cluster on chat. Recommended ON for forensic depth (Modus Operandi, Weapons, Body Language, Forensic Conclusion).">
+      <label class="deep-toggle" title="Sends 16 high-resolution keyframes to the hosted multimodal LLM at ingest time only. Frames never re-leave the cluster on chat. Recommended ON for forensic depth (Modus Operandi, Weapons, Body Language, Forensic Conclusion).">
         <input type="checkbox" id="deep-analysis" checked>
-        <span>Deep analysis for this clip <em>(claude multimodal — recommended, ~$0.15)</em></span>
+        <span>Deep analysis for this clip <em>(hosted multimodal — recommended, ~$0.15)</em></span>
       </label>
       <div id="upload-info" class="upload-info"></div>
     </div>

@@ -11,7 +11,8 @@ import { kvStore } from '@/offline/db';
 
 // admin-hospitality (CO-003): organiser family — the client gate is UX only;
 // the server enforces the group on every lodging/badge mutation (ASK #27).
-export type Role = 'visitor' | 'partner' | 'volunteer' | 'organiser-lite' | 'admin-hospitality';
+export type Role =
+  'visitor' | 'partner' | 'volunteer' | 'organiser-lite' | 'admin-hospitality' | 'safety-officer';
 
 export interface AuthState {
   status: 'loading' | 'signedOut' | 'signedIn';
@@ -25,19 +26,45 @@ const KNOWN_ROLES: Role[] = [
   'volunteer',
   'organiser-lite',
   'admin-hospitality',
+  'safety-officer',
+];
+
+/**
+ * Read the demo flag, tolerating a transient kv error. Returns the boolean the
+ * store actually holds, or 'error' only if every attempt threw — never a bare
+ * `false`, so a momentary "database is locked" can't masquerade as "no demo
+ * session" and evict a signed-in demo user.
+ */
+async function readDemoSession(): Promise<boolean | 'error'> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await isDemoSession(kvStore);
+    } catch {
+      // retry immediately — getDb() now shares one open, so the next await wins
+    }
+  }
+  return 'error';
+}
+
+const DEMO_ROLES: Role[] = [
+  'visitor',
+  'partner',
+  'volunteer',
+  'organiser-lite',
+  'admin-hospitality',
+  'safety-officer',
 ];
 
 export async function resolveAuthState(): Promise<AuthState> {
-  // Demo session first: evaluation builds run without any backend.
-  try {
-    if (await isDemoSession(kvStore)) {
-      // Demo sessions include admin-hospitality so the CO-003 lodging flow
-      // is evaluable end-to-end without a backend (mock fixtures).
-      return { status: 'signedIn', roles: ['visitor', 'admin-hospitality'], demo: true };
-    }
-  } catch {
-    // kv unavailable → fall through to the real session check
-  }
+  // Demo session first: evaluation builds run without any backend. Demo
+  // sessions include admin-hospitality so the CO-003 lodging flow is
+  // evaluable end-to-end without a backend (mock fixtures).
+  const demo = await readDemoSession();
+  if (demo === true) return { status: 'signedIn', roles: DEMO_ROLES, demo: true };
+  // A transient kv failure must NOT downgrade to signedOut (that boots the
+  // user back to OTP). Report 'loading' so useAuth keeps the current UI and
+  // retries. Only a definitive `false` proceeds to the real session check.
+  if (demo === 'error') return { status: 'loading', roles: [] };
   try {
     const session = await fetchAuthSession();
     if (!session.tokens?.idToken) return { status: 'signedOut', roles: [] };
@@ -54,15 +81,27 @@ export function useAuth(): AuthState {
 
   useEffect(() => {
     let mounted = true;
+    let retries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => {
       void resolveAuthState().then((s) => {
-        if (mounted) setState(s);
+        if (!mounted) return;
+        setState(s);
+        // A resolve of 'loading' after mount means a transient kv error, not a
+        // real state — retry (bounded) so it self-heals without a Hub event.
+        if (s.status === 'loading' && retries < 8) {
+          retries += 1;
+          timer = setTimeout(refresh, 300);
+        } else {
+          retries = 0;
+        }
       });
     };
     refresh();
     const unsubscribe = Hub.listen('auth', refresh);
     return () => {
       mounted = false;
+      if (timer) clearTimeout(timer);
       unsubscribe();
     };
   }, []);

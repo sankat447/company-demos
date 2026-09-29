@@ -1,0 +1,9 @@
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+## ScanResult { jti gate accepted }. The write succeeded, so accept.
+$util.toJson({
+  "jti": $ctx.args.input.jti,
+  "gate": $ctx.args.input.gate,
+  "accepted": true
+})

@@ -1,0 +1,160 @@
+# Bir Festival 2026 — AppSync SDL.
+# Mirrors the documents the mobile app hand-wrote in src/api/graphql.ts so
+# `npm run codegen` in the app can generate types once this is published
+# (BACKEND_ASKS #3). Privileged mutations are @aws_cognito_user_pools-guarded
+# AND re-checked server-side in the resolver against the Cognito group.
+
+type Query {
+  ticketTiers: TicketTierConnection
+  getOrder(orderId: ID!): Order @aws_cognito_user_pools @aws_iam
+  scheduleDelta(since: AWSTimestamp): ScheduleConnection
+  revocationsDelta(since: AWSTimestamp): RevocationConnection
+  flyStatus: FlyStatus
+  # Festival-wide notices posted from the ops console (active only).
+  announcements: [Announcement!]!
+  # Highlights (CO-002)
+  highlightsCatalog: Catalog
+  myRegistrations: [Registration!]!
+  getProfile: Profile
+  # Lodging (CO-003) — admin-hospitality guarded (resolver re-checks the group;
+  # IAM callers are trusted server/admin). Reachable by both auth modes.
+  lodgingPool: [PoolParticipant!]! @aws_cognito_user_pools @aws_iam
+  lodgingRooms: [LodgingRoom!]! @aws_cognito_user_pools @aws_iam
+  lodgingOccupancy(hotelName: String!): [OccupancyCell!]! @aws_cognito_user_pools @aws_iam
+  # Volunteer (CO-004)
+  volunteerRoster: VolunteerProfile
+  # Partner (CO-004)
+  stallConsole: StallConsole
+  hospitalityConsole: HospitalityConsole
+  partnerCheckIns: [PartnerCheckIn!]!
+}
+
+type Mutation {
+  createRegistration(input: CreateRegistrationInput!): RegistrationAck
+    @aws_cognito_user_pools
+    @aws_iam
+  cancelRegistration(input: CancelRegistrationInput!): RegistrationAck
+    @aws_cognito_user_pools
+    @aws_iam
+  castVote(input: CastVoteInput!): VoteResult
+  recordScan(input: RecordScanInput!): ScanResult
+  reportSos(input: ReportSosInput!): Ack
+  registerDevice(input: RegisterDeviceInput!): Ack
+  setProfile(input: SetProfileInput!): Profile
+  # Lodging + badges (CO-003) — admin-hospitality guarded, server re-validates §3
+  commitAllocation(input: CommitAllocationInput!): CommitResult
+    @aws_cognito_user_pools
+    @aws_iam
+  saveRoom(input: SaveRoomInput!): LodgingRoom @aws_cognito_user_pools @aws_iam
+  retireRoom(input: RetireRoomInput!): LodgingRoom @aws_cognito_user_pools @aws_iam
+  issueBadge(input: IssueBadgeInput!): BadgeResult @aws_cognito_user_pools @aws_iam
+  # Ops (CO-004)
+  setFlyStatus(input: SetFlyStatusInput!): FlyStatus # safety-officer guarded
+  recordAttendance(input: RecordAttendanceInput!): Ack
+  reportIncident(input: ReportIncidentInput!): IncidentResult
+  partnerCheckIn(input: PartnerCheckInInput!): Ack
+  # B6: revoke a pass/badge (safety-officer / organiser-lite) — fans out via the
+  # revocationsDelta feed so offline verifiers reject it.
+  revokePass(input: RevokePassInput!): Ack
+  # Server-only: the payment webhook (IAM) calls this after HMAC-verifying the
+  # gateway callback, which fans out to the onOrderConfirmed subscription. NEVER
+  # callable by a client — the resolver (TODO) enforces IAM. The client callback
+  # is advisory only. Its return type MUST equal the subscription's (Order).
+  confirmOrder(orderId: ID!, status: String!, passTokens: [String!]): Order @aws_cognito_user_pools @aws_iam
+}
+
+type Subscription {
+  # A subscription's output type must match its trigger mutation's return type.
+  onOrderConfirmed(orderId: ID!): Order @aws_subscribe(mutations: ["confirmOrder"])
+  onFlyStatusChanged: FlyStatus @aws_subscribe(mutations: ["setFlyStatus"])
+}
+
+# --- payments / passes ---
+type Order @aws_cognito_user_pools @aws_iam { orderId: ID! status: String! passTokens: [String!] }
+type TicketTier { id: ID! titleEn: String! titleHi: String priceInr: Int! description: String }
+type TicketTierConnection { items: [TicketTier!]! }
+type ScanResult { jti: ID! gate: String! accepted: Boolean! }
+input RecordScanInput { jti: ID! gate: String! ts: AWSTimestamp! idempotencyKey: String! }
+
+# --- schedule / revocations ---
+type ScheduleItem { id: ID! day: String! venue: String startsAt: AWSTimestamp endsAt: AWSTimestamp titleEn: String titleHi: String data: AWSJSON }
+type ScheduleConnection { items: [ScheduleItem!]! cursor: AWSTimestamp }
+type Revocation { jti: ID! revokedAt: AWSTimestamp! }
+type RevocationConnection { items: [Revocation!]! cursor: AWSTimestamp }
+input RevokePassInput { jti: ID! idempotencyKey: String! }
+
+type Announcement {
+  id: ID!
+  titleEn: String!
+  titleHi: String
+  bodyEn: String!
+  bodyHi: String
+  level: String!
+  updatedAt: Int
+}
+
+# --- fly-status (CO-001 E3 / CO-004) ---
+type FlyStatus { state: String! reasonEn: String reasonHi: String updatedAt: AWSTimestamp! refundsAutoQueued: Boolean! }
+input SetFlyStatusInput { state: String! reasonEn: String reasonHi: String declaredBy: String! idempotencyKey: String! }
+
+# --- highlights / registrations (CO-002) ---
+type Catalog { version: Int! categories: AWSJSON! items: AWSJSON! }
+type Registration { id: ID! itemId: ID! slotId: ID status: String! qrPassJti: ID answers: AWSJSON }
+# What create/cancelRegistration return — matches the app's hand-written selection
+# sets exactly (registrationId/status/refundState). Reachable by a signed-in visitor
+# (Cognito) AND server-side callers (IAM), so it carries both auth directives.
+type RegistrationAck @aws_cognito_user_pools @aws_iam {
+  registrationId: ID!
+  status: String!
+  refundState: String
+}
+input CreateRegistrationInput { itemId: ID! slotId: ID answers: AWSJSON idempotencyKey: String! }
+input CancelRegistrationInput { registrationId: ID! idempotencyKey: String! }
+type VoteResult { eventId: ID! accepted: Boolean! }
+input CastVoteInput { eventId: ID! category: String idempotencyKey: String! }
+
+# --- lodging + badges (CO-003) ---
+type PoolParticipant @aws_cognito_user_pools @aws_iam { regId: ID! name: String! competitionId: ID! gender: String! coupleGroupId: String nights: [String!]! needsLodging: Boolean! }
+type OccupancyCell @aws_cognito_user_pools @aws_iam { roomId: ID! night: String! occupied: Int! capacity: Int! }
+input CommitAllocationInput { assignments: AWSJSON! version: Int! actorNote: String idempotencyKey: String! }
+type CommitResult @aws_cognito_user_pools @aws_iam { version: Int! accepted: Boolean! violations: [String!] }
+input IssueBadgeInput { regId: ID! idempotencyKey: String! }
+type BadgeResult @aws_cognito_user_pools @aws_iam { jti: ID! passToken: String! }
+
+# Room inventory (CO-003 P6.10 / ASK #27). admin-hospitality-guarded CRUD.
+type RoomAvailability @aws_cognito_user_pools @aws_iam { from: String! to: String! nights: [String!]! }
+type LodgingRoom @aws_cognito_user_pools @aws_iam {
+  id: ID! hotelName: String! propertyId: String roomLabel: String! type: String!
+  capacity: Int! doubleOccupancy: Boolean! availability: RoomAvailability!
+  amenitiesNote: String contactPhone: String status: String!
+}
+input RoomAvailabilityInput { from: String! to: String! nights: [String!]! }
+input SaveRoomInput {
+  id: ID! hotelName: String! propertyId: String roomLabel: String! type: String!
+  capacity: Int! doubleOccupancy: Boolean! availability: RoomAvailabilityInput!
+  amenitiesNote: String contactPhone: String status: String! idempotencyKey: String!
+}
+input RetireRoomInput { id: ID! status: String! idempotencyKey: String! }
+
+# --- volunteer (CO-004) ---
+type Shift { id: ID! date: String! zone: String! role: String! startsAtSec: AWSTimestamp! endsAtSec: AWSTimestamp! }
+type VolunteerProfile { sub: ID! name: String! team: String! idVerified: Boolean! shifts: [Shift!]! certificateJti: ID }
+input RecordAttendanceInput { shiftId: ID! kind: String! ts: AWSTimestamp! idempotencyKey: String! }
+type IncidentResult { incidentId: ID! accepted: Boolean! }
+input ReportIncidentInput { category: String! note: String! photoUri: String zone: String ts: AWSTimestamp! idempotencyKey: String! }
+
+# --- partner (CO-004) ---
+type StallConsole { stallName: String! category: String! stage: String! allocationLabel: String feeInr: Int paid: Boolean! analytics: AWSJSON! rules: [String!]! rulesHi: [String!]! }
+type HospitalityConsole { hotelName: String! tier: String! complimentaryRooms: Int! allocations: AWSJSON! }
+# B4 GUI: a hospitality partner's per-guest check-in state (own guests only).
+type PartnerCheckIn { regId: ID! checkedIn: Boolean! }
+input PartnerCheckInInput { regId: ID! checkedIn: Boolean! idempotencyKey: String! }
+
+# --- shared ---
+type Ack { accepted: Boolean! }
+input ReportSosInput { lat: Float! lng: Float! ts: AWSTimestamp! idempotencyKey: String! }
+input RegisterDeviceInput { token: String! platform: String! locale: String! roles: [String!]! quietStartHour: Int quietEndHour: Int idempotencyKey: String! }
+
+# Profile (DPDP-consented) — holds the DOB used to derive the master ticket age-band.
+type Profile { displayName: String dob: String consentDpdp: Boolean! updatedAt: AWSTimestamp }
+input SetProfileInput { displayName: String! dob: String! consentDpdp: Boolean! }

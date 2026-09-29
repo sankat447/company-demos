@@ -7,10 +7,11 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import { kvRoomStore } from '@/features/lodging/rooms';
 import type { RoomStatus } from '@/features/lodging/types';
 import { kvStore } from '@/offline/db';
+import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
 
-const store = kvRoomStore(kvStore);
+const store = kvRoomStore(kvStore, new SqliteOutboxStore());
 const FILTERS: (RoomStatus | 'all')[] = ['all', 'active', 'held', 'retired'];
 
 /** Room inventory list + filters (P6.10). */

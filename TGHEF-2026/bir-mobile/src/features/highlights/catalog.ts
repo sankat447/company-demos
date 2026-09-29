@@ -4,12 +4,20 @@
  * Until then the checked-in fixture serves behind `flags.mockHighlights`.
  */
 import { isEnabled } from '@/config/flags';
+import { highlightsCatalogUrl } from '@/config/stack';
 import type { KvStore } from '@/offline/jwks';
 
 import mockCatalog from './__fixtures__/catalog.mock.json';
 import type { HighlightCategory, HighlightItem, HighlightsCatalog } from './types';
 
 const CACHE_KEY = 'highlights.catalog';
+
+/** Default remote source (B1): GET the server-driven catalog from the CDN. */
+async function fetchCatalogFromCdn(): Promise<unknown> {
+  const res = await fetch(highlightsCatalogUrl());
+  if (!res.ok) throw new Error(`highlights catalog fetch failed: ${res.status}`);
+  return res.json();
+}
 
 export function parseCatalog(body: unknown): HighlightsCatalog {
   const c = body as HighlightsCatalog;
@@ -32,14 +40,15 @@ export async function loadCatalog(
   if (isEnabled('mockHighlights')) {
     return parseCatalog(mockCatalog);
   }
-  if (fetchRemote) {
-    try {
-      const catalog = parseCatalog(await fetchRemote());
-      await kv.set(CACHE_KEY, JSON.stringify({ fetchedAtMs: nowMs, catalog }));
-      return catalog;
-    } catch {
-      // fall through to cache
-    }
+  // Live path (B1): fetch the server-driven catalog (default source = CDN),
+  // cache it, and fall back to the cache when offline.
+  const fetcher = fetchRemote ?? fetchCatalogFromCdn;
+  try {
+    const catalog = parseCatalog(await fetcher());
+    await kv.set(CACHE_KEY, JSON.stringify({ fetchedAtMs: nowMs, catalog }));
+    return catalog;
+  } catch {
+    // fall through to cache
   }
   const rawCache = await kv.get(CACHE_KEY);
   if (rawCache) {

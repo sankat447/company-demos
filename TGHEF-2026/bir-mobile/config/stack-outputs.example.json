@@ -28,9 +28,12 @@
     "queuePredictPath": "/ai/queue"
   },
   "payments": {
-    "provider": "razorpay",
+    "provider": "paytm",
     "orderPath": "/pay/order",
-    "webhookVerified": true
+    "webhookVerified": true,
+    "paytm": {
+      "environment": "staging"
+    }
   },
   "passes": {
     "issuerKid": "bir-2026-01",
@@ -48,6 +51,8 @@
     "festivalMode": true,
     "experiencesMarketplace": true,
     "mockHighlights": true,
-    "mockLodging": true
+    "mockLodging": true,
+    "mockVolunteer": true,
+    "mockPartner": true
   }
 }

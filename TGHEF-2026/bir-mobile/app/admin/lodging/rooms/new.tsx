@@ -8,9 +8,10 @@ import { RoomForm } from '@/features/lodging/RoomForm';
 import { kvRoomStore, newRoomId, type RoomError } from '@/features/lodging/rooms';
 import { LODGING_NIGHTS, type Room } from '@/features/lodging/types';
 import { kvStore } from '@/offline/db';
+import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
 import { Screen } from '@/ui/Screen';
 
-const store = kvRoomStore(kvStore);
+const store = kvRoomStore(kvStore, new SqliteOutboxStore());
 
 const EMPTY: Room = {
   id: '',

@@ -18,9 +18,11 @@ import {
 } from '@/features/cultural-nights/schedule';
 import { castVote, votedEventIds } from '@/features/cultural-nights/votes';
 import { fetchVenues } from '@/features/cultural-nights/venues';
+import { mapsEnabled } from '@/config/flags';
 import { currentLocale } from '@/i18n';
 import { kvStore } from '@/offline/db';
 import { SqliteOutboxStore } from '@/offline/sqliteOutboxStore';
+import { pullScheduleDelta } from '@/offline/sync';
 import { Screen } from '@/ui/Screen';
 import { color, MIN_TOUCH_TARGET, palette, radius, spacing, typeScale } from '@/ui/tokens';
 
@@ -49,7 +51,13 @@ export default function Schedule() {
 
   const events = useQuery({
     queryKey: ['schedule', day],
-    queryFn: () => listEventsForDay(day),
+    // Pull the latest schedule from AppSync into SQLite, then read it back. The
+    // delta is idempotent (upsert) and offline-tolerant, so a failed pull just
+    // falls back to whatever is already cached locally.
+    queryFn: async () => {
+      await pullScheduleDelta(Date.now()).catch(() => {});
+      return listEventsForDay(day);
+    },
     networkMode: 'always',
   });
   const voted = useQuery({
@@ -121,23 +129,39 @@ export default function Schedule() {
           venues.data && venues.data.length > 0 ? (
             <View style={styles.mapWrap}>
               <Text style={styles.mapTitle}>{t('schedule.venuesMap')}</Text>
-              <MapView
-                style={styles.map}
-                initialRegion={{
-                  latitude: venues.data[0].lat,
-                  longitude: venues.data[0].lng,
-                  latitudeDelta: 0.05,
-                  longitudeDelta: 0.05,
-                }}
-              >
-                {venues.data.map((v) => (
-                  <Marker
-                    key={v.id}
-                    coordinate={{ latitude: v.lat, longitude: v.lng }}
-                    title={currentLocale() === 'hi' && v.nameHi ? v.nameHi : v.nameEn}
-                  />
-                ))}
-              </MapView>
+              {mapsEnabled() ? (
+                <MapView
+                  style={styles.map}
+                  initialRegion={{
+                    latitude: venues.data[0].lat,
+                    longitude: venues.data[0].lng,
+                    latitudeDelta: 0.05,
+                    longitudeDelta: 0.05,
+                  }}
+                >
+                  {venues.data.map((v) => (
+                    <Marker
+                      key={v.id}
+                      coordinate={{ latitude: v.lat, longitude: v.lng }}
+                      title={currentLocale() === 'hi' && v.nameHi ? v.nameHi : v.nameEn}
+                    />
+                  ))}
+                </MapView>
+              ) : (
+                // No Google Maps key baked in — list the venues instead of a
+                // native map (which would crash on init). Flips to the map the
+                // moment a key is provided at build (see mapsEnabled()).
+                <View style={styles.venueList}>
+                  {venues.data.map((v) => (
+                    <View key={v.id} style={styles.venueRow}>
+                      <Text style={styles.venuePin}>📍</Text>
+                      <Text style={styles.venueName}>
+                        {currentLocale() === 'hi' && v.nameHi ? v.nameHi : v.nameEn}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           ) : null
         }
@@ -236,4 +260,20 @@ const styles = StyleSheet.create({
   mapWrap: { marginTop: spacing.md, marginBottom: spacing.xl, gap: spacing.sm },
   mapTitle: { ...typeScale.heading, color: color.text },
   map: { height: 180, borderRadius: radius.lg },
+  venueList: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: color.cardBorder,
+    paddingVertical: spacing.xs,
+  },
+  venueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  venuePin: { fontSize: 16 },
+  venueName: { ...typeScale.body, color: color.text },
 });
