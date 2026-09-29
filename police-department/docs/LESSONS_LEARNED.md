@@ -1124,3 +1124,26 @@ not inline; `tests/test_cv_scripts.py` fails above ~127 KB encoded (now ~122 KB)
 call, including api.anthropic.com with the API key. Verified context for the
 public API; the unverified one stays only for the in-cluster self-signed VLM route.
 
+**17.58 — First-run ML install on EFS outlives the 600 s pip timeout.** Re-run
+`pd-perception-reprocess-s7d68` (2026-09-29): `object-detect` gave up with
+"ultralytics install timed out (>10min)". Since 17.49 the steps install the
+CUDA torch wheels (several GB of small files) into
+`/workspace/shared/.python-packages` on EFS, which no longer fits in the
+step's 600 s timeout on a fresh PVC — so tracking, pose, weapon, action and
+per-track flash checks were all skipped. Audio, the scene-wide native-fps
+flash scan, shots-fusion, anchors and the 60-frame windowed caption still ran.
+**Fix (pending):** bake a `pd-cv-runner` image with ultralytics + CUDA torch +
+opencv-headless (same pattern as `pd-structure-runner`), or pre-warm the PVC
+with a one-off pod that has no timeout. Every new cluster / new PVC hits this.
+
+**Re-run outcome on ae9a29a9 (partial fix).** Before: "routine pedestrian
+traffic", 3 events, nothing about a shooting. After: summary "Possible shooting
+incident: 4 audio gunshot candidates (3.3s–5.9s) during altercation between 3
+subjects", `shots_fired=POSSIBLE`, 4 `[CV] Suspected gunshot` rows indexed,
+findings in the search embedding. Still missed: the masked subject approaching
+the dark car with an extended arm at ~44–56 s and the +31.9 dB impulse at
+87.2 s (no pose/aim evidence without object-detect, so 87.2 s stayed LOW and
+got no anchor frames). Re-validate once 17.58 is fixed. Note: the earlier
+narration row and its 3 mis-timed events for this clip are still in Aurora
+(events are appended per run; the UI shows the newest narration).
+
