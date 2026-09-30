@@ -17,6 +17,8 @@ import json
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from app.graphs import detective, evidence_clerk, journalist, patrol, quick
 from app.graphs._common import stream_llm_as_persona
@@ -29,6 +31,9 @@ log = logging.getLogger("pd.personas")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 app = FastAPI(title="pd-personas", version="0.2.0")
+_STATIC_DIR = Path(__file__).parent / "web" / "static"
+_STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 app.include_router(hitl_router, prefix="/hitl", tags=["hitl"])
 app.include_router(web_router, tags=["ui"])
 
