@@ -1169,3 +1169,27 @@ stayed as-is so wiring didn't move. Rule of thumb: never name the vendor in
 UI text — pd-vlm-mode / pd-llm-mode ConfigMap keys already carry that fact
 for anyone who needs it operationally.
 
+**17.60 — Persona UI: light theme + hard-code deep multimodal + brand mark.**
+Follow-up to 17.59. Bumped `pd-persona` 0.2.1 → 0.2.3. Three related edits:
+(a) `:root` CSS palette flipped to a light theme (white cards on `#f8fafc`,
+slate ink, cyan-700 accent) — nothing dark-mode remains except the video
+player letterbox. Msg-role colors darkened to pass AA contrast on white.
+(b) Removed the "Deep analysis" checkbox — hosted multimodal is now the
+only path; the JS upload handler unconditionally sends
+`vlm_mode_override=claude-multimodal`. Rationale: the checkbox added an
+operator-controlled failure mode (unchecked = pipeline runs without CV
+signals and returns a bland caption); demo consistently benefits from it
+being ON, and hiding the toggle prevents that footgun. (c) FastAPI now
+mounts `/static/` from `personas/app/web/static/`; the IIS Technology brand
+mark (`iis-logo.png`, 196×58) is served there and the header `<img>` has an
+`onerror` fallback to the pre-existing gradient "IIS" text chip.
+**Trap that cost us 20 min:** ArgoCD `pd-personas` app has selfHeal=true
+that keeps reverting a hand-applied `oc set image`. To roll a new persona
+image you MUST bump the tag in `manifests/personas/pd-persona-service.yaml`
+AND commit+push to `feature/police-department-v1` — otherwise ArgoCD sync
+puts the old tag back within a minute. Also, if you kick a binary build
+before the source tree contains the file the image needs (e.g. we built
+0.2.2 before `iis-logo.png` was on disk), you get a "clean" image without
+the file and have to rebuild. Always: file on disk → `git add` → then
+`start-build --from-dir`.
+
